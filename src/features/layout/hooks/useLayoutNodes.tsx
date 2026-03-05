@@ -417,6 +417,7 @@ type LayoutNodesOptions = {
   onReviewPromptUpdateCustomInstructions: (value: string) => void;
   onReviewPromptConfirmCustom: () => Promise<void>;
   activeTokenUsage: ThreadTokenUsage | null;
+  contextDualViewEnabled?: boolean;
   activeQueue: QueuedMessage[];
   draftText: string;
   onDraftChange: (next: string) => void;
@@ -812,6 +813,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       canStop={options.canStop}
       disabled={options.isReviewing}
       contextUsage={options.activeTokenUsage}
+      contextDualViewEnabled={options.contextDualViewEnabled}
       accountRateLimits={options.activeRateLimits}
       usageShowRemaining={options.usageShowRemaining}
       onRefreshAccountRateLimits={options.onRefreshAccountRateLimits}

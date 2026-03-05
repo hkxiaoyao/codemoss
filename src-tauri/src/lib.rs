@@ -219,6 +219,7 @@ pub fn run() {
             codex::start_thread,
             codex::send_user_message,
             codex::turn_interrupt,
+            codex::thread_compact,
             codex::start_review,
             codex::respond_to_server_request,
             codex::remember_approval_rule,

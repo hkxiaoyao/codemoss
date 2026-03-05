@@ -52,7 +52,21 @@ type AppServerEventHandlers = {
   onTurnStarted?: (workspaceId: string, threadId: string, turnId: string) => void;
   onTurnCompleted?: (workspaceId: string, threadId: string, turnId: string) => void;
   onProcessingHeartbeat?: (workspaceId: string, threadId: string, pulse: number) => void;
+  onContextCompacting?: (
+    workspaceId: string,
+    threadId: string,
+    payload: {
+      usagePercent: number | null;
+      thresholdPercent: number | null;
+      targetPercent: number | null;
+    },
+  ) => void;
   onContextCompacted?: (workspaceId: string, threadId: string, turnId: string) => void;
+  onContextCompactionFailed?: (
+    workspaceId: string,
+    threadId: string,
+    reason: string,
+  ) => void;
   onTurnError?: (
     workspaceId: string,
     threadId: string,
@@ -688,8 +702,38 @@ export function useAppServerEvents(
         const params = message.params as Record<string, unknown>;
         const threadId = String(params.threadId ?? params.thread_id ?? "");
         const turnId = String(params.turnId ?? params.turn_id ?? "");
-        if (threadId && turnId) {
+        if (threadId) {
           handlers.onContextCompacted?.(workspace_id, threadId, turnId);
+        }
+        return;
+      }
+
+      if (method === "thread/compacting") {
+        const params = message.params as Record<string, unknown>;
+        const threadId = String(params.threadId ?? params.thread_id ?? "");
+        if (threadId) {
+          const usagePercentRaw = Number(params.usagePercent ?? params.usage_percent);
+          const thresholdPercentRaw = Number(
+            params.thresholdPercent ?? params.threshold_percent,
+          );
+          const targetPercentRaw = Number(params.targetPercent ?? params.target_percent);
+          handlers.onContextCompacting?.(workspace_id, threadId, {
+            usagePercent: Number.isFinite(usagePercentRaw) ? usagePercentRaw : null,
+            thresholdPercent: Number.isFinite(thresholdPercentRaw)
+              ? thresholdPercentRaw
+              : null,
+            targetPercent: Number.isFinite(targetPercentRaw) ? targetPercentRaw : null,
+          });
+        }
+        return;
+      }
+
+      if (method === "thread/compactionFailed") {
+        const params = message.params as Record<string, unknown>;
+        const threadId = String(params.threadId ?? params.thread_id ?? "");
+        if (threadId) {
+          const reason = String(params.reason ?? "").trim();
+          handlers.onContextCompactionFailed?.(workspace_id, threadId, reason);
         }
         return;
       }

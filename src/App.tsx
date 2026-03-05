@@ -4443,6 +4443,7 @@ function MainApp() {
     onReviewPromptUpdateCustomInstructions: updateCustomInstructions,
     onReviewPromptConfirmCustom: confirmCustom,
     activeTokenUsage,
+    contextDualViewEnabled: activeEngine === "codex",
     activeQueue,
     draftText: activeDraft,
     onDraftChange: handleDraftChange,

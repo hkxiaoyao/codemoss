@@ -772,6 +772,43 @@ describe("useThreadTurnEvents", () => {
     nowSpy.mockRestore();
   });
 
+  it("falls back to synthetic turn id when context compacted event has no turn id", () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(3333);
+    const { result, dispatch } = makeOptions();
+
+    act(() => {
+      result.current.onContextCompacted("ws-1", "thread-1", "");
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "appendContextCompacted",
+      threadId: "thread-1",
+      turnId: "auto-3333",
+    });
+
+    nowSpy.mockRestore();
+  });
+
+  it("pushes thread error when context compaction fails", () => {
+    const { result, dispatch, pushThreadErrorMessage, safeMessageActivity } = makeOptions();
+
+    act(() => {
+      result.current.onContextCompactionFailed("ws-1", "thread-1", "rpc failed");
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "ensureThread",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      engine: "codex",
+    });
+    expect(pushThreadErrorMessage).toHaveBeenCalledWith(
+      "thread-1",
+      "threads.contextCompactionFailedWithMessage",
+    );
+    expect(safeMessageActivity).toHaveBeenCalled();
+  });
+
   it("suppresses error message for user-interrupted threads", () => {
     const {
       result,

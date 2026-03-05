@@ -410,6 +410,16 @@ export interface UsageInfo {
   total?: number;
 }
 
+export type ContextCompactionState = 'idle' | 'compacting' | 'compacted';
+
+export interface DualContextUsageViewModel {
+  usedTokens: number;
+  contextWindow: number;
+  percent: number;
+  hasUsage: boolean;
+  compactionState: ContextCompactionState;
+}
+
 export interface RateLimitWindowInfo {
   usedPercent?: number | null;
   resetsAt?: number | null;
@@ -473,6 +483,12 @@ export interface ChatInputBoxProps {
   usageMaxTokens?: number;
   /** Whether to show usage */
   showUsage?: boolean;
+  /** Enable legacy + new context usage dual-view */
+  contextDualViewEnabled?: boolean;
+  /** Shared model for new context usage view */
+  dualContextUsage?: DualContextUsageViewModel | null;
+  /** Request context compaction (codex only) */
+  onRequestContextCompaction?: () => Promise<void> | void;
   /** Account rate limits snapshot for codex usage panel */
   accountRateLimits?: AccountRateLimitsInfo | null;
   /** Show remaining limits instead of used */

@@ -670,6 +670,14 @@ impl DaemonState {
         codex_core::turn_interrupt_core(&self.sessions, workspace_id, thread_id, turn_id).await
     }
 
+    async fn thread_compact(
+        &self,
+        workspace_id: String,
+        thread_id: String,
+    ) -> Result<Value, String> {
+        codex_core::thread_compact_core(&self.sessions, workspace_id, thread_id).await
+    }
+
     async fn start_review(
         &self,
         workspace_id: String,
@@ -1756,6 +1764,11 @@ async fn handle_rpc_request(
             let thread_id = parse_string(&params, "threadId")?;
             let turn_id = parse_string(&params, "turnId")?;
             state.turn_interrupt(workspace_id, thread_id, turn_id).await
+        }
+        "thread_compact" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let thread_id = parse_string(&params, "threadId")?;
+            state.thread_compact(workspace_id, thread_id).await
         }
         "start_review" => {
             let workspace_id = parse_string(&params, "workspaceId")?;

@@ -319,6 +319,13 @@ export async function interruptTurn(
   return invoke("turn_interrupt", { workspaceId, threadId, turnId });
 }
 
+export async function compactThreadContext(
+  workspaceId: string,
+  threadId: string,
+) {
+  return invoke("thread_compact", { workspaceId, threadId });
+}
+
 export async function startReview(
   workspaceId: string,
   threadId: string,

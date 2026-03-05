@@ -59,7 +59,9 @@ describe("useAppServerEvents", () => {
       onAgentMessageDelta: vi.fn(),
       onReasoningTextDelta: vi.fn(),
       onReasoningSummaryBoundary: vi.fn(),
+      onContextCompacting: vi.fn(),
       onContextCompacted: vi.fn(),
+      onContextCompactionFailed: vi.fn(),
       onApprovalRequest: vi.fn(),
       onRequestUserInput: vi.fn(),
       onModeBlocked: vi.fn(),
@@ -138,6 +140,45 @@ describe("useAppServerEvents", () => {
       "ws-1",
       "thread-1",
       "turn-7",
+    );
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "thread/compacting",
+          params: {
+            threadId: "thread-1",
+            usagePercent: 96,
+            thresholdPercent: 92,
+            targetPercent: 70,
+          },
+        },
+      });
+    });
+    expect(handlers.onContextCompacting).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      {
+        usagePercent: 96,
+        thresholdPercent: 92,
+        targetPercent: 70,
+      },
+    );
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "thread/compactionFailed",
+          params: { threadId: "thread-1", reason: "rpc failed" },
+        },
+      });
+    });
+    expect(handlers.onContextCompactionFailed).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-1",
+      "rpc failed",
     );
 
     act(() => {
@@ -813,6 +854,33 @@ describe("useAppServerEvents", () => {
       "ws-1",
       "thread-1",
       3,
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("routes thread/compacted even when turnId is missing", async () => {
+    const handlers: Handlers = {
+      onContextCompacted: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-2",
+        message: {
+          method: "thread/compacted",
+          params: { threadId: "thread-2" },
+        },
+      });
+    });
+
+    expect(handlers.onContextCompacted).toHaveBeenCalledWith(
+      "ws-2",
+      "thread-2",
+      "",
     );
 
     await act(async () => {

@@ -28,9 +28,11 @@ import { recordHistory as recordInputHistory } from "../hooks/useInputHistorySto
 import { ChatInputBoxAdapter } from "./ChatInputBox/ChatInputBoxAdapter";
 import type { ChatInputBoxHandle } from "./ChatInputBox/ChatInputBoxAdapter";
 import { accessModeToPermissionMode, permissionModeToAccessMode } from "./ChatInputBox/types";
-import type { PermissionMode } from "./ChatInputBox/types";
 import type {
+  ContextCompactionState,
   ContextSelectionChip,
+  DualContextUsageViewModel,
+  PermissionMode,
   SelectedAgent as ChatInputSelectedAgent,
 } from "./ChatInputBox/types";
 import { StatusPanel } from "../../status-panel/components/StatusPanel";
@@ -43,6 +45,7 @@ import {
   extractInlineSelections,
   mergeUniqueNames,
 } from "../utils/inlineSelections";
+import { compactThreadContext } from "../../../services/tauri";
 import { pushErrorToast } from "../../../services/toasts";
 import { getManualMemoryInjectionMode } from "../../project-memory/utils/manualInjectionMode";
 
@@ -99,6 +102,7 @@ type ComposerProps = {
   files: string[];
   directories?: string[];
   contextUsage?: ThreadTokenUsage | null;
+  contextDualViewEnabled?: boolean;
   accountRateLimits?: RateLimitSnapshot | null;
   usageShowRemaining?: boolean;
   onRefreshAccountRateLimits?: () => Promise<void> | void;
@@ -206,6 +210,59 @@ const MANUAL_MEMORY_USER_INPUT_REGEX =
 const MANUAL_MEMORY_ASSISTANT_SUMMARY_REGEX =
   /(?:^|\n)\s*助手输出摘要[:：]\s*([\s\S]*?)(?=\n+\s*(?:助手输出|用户输入)[:：]|$)/;
 const INLINE_FILE_REFERENCE_TOKEN_REGEX = /(📁|📄)\s+([^\n`📁📄]+?)\s+`([^`\n]+)`/gu;
+
+function clampUsagePercent(percent: number): number {
+  if (!Number.isFinite(percent)) {
+    return 0;
+  }
+  return Math.min(Math.max(percent, 0), 100);
+}
+
+function isCompactedConversationItem(item: ConversationItem): boolean {
+  if (item.kind !== "message" || item.role !== "assistant") {
+    return false;
+  }
+  if (item.id.startsWith("context-compacted-")) {
+    return true;
+  }
+  return item.text.trim().toLowerCase() === "context compacted.";
+}
+
+function resolveCompactionState(
+  items: ConversationItem[],
+  isProcessing: boolean,
+  hasUsage: boolean,
+): ContextCompactionState {
+  if (items.some(isCompactedConversationItem)) {
+    return "compacted";
+  }
+  if (isProcessing && !hasUsage) {
+    return "compacting";
+  }
+  return "idle";
+}
+
+function resolveDualContextUsageModel(
+  contextUsage: ThreadTokenUsage | null,
+  items: ConversationItem[],
+  isProcessing: boolean,
+): DualContextUsageViewModel {
+  const contextWindow = Math.max(contextUsage?.modelContextWindow ?? 0, 0);
+  const lastInput = Math.max(contextUsage?.last.inputTokens ?? 0, 0);
+  const lastCached = Math.max(contextUsage?.last.cachedInputTokens ?? 0, 0);
+  const totalInput = Math.max(contextUsage?.total.inputTokens ?? 0, 0);
+  const totalCached = Math.max(contextUsage?.total.cachedInputTokens ?? 0, 0);
+  const usedTokens = lastInput + lastCached > 0 ? lastInput + lastCached : totalInput + totalCached;
+  const hasUsage = usedTokens > 0 && contextWindow > 0;
+  const percent = contextWindow > 0 ? clampUsagePercent((usedTokens / contextWindow) * 100) : 0;
+  return {
+    usedTokens,
+    contextWindow,
+    percent,
+    hasUsage,
+    compactionState: resolveCompactionState(items, isProcessing, hasUsage),
+  };
+}
 
 function normalizeInlineFileReferenceTokens(text: string) {
   return text.replace(
@@ -381,6 +438,7 @@ export const Composer = memo(function Composer({
   files,
   directories = [],
   contextUsage = null,
+  contextDualViewEnabled = false,
   accountRateLimits = null,
   usageShowRemaining = false,
   onRefreshAccountRateLimits,
@@ -797,6 +855,28 @@ export const Composer = memo(function Composer({
     });
   }, [onRewind, t]);
 
+  const handleManualCompactContext = useCallback(async () => {
+    if (selectedEngine !== "codex") {
+      return;
+    }
+    if (!activeWorkspaceId || !activeThreadId) {
+      pushErrorToast({
+        title: t("chat.contextDualViewManualCompact"),
+        message: t("chat.contextDualViewManualCompactUnavailable"),
+      });
+      return;
+    }
+    try {
+      await compactThreadContext(activeWorkspaceId, activeThreadId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      pushErrorToast({
+        title: t("chat.contextDualViewManualCompact"),
+        message: message || t("chat.contextDualViewManualCompactFailed"),
+      });
+    }
+  }, [activeThreadId, activeWorkspaceId, selectedEngine, t]);
+
   const handleSend = useCallback((submittedImages?: string[]) => {
     if (disabled) {
       return;
@@ -955,6 +1035,23 @@ export const Composer = memo(function Composer({
     textareaRef,
   ]);
 
+  const legacyContextUsage = useMemo(
+    () =>
+      contextUsage
+        ? {
+            used: contextUsage.total.totalTokens,
+            total: contextUsage.modelContextWindow ?? 0,
+          }
+        : null,
+    [contextUsage],
+  );
+
+  const dualContextUsage = useMemo(
+    () => resolveDualContextUsageModel(contextUsage, items, isProcessing),
+    [contextUsage, items, isProcessing],
+  );
+  const codexContextDualViewEnabled = contextDualViewEnabled && isCodexEngine;
+
   return (
     <footer className={`composer${disabled ? " is-disabled" : ""}`}>
       {showStatusPanel && (
@@ -1072,7 +1169,10 @@ export const Composer = memo(function Composer({
           onRemoveAttachment={onRemoveImage}
           textareaHeight={textareaHeight}
           onHeightChange={onTextareaHeightChange}
-          contextUsage={contextUsage ? { used: contextUsage.total.totalTokens, total: contextUsage.modelContextWindow ?? 0 } : null}
+          contextUsage={legacyContextUsage}
+          contextDualViewEnabled={codexContextDualViewEnabled}
+          dualContextUsage={dualContextUsage}
+          onRequestContextCompaction={handleManualCompactContext}
           queuedMessages={queuedMessages}
           onDeleteQueued={onDeleteQueued}
           suggestionsOpen={suggestionsOpen}

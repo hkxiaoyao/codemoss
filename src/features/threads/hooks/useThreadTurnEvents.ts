@@ -298,15 +298,41 @@ export function useThreadTurnEvents({
   const onContextCompacted = useCallback(
     (workspaceId: string, threadId: string, turnId: string) => {
       dispatch({ type: "ensureThread", workspaceId, threadId, engine: inferEngineFromThreadId(threadId) });
-      if (!turnId) {
-        return;
-      }
-      dispatch({ type: "appendContextCompacted", threadId, turnId });
       const timestamp = Date.now();
+      const resolvedTurnId = turnId || `auto-${timestamp}`;
+      dispatch({ type: "appendContextCompacted", threadId, turnId: resolvedTurnId });
       recordThreadActivity(workspaceId, threadId, timestamp);
       safeMessageActivity();
     },
     [dispatch, recordThreadActivity, safeMessageActivity],
+  );
+
+  const onContextCompacting = useCallback(
+    (
+      workspaceId: string,
+      threadId: string,
+      _payload: {
+        usagePercent: number | null;
+        thresholdPercent: number | null;
+        targetPercent: number | null;
+      },
+    ) => {
+      dispatch({ type: "ensureThread", workspaceId, threadId, engine: inferEngineFromThreadId(threadId) });
+      safeMessageActivity();
+    },
+    [dispatch, safeMessageActivity],
+  );
+
+  const onContextCompactionFailed = useCallback(
+    (workspaceId: string, threadId: string, reason: string) => {
+      dispatch({ type: "ensureThread", workspaceId, threadId, engine: inferEngineFromThreadId(threadId) });
+      const message = reason
+        ? t("threads.contextCompactionFailedWithMessage", { message: reason })
+        : t("threads.contextCompactionFailed");
+      pushThreadErrorMessage(threadId, message);
+      safeMessageActivity();
+    },
+    [dispatch, pushThreadErrorMessage, safeMessageActivity, t],
   );
 
   const onThreadSessionIdUpdated = useCallback(
@@ -393,7 +419,9 @@ export function useThreadTurnEvents({
     onThreadTokenUsageUpdated,
     onAccountRateLimitsUpdated,
     onTurnError,
+    onContextCompacting,
     onContextCompacted,
+    onContextCompactionFailed,
     onThreadSessionIdUpdated,
   };
 }
