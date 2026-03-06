@@ -163,6 +163,28 @@ describe("GitDiffPanel", () => {
     expect(onSelectFile).toHaveBeenCalledWith("b.ts");
   });
 
+  it("applies unified file-tree semantic classes", () => {
+    render(
+      <GitDiffPanel
+        {...baseProps}
+        gitDiffListView="tree"
+        stagedFiles={[
+          { path: "src/core/a.ts", status: "M", additions: 2, deletions: 1 },
+        ]}
+      />,
+    );
+
+    const section = document.querySelector(".diff-section.git-filetree-section");
+    const folderRow = document.querySelector(".diff-tree-folder-row.git-filetree-folder-row");
+    const fileRow = document.querySelector(".diff-row.git-filetree-row");
+    const badge = document.querySelector(".diff-counts-inline.git-filetree-badge");
+
+    expect(section).toBeTruthy();
+    expect(folderRow).toBeTruthy();
+    expect(fileRow).toBeTruthy();
+    expect(badge).toBeTruthy();
+  });
+
   it("toggles list view via shortcut when panel is focused", () => {
     const onGitDiffListViewChange = vi.fn();
     render(

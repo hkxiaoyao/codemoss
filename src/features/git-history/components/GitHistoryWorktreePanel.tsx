@@ -1,9 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
-import Folder from "lucide-react/dist/esm/icons/folder";
 import Minus from "lucide-react/dist/esm/icons/minus";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Sparkles from "lucide-react/dist/esm/icons/sparkles";
@@ -25,6 +32,7 @@ import { localizeGitErrorMessage } from "../gitErrorI18n";
 type GitHistoryWorktreePanelProps = {
   workspaceId: string;
   listView: "flat" | "tree";
+  rootFolderName?: string;
   onMutated?: () => void | Promise<void>;
   onOpenDiffPath?: (path: string) => void;
   onSummaryChange?: (summary: {
@@ -55,6 +63,7 @@ type DiffTreeNode = {
 type CollapsedFolder = {
   key: string;
   name: string;
+  iconName: string;
   node: DiffTreeNode;
 };
 
@@ -75,6 +84,18 @@ function splitPath(path: string) {
   return { name: parts[parts.length - 1], dir: parts.slice(0, -1).join("/") };
 }
 
+function getPathLeafName(path: string | null | undefined): string {
+  if (!path) {
+    return "";
+  }
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!normalized) {
+    return "";
+  }
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
 function statusSymbol(status: string) {
   switch (status) {
     case "A":
@@ -90,6 +111,10 @@ function statusSymbol(status: string) {
     default:
       return "(?)";
   }
+}
+
+function getTreeLineOpacity(depth: number): string {
+  return depth === 1 ? "1" : "0";
 }
 
 function buildDiffTree(files: GitFileStatus[], section: DiffSection): DiffTreeNode {
@@ -120,17 +145,11 @@ function buildDiffTree(files: GitFileStatus[], section: DiffSection): DiffTreeNo
 }
 
 function collapseFolderChain(node: DiffTreeNode): CollapsedFolder {
-  const names = [node.name];
-  let current = node;
-  while (current.files.length === 0 && current.folders.size === 1) {
-    const onlyChild = Array.from(current.folders.values())[0];
-    names.push(onlyChild.name);
-    current = onlyChild;
-  }
   return {
-    key: current.key,
-    name: names.join("."),
-    node: current,
+    key: node.key,
+    name: node.name,
+    iconName: node.name,
+    node,
   };
 }
 
@@ -153,12 +172,17 @@ function normalizeErrorMessage(
 export function GitHistoryWorktreePanel({
   workspaceId,
   listView,
+  rootFolderName,
   onMutated,
   onOpenDiffPath,
   onSummaryChange,
 }: GitHistoryWorktreePanelProps) {
   const { t } = useTranslation();
   const requestIdRef = useRef(0);
+  const resolvedRootFolderName = useMemo(
+    () => rootFolderName?.trim() || getPathLeafName(workspaceId) || workspaceId,
+    [rootFolderName, workspaceId],
+  );
 
   const [status, setStatus] = useState<GitStatusState>(EMPTY_STATUS);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -369,13 +393,22 @@ export function GitHistoryWorktreePanel({
       const showUnstage = section === "staged";
       const showDiscard = section === "unstaged";
       const clickable = Boolean(onOpenDiffPath);
+      const treeIndentPx = depth * 16;
+      const treeRowStyle =
+        listView === "tree"
+          ? ({
+              paddingLeft: `${treeIndentPx}px`,
+              ["--git-tree-indent-x" as string]: `${Math.max(treeIndentPx - 7, 0)}px`,
+              ["--git-tree-line-opacity" as string]: getTreeLineOpacity(depth),
+            } as CSSProperties)
+          : undefined;
       return (
         <div
           key={`${section}:${file.path}`}
-          className={`git-history-worktree-file-row ${listView === "tree" ? "is-tree" : ""} ${
+          className={`git-history-worktree-file-row git-filetree-row ${listView === "tree" ? "is-tree" : ""} ${
             clickable ? "is-clickable" : ""
           }`}
-          style={depth > 0 ? { paddingLeft: `${10 + depth * 16}px` } : undefined}
+          style={treeRowStyle}
           role={clickable ? "button" : undefined}
           tabIndex={clickable ? 0 : undefined}
           onClick={() => {
@@ -400,7 +433,10 @@ export function GitHistoryWorktreePanel({
           <span className="git-history-worktree-file-path" title={file.path}>
             {listView === "tree" ? <strong>{name}</strong> : <><strong>{name}</strong>{dir ? <em>{dir}</em> : null}</>}
           </span>
-          <span className="git-history-worktree-file-stats" aria-label={`+${file.additions} -${file.deletions}`}>
+          <span
+            className="git-history-worktree-file-stats git-filetree-badge"
+            aria-label={`+${file.additions} -${file.deletions}`}
+          >
             <span className="is-add">+{file.additions}</span>
             <span className="is-sep">/</span>
             <span className="is-del">-{file.deletions}</span>
@@ -469,30 +505,50 @@ export function GitHistoryWorktreePanel({
   const renderTreeRows = useCallback(
     (files: GitFileStatus[], section: DiffSection) => {
       const tree = buildDiffTree(files, section);
+      const rootFolderKey = `${section}:__repo_root__/`;
+      const rootCollapsed = collapsedFolders.has(rootFolderKey);
       const walk = (node: DiffTreeNode, depth: number): ReactNode[] => {
         const rows: ReactNode[] = [];
         const folders = Array.from(node.folders.values()).sort((a, b) => a.name.localeCompare(b.name));
         for (const folder of folders) {
           const collapsedFolder = collapseFolderChain(folder);
           const collapsed = collapsedFolders.has(collapsedFolder.key);
+          const treeIndentPx = depth * 16;
+          const folderStyle = {
+            paddingLeft: `${treeIndentPx}px`,
+            ["--git-tree-indent-x" as string]: `${Math.max(treeIndentPx - 7, 0)}px`,
+            ["--git-tree-line-opacity" as string]: getTreeLineOpacity(depth),
+          } as CSSProperties;
+          const childTreeStyle = {
+            ["--git-tree-branch-x" as string]: `${Math.max((depth + 1) * 16 - 7, 0)}px`,
+            ["--git-tree-branch-opacity" as string]: getTreeLineOpacity(depth + 1),
+          } as CSSProperties;
           rows.push(
-            <button
-              key={collapsedFolder.key}
-              type="button"
-              className="git-history-worktree-folder-row"
-              style={{ paddingLeft: `${10 + depth * 16}px` }}
-              onClick={() => toggleFolder(collapsedFolder.key)}
-            >
-              <span className="git-history-worktree-folder-caret" aria-hidden>
-                {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-              </span>
-              <Folder size={13} />
-              <span className="git-history-worktree-folder-name">{collapsedFolder.name}</span>
-            </button>,
+            <div key={collapsedFolder.key} className="git-history-worktree-folder-group">
+              <button
+                type="button"
+                className="git-history-worktree-folder-row git-filetree-folder-row"
+                style={folderStyle}
+                onClick={() => toggleFolder(collapsedFolder.key)}
+              >
+                <span className="git-history-worktree-folder-caret" aria-hidden>
+                  {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                </span>
+                <FileIcon
+                  filePath={collapsedFolder.iconName}
+                  isFolder
+                  isOpen={!collapsed}
+                  className="git-history-worktree-folder-icon"
+                />
+                <span className="git-history-worktree-folder-name">{collapsedFolder.name}</span>
+              </button>
+              {!collapsed ? (
+                <div className="git-history-worktree-folder-children" style={childTreeStyle}>
+                  {walk(collapsedFolder.node, depth + 1)}
+                </div>
+              ) : null}
+            </div>,
           );
-          if (!collapsed) {
-            rows.push(...walk(collapsedFolder.node, depth + 1));
-          }
         }
 
         const leafFiles = node.files.slice().sort((a, b) => a.path.localeCompare(b.path));
@@ -503,9 +559,39 @@ export function GitHistoryWorktreePanel({
         return rows;
       };
 
-      return walk(tree, 0);
+      const rootChildrenStyle = {
+        ["--git-tree-branch-x" as string]: `${Math.max(1 * 16 - 7, 0)}px`,
+        ["--git-tree-branch-opacity" as string]: getTreeLineOpacity(1),
+      } as CSSProperties;
+
+      return [
+        <div key={rootFolderKey} className="git-history-worktree-folder-group">
+          <button
+            type="button"
+            className="git-history-worktree-folder-row git-filetree-folder-row"
+            style={{ paddingLeft: "0px" }}
+            onClick={() => toggleFolder(rootFolderKey)}
+          >
+            <span className="git-history-worktree-folder-caret" aria-hidden>
+              {rootCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+            </span>
+            <FileIcon
+              filePath={resolvedRootFolderName}
+              isFolder
+              isOpen={!rootCollapsed}
+              className="git-history-worktree-folder-icon"
+            />
+            <span className="git-history-worktree-folder-name">{resolvedRootFolderName}</span>
+          </button>
+          {!rootCollapsed ? (
+            <div className="git-history-worktree-folder-children" style={rootChildrenStyle}>
+              {walk(tree, 1)}
+            </div>
+          ) : null}
+        </div>,
+      ];
     },
-    [collapsedFolders, renderFileRow, toggleFolder],
+    [collapsedFolders, renderFileRow, resolvedRootFolderName, toggleFolder],
   );
 
   const renderSectionRows = useCallback(
@@ -565,12 +651,12 @@ export function GitHistoryWorktreePanel({
       </div>
 
       <div className="git-history-worktree-sections">
-        <div className="git-history-worktree-section">
-          <div className="git-history-worktree-section-header">
+        <div className="git-history-worktree-section git-filetree-section">
+          <div className="git-history-worktree-section-header git-filetree-section-header">
             <span>
               {t("git.staged")} ({stagedFiles.length})
             </span>
-            <div className="git-history-worktree-section-actions">
+            <div className="git-history-worktree-section-actions git-filetree-section-actions">
               {stagedFiles.length > 0 ? (
                 <button
                   type="button"
@@ -591,15 +677,17 @@ export function GitHistoryWorktreePanel({
               ) : null}
             </div>
           </div>
-          <div className="git-history-worktree-section-list">{renderSectionRows(stagedFiles, "staged")}</div>
+          <div className="git-history-worktree-section-list git-filetree-list">
+            {renderSectionRows(stagedFiles, "staged")}
+          </div>
         </div>
 
-        <div className="git-history-worktree-section">
-          <div className="git-history-worktree-section-header">
+        <div className="git-history-worktree-section git-filetree-section">
+          <div className="git-history-worktree-section-header git-filetree-section-header">
             <span>
               {t("git.unstaged")} ({unstagedFiles.length})
             </span>
-            <div className="git-history-worktree-section-actions">
+            <div className="git-history-worktree-section-actions git-filetree-section-actions">
               {unstagedFiles.length > 0 ? (
                 <>
                   <button
@@ -630,7 +718,9 @@ export function GitHistoryWorktreePanel({
               ) : null}
             </div>
           </div>
-          <div className="git-history-worktree-section-list">{renderSectionRows(unstagedFiles, "unstaged")}</div>
+          <div className="git-history-worktree-section-list git-filetree-list">
+            {renderSectionRows(unstagedFiles, "unstaged")}
+          </div>
         </div>
       </div>
       {discardAllDialogOpen ? (

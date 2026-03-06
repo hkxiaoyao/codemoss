@@ -244,7 +244,7 @@ beforeEach(() => {
 });
 
 describe("GitHistoryPanel helpers", () => {
-  it("collapses single-child directory chain in changed file tree", () => {
+  it("keeps changed file tree directories expanded from root", () => {
     const items = buildFileTreeItems(
       [
         {
@@ -257,12 +257,9 @@ describe("GitHistoryPanel helpers", () => {
           truncated: false,
         },
       ],
-      new Set(["a/b/c"]),
+      new Set(["a", "a/b", "a/b/c"]),
     );
-    expect(items[0]?.type).toBe("dir");
-    if (items[0]?.type === "dir") {
-      expect(items[0].label).toBe("a.b.c");
-    }
+    expect(items.map((item) => item.label)).toEqual(["a", "b", "c", "d.txt"]);
   });
 
   it("returns sane default widths for 3:2:3:2 layout", () => {

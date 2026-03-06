@@ -309,6 +309,7 @@ const PUSH_TARGET_MENU_MIN_HEIGHT = 120;
 const PUSH_TARGET_MENU_ESTIMATED_ROW_HEIGHT = 34;
 const PUSH_TARGET_MENU_VIEWPORT_PADDING = 16;
 const CREATE_PR_PREVIEW_COMMIT_LIMIT = 200;
+const FILE_TREE_ROOT_PATH = "__repo_root__";
 
 function getSortOrderValue(value: number | null | undefined) {
   return typeof value === "number" ? value : SORT_ORDER_FALLBACK;
@@ -561,8 +562,28 @@ function buildFileKey(change: GitCommitFileChange): string {
   return `${change.path}::${change.status}::${change.oldPath ?? ""}`;
 }
 
+function getTreeLineOpacity(depth: number): string {
+  if (depth <= 0) {
+    return "0";
+  }
+  const opacity = Math.max(0.34, 1 - (depth - 1) * 0.14);
+  return opacity.toFixed(2);
+}
+
+function getPathLeafName(path: string | null | undefined): string {
+  if (!path) {
+    return "";
+  }
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  if (!normalized) {
+    return "";
+  }
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
 function collectDirPaths(files: GitCommitFileChange[]): Set<string> {
-  const paths = new Set<string>();
+  const paths = new Set<string>([FILE_TREE_ROOT_PATH]);
   for (const file of files) {
     const parts = file.path.split("/").filter(Boolean);
     let current = "";
@@ -593,6 +614,7 @@ function pickSelectedFileKey(
 export function buildFileTreeItems(
   files: GitCommitFileChange[],
   expandedDirs: Set<string>,
+  rootLabel?: string,
 ): FileTreeItem[] {
   const root: FileTreeNode = {
     name: "",
@@ -633,21 +655,10 @@ export function buildFileTreeItems(
   const collapseDirChain = (
     start: FileTreeNode,
   ): { node: FileTreeNode; label: string; path: string } => {
-    let node = start;
-    const labels = [start.name];
-    let path = start.path;
-
-    while (node.files.length === 0 && node.dirs.size === 1) {
-      const next = Array.from(node.dirs.values())[0];
-      labels.push(next.name);
-      node = next;
-      path = node.path;
-    }
-
     return {
-      node,
-      label: labels.join("."),
-      path,
+      node: start,
+      label: start.name,
+      path: start.path,
     };
   };
 
@@ -687,6 +698,22 @@ export function buildFileTreeItems(
       });
     }
   };
+
+  if (rootLabel && rootLabel.trim()) {
+    const rootExpanded = expandedDirs.has(FILE_TREE_ROOT_PATH);
+    items.push({
+      id: `dir:${FILE_TREE_ROOT_PATH}`,
+      type: "dir",
+      label: rootLabel,
+      path: FILE_TREE_ROOT_PATH,
+      depth: 0,
+      expanded: rootExpanded,
+    });
+    if (rootExpanded) {
+      walk(root, 1);
+    }
+    return items;
+  }
 
   walk(root, 0);
   return items;
@@ -1212,6 +1239,15 @@ export function GitHistoryPanel({
 }: GitHistoryPanelProps) {
   const { t } = useTranslation();
   const workspaceId = workspace?.id ?? null;
+  const repositoryRootName = useMemo(
+    () =>
+      getPathLeafName(workspace?.settings?.gitRoot) ||
+      getPathLeafName(workspace?.path) ||
+      workspace?.name?.trim() ||
+      workspace?.id ||
+      "",
+    [workspace?.id, workspace?.name, workspace?.path, workspace?.settings?.gitRoot],
+  );
   const persistenceKey = useMemo(
     () => `gitHistoryPanel:${workspaceId ?? "default"}`,
     [workspaceId],
@@ -1961,8 +1997,8 @@ export function GitHistoryPanel({
     if (!details) {
       return [];
     }
-    return buildFileTreeItems(details.files, expandedDirs);
-  }, [details, expandedDirs]);
+    return buildFileTreeItems(details.files, expandedDirs, repositoryRootName);
+  }, [details, expandedDirs, repositoryRootName]);
 
   const detailsMessageContent = useMemo(() => {
     if (!details) {
@@ -2082,8 +2118,12 @@ export function GitHistoryPanel({
     if (!pushPreviewDetails) {
       return [];
     }
-    return buildFileTreeItems(pushPreviewDetails.files, pushPreviewExpandedDirs);
-  }, [pushPreviewDetails, pushPreviewExpandedDirs]);
+    return buildFileTreeItems(
+      pushPreviewDetails.files,
+      pushPreviewExpandedDirs,
+      repositoryRootName,
+    );
+  }, [pushPreviewDetails, pushPreviewExpandedDirs, repositoryRootName]);
 
   const pushPreviewModalFile = useMemo(() => {
     if (!pushPreviewDetails || !pushPreviewModalFileKey) {
@@ -5923,6 +5963,7 @@ export function GitHistoryPanel({
           <GitHistoryWorktreePanel
             workspaceId={workspace.id}
             listView={overviewListView}
+            rootFolderName={repositoryRootName}
             onMutated={() => refreshAll()}
             onSummaryChange={handleWorktreeSummaryChange}
             onOpenDiffPath={(path) => {
@@ -6292,8 +6333,8 @@ export function GitHistoryPanel({
                   gridTemplateRows: `minmax(140px, ${detailsSplitRatio}%) 8px minmax(0, 1fr)`,
                 }}
               >
-                <div className="git-history-file-list">
-                  <div className="git-history-file-tree-head">
+                <div className="git-history-file-list git-filetree-section">
+                  <div className="git-history-file-tree-head git-filetree-section-header">
                     <span className="git-history-file-tree-head-title">
                       <FolderTree size={13} />
                       <span>{t("git.historyChangedFiles")}</span>
@@ -6314,16 +6355,23 @@ export function GitHistoryPanel({
                   )}
 
                   {fileTreeItems.map((item) => {
+                    const treeIndentPx = item.depth * 14;
+                    const treeGuideDepth = item.depth > 0 ? 1 : 0;
+                    const treeRowStyle = {
+                      paddingLeft: `${treeIndentPx}px`,
+                      ["--git-tree-indent-x" as string]: `${Math.max(treeGuideDepth * 14 - 7, 0)}px`,
+                      ["--git-tree-line-opacity" as string]: getTreeLineOpacity(treeGuideDepth),
+                    } as CSSProperties;
                     if (item.type === "dir") {
                       return (
                         <ActionSurface
                           key={item.id}
-                          className="git-history-tree-item git-history-tree-dir"
+                          className="git-history-tree-item git-history-tree-dir git-filetree-folder-row"
                           onActivate={() => handleFileTreeDirToggle(item.path)}
-                          style={{ paddingLeft: `${10 + item.depth * 14}px` }}
+                          style={treeRowStyle}
                         >
                           <span className="git-history-tree-caret" aria-hidden>
-                            {item.expanded ? "▾" : "▸"}
+                            {item.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                           </span>
                           <span className="git-history-tree-icon" aria-hidden>
                             <FileIcon filePath={item.path} isFolder isOpen={item.expanded} />
@@ -6338,14 +6386,14 @@ export function GitHistoryPanel({
                     return (
                       <ActionSurface
                         key={item.id}
-                        className="git-history-tree-item git-history-file-item"
+                        className="git-history-tree-item git-history-file-item git-filetree-row"
                         active={active}
                         onActivate={() => {
                           const fileKey = buildFileKey(file);
                           setSelectedFileKey(fileKey);
                           setPreviewFileKey(fileKey);
                         }}
-                        style={{ paddingLeft: `${10 + item.depth * 14}px` }}
+                        style={treeRowStyle}
                         title={statusLabel(file)}
                       >
                         <span
@@ -6357,7 +6405,7 @@ export function GitHistoryPanel({
                           <FileIcon filePath={file.path} />
                         </span>
                         <span className="git-history-file-path">{item.label}</span>
-                        <span className="git-history-file-stats">
+                        <span className="git-history-file-stats git-filetree-badge">
                           <span className="is-add">+{file.additions}</span>
                           <span className="is-sep">/</span>
                           <span className="is-del">-{file.deletions}</span>
@@ -7411,7 +7459,7 @@ export function GitHistoryPanel({
                               {extractCommitBody(createPrPreviewDetails.summary, createPrPreviewDetails.message)}
                             </pre>
                           ) : null}
-                          <div className="git-history-push-preview-file-head">
+                          <div className="git-history-push-preview-file-head git-filetree-section-header">
                             <FolderTree size={12} />
                             <span>{t("git.historyPushDialogPreviewFiles")}</span>
                             <i>{createPrPreviewDetails.files.length}</i>
@@ -8093,24 +8141,31 @@ export function GitHistoryPanel({
                               <time>{new Date(pushPreviewDetails.commitTime * 1000).toLocaleString()}</time>
                             </span>
                           </div>
-                          <div className="git-history-push-preview-file-head">
+                          <div className="git-history-push-preview-file-head git-filetree-section-header">
                             <FolderTree size={12} />
                             <span>{t("git.historyPushDialogPreviewFiles")}</span>
                             <i>{pushPreviewDetails.files.length}</i>
                           </div>
-                          <div className="git-history-push-preview-file-tree">
+                          <div className="git-history-push-preview-file-tree git-filetree-list git-filetree-list--tree">
                             {pushPreviewFileTreeItems.length > 0 ? (
                               pushPreviewFileTreeItems.map((item) => {
+                                const treeIndentPx = item.depth * 14;
+                                const treeGuideDepth = item.depth > 0 ? 1 : 0;
+                                const treeRowStyle = {
+                                  paddingLeft: `${treeIndentPx}px`,
+                                  ["--git-tree-indent-x" as string]: `${Math.max(treeGuideDepth * 14 - 7, 0)}px`,
+                                  ["--git-tree-line-opacity" as string]: getTreeLineOpacity(treeGuideDepth),
+                                } as CSSProperties;
                                 if (item.type === "dir") {
                                   return (
                                     <ActionSurface
                                       key={`push-preview-${item.id}`}
-                                      className="git-history-tree-item git-history-tree-dir"
+                                      className="git-history-tree-item git-history-tree-dir git-filetree-folder-row"
                                       onActivate={() => handlePushPreviewDirToggle(item.path)}
-                                      style={{ paddingLeft: `${10 + item.depth * 14}px` }}
+                                      style={treeRowStyle}
                                     >
                                       <span className="git-history-tree-caret" aria-hidden>
-                                        {item.expanded ? "▾" : "▸"}
+                                        {item.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                                       </span>
                                       <span className="git-history-tree-icon" aria-hidden>
                                         <FileIcon filePath={item.path} isFolder isOpen={item.expanded} />
@@ -8125,13 +8180,13 @@ export function GitHistoryPanel({
                                 return (
                                   <ActionSurface
                                     key={`push-preview-${item.id}`}
-                                    className="git-history-tree-item git-history-file-item"
+                                    className="git-history-tree-item git-history-file-item git-filetree-row"
                                     active={active}
                                     onActivate={() => {
                                       setPushPreviewSelectedFileKey(fileKey);
                                       setPushPreviewModalFileKey(fileKey);
                                     }}
-                                    style={{ paddingLeft: `${10 + item.depth * 14}px` }}
+                                    style={treeRowStyle}
                                     title={statusLabel(file)}
                                   >
                                     <span
@@ -8143,7 +8198,7 @@ export function GitHistoryPanel({
                                       <FileIcon filePath={file.path} />
                                     </span>
                                     <span className="git-history-file-path">{item.label}</span>
-                                    <span className="git-history-file-stats">
+                                    <span className="git-history-file-stats git-filetree-badge">
                                       <span className="is-add">+{file.additions}</span>
                                       <span className="is-sep">/</span>
                                       <span className="is-del">-{file.deletions}</span>
