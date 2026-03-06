@@ -3448,8 +3448,8 @@ const zh = {
         label: "gpt-5.3-codex",
         description: "最新前沿智能编程模型，能力全面增强",
       },
-      gpt53: {
-        label: "gpt-5.3",
+      gpt54: {
+        label: "gpt-5.4",
         description: "最新前沿模型，性能显著提升",
       },
       gpt52codex: {
@@ -3463,10 +3463,6 @@ const zh = {
       gpt51codexMini: {
         label: "gpt-5.1-codex-mini",
         description: "针对Codex优化。更便宜、更快，但性能较差",
-      },
-      gpt52: {
-        label: "gpt-5.2",
-        description: "最新前沿模型，知识储备全面提升",
       },
     },
   },

@@ -3508,8 +3508,8 @@ const en = {
         label: "gpt-5.3-codex",
         description: "Latest frontier agentic coding model with enhanced capabilities.",
       },
-      gpt53: {
-        label: "gpt-5.3",
+      gpt54: {
+        label: "gpt-5.4",
         description: "Latest frontier model with significant improvements.",
       },
       gpt52codex: {
@@ -3523,10 +3523,6 @@ const en = {
       gpt51codexMini: {
         label: "gpt-5.1-codex-mini",
         description: "Optimized for codex. Cheaper, faster, but less capable.",
-      },
-      gpt52: {
-        label: "gpt-5.2",
-        description: "Latest frontier model with improvements across knowledge.",
       },
     },
   },

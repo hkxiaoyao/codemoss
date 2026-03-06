@@ -101,6 +101,8 @@ type ComposerProps = {
   commands?: CustomCommandOption[];
   files: string[];
   directories?: string[];
+  gitignoredFiles?: Set<string>;
+  gitignoredDirectories?: Set<string>;
   contextUsage?: ThreadTokenUsage | null;
   contextDualViewEnabled?: boolean;
   isContextCompacting?: boolean;
@@ -448,6 +450,8 @@ export const Composer = memo(function Composer({
   commands = [],
   files,
   directories = [],
+  gitignoredFiles,
+  gitignoredDirectories,
   contextUsage = null,
   contextDualViewEnabled = false,
   isContextCompacting = false,
@@ -771,6 +775,8 @@ export const Composer = memo(function Composer({
     commands,
     files,
     directories,
+    gitignoredFiles,
+    gitignoredDirectories,
     workspaceId: activeWorkspaceId,
     onManualMemorySelect: handleSelectManualMemory,
     textareaRef,
