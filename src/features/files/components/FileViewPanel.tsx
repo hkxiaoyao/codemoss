@@ -49,6 +49,10 @@ import type { GitFileStatus, OpenAppTarget } from "../../../types";
 import { codeMirrorExtensionsForPath } from "../utils/codemirrorLanguageExtensions";
 import { FileMarkdownPreview } from "./FileMarkdownPreview";
 import {
+  FileStructuredPreview,
+  resolveStructuredPreviewKind,
+} from "./FileStructuredPreview";
+import {
   lspPositionToEditorLocation,
   offsetToLspPosition,
 } from "../utils/lspPosition";
@@ -576,10 +580,15 @@ export function FileViewPanel({
 }: FileViewPanelProps) {
   const { t } = useTranslation();
   const isMarkdown = useMemo(() => isMarkdownPath(filePath), [filePath]);
+  const structuredPreviewKind = useMemo(
+    () => resolveStructuredPreviewKind(filePath),
+    [filePath],
+  );
+  const defaultsToPreview = isMarkdown;
   const isImage = useMemo(() => isImagePath(filePath), [filePath]);
   const isBinary = useMemo(() => isBinaryPath(filePath), [filePath]);
   const [mode, setMode] = useState<"preview" | "edit">(
-    () => (isMarkdown ? "edit" : initialMode),
+    () => (defaultsToPreview ? "preview" : initialMode),
   );
   const [editorTheme, setEditorTheme] = useState<EditorTheme>(() => resolveEditorTheme());
   const [content, setContent] = useState("");
@@ -779,7 +788,7 @@ export function FileViewPanel({
     pendingOpenFindPanelRef.current = false;
     recentDefinitionTriggerRef.current = null;
     recentReferencesTriggerRef.current = null;
-    setMode(isMarkdown ? "edit" : initialMode);
+    setMode(defaultsToPreview ? "preview" : initialMode);
     onActiveFileLineRangeChange?.(null);
     lastReportedLineRangeRef.current = "";
     setIsDefinitionLoading(false);
@@ -787,7 +796,7 @@ export function FileViewPanel({
     setNavigationError(null);
     setDefinitionCandidates([]);
     setReferenceResults(null);
-  }, [filePath, initialMode, isMarkdown, onActiveFileLineRangeChange]);
+  }, [defaultsToPreview, filePath, initialMode, onActiveFileLineRangeChange]);
 
   useEffect(() => {
     if (typeof document === "undefined" || typeof MutationObserver === "undefined") {
@@ -1810,6 +1819,18 @@ export function FileViewPanel({
           <FileMarkdownPreview
             value={content}
             className="fvp-file-markdown fvp-markdown-github"
+          />
+        </div>
+      );
+    }
+
+    if (structuredPreviewKind) {
+      return (
+        <div className="fvp-preview-scroll">
+          <FileStructuredPreview
+            filePath={filePath}
+            value={content}
+            className="fvp-structured-preview"
           />
         </div>
       );

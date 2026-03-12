@@ -32,6 +32,11 @@ type MermaidRenderState =
   | { status: "success"; svg: string }
   | { status: "error"; message: string };
 
+type FrontmatterField = {
+  key: string;
+  value: string;
+};
+
 function extractLanguageTag(className?: string) {
   if (!className) {
     return null;
@@ -65,6 +70,59 @@ function detectMermaidTheme(): "dark" | "default" {
     return "default";
   }
   return "dark";
+}
+
+function normalizeFrontmatterValue(raw: string): string {
+  const trimmed = raw.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed
+      .slice(1, -1)
+      .split(",")
+      .map((item) => normalizeFrontmatterValue(item))
+      .filter(Boolean)
+      .join(" · ");
+  }
+  return trimmed;
+}
+
+function extractFrontmatter(value: string): {
+  fields: FrontmatterField[];
+  body: string;
+} {
+  const match = value.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/);
+  if (!match) {
+    return { fields: [], body: value };
+  }
+
+  const rawFields = match[1]
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const fields = rawFields
+    .map((line) => {
+      const separatorIndex = line.indexOf(":");
+      if (separatorIndex <= 0) {
+        return null;
+      }
+      const key = line.slice(0, separatorIndex).trim();
+      const rawValue = line.slice(separatorIndex + 1).trim();
+      return {
+        key,
+        value: normalizeFrontmatterValue(rawValue),
+      };
+    })
+    .filter((field): field is FrontmatterField => Boolean(field));
+
+  return {
+    fields,
+    body: value.slice(match[0].length),
+  };
 }
 
 function FileMarkdownCodeBlock({
@@ -217,6 +275,7 @@ export function FileMarkdownPreview({
   value,
   className = "fvp-file-markdown",
 }: FileMarkdownPreviewProps) {
+  const frontmatter = useMemo(() => extractFrontmatter(value), [value]);
   const rehypePlugins = useMemo(
     () => [
       rehypeRaw,
@@ -298,12 +357,25 @@ export function FileMarkdownPreview({
 
   return (
     <div className={className} data-testid="file-markdown-preview">
+      {frontmatter.fields.length > 0 ? (
+        <section className="fvp-file-markdown-frontmatter" data-testid="file-markdown-frontmatter">
+          <div className="fvp-file-markdown-frontmatter-label">Metadata</div>
+          <dl className="fvp-file-markdown-frontmatter-grid">
+            {frontmatter.fields.map((field) => (
+              <div key={field.key} className="fvp-file-markdown-frontmatter-row">
+                <dt>{field.key}</dt>
+                <dd>{field.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={rehypePlugins}
         components={components}
       >
-        {value}
+        {frontmatter.body}
       </ReactMarkdown>
     </div>
   );

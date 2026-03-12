@@ -292,7 +292,7 @@ describe("FileViewPanel markdown modes", () => {
     vi.clearAllMocks();
   });
 
-  it("opens markdown in edit mode by default", async () => {
+  it("opens markdown in preview mode by default", async () => {
     vi.mocked(readWorkspaceFile).mockResolvedValue({
       content: "# Hello",
       truncated: false,
@@ -311,9 +311,11 @@ describe("FileViewPanel markdown modes", () => {
       />,
     );
 
-    await screen.findByTestId("mock-codemirror");
-    expect(container.querySelector(".fvp-preview-scroll")).toBeNull();
-    expect(container.querySelector(".fvp-markdown")).toBeNull();
+    await waitFor(() => {
+      expect(container.querySelector(".fvp-preview-scroll")).toBeTruthy();
+      expect(screen.getByTestId("file-markdown-preview")).toBeTruthy();
+      expect(screen.queryByTestId("mock-codemirror")).toBeNull();
+    });
   });
 
   it("toggles markdown preview and preserves edits", async () => {
@@ -334,6 +336,8 @@ describe("FileViewPanel markdown modes", () => {
         onClose={vi.fn()}
       />,
     );
+
+    fireEvent.click(screen.getByRole("button", { name: /edit/i }));
 
     const editor = (await screen.findByTestId("mock-codemirror")) as HTMLTextAreaElement;
     fireEvent.change(editor, { target: { value: "# Updated" } });
@@ -373,9 +377,6 @@ describe("FileViewPanel markdown modes", () => {
       />,
     );
 
-    await screen.findByTestId("mock-codemirror");
-    fireEvent.click(screen.getByRole("button", { name: /preview/i }));
-
     await screen.findByTestId("file-markdown-preview");
     expect(screen.getByRole("tab", { name: "Source" }).getAttribute("aria-selected")).toBe("true");
     expect(mermaidRender).not.toHaveBeenCalled();
@@ -386,6 +387,44 @@ describe("FileViewPanel markdown modes", () => {
       expect(screen.getByTestId("file-markdown-mermaid-preview")).toBeTruthy();
       expect(mermaidRender).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it("renders frontmatter metadata separately from markdown body", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: [
+        "---",
+        'name: "OpenSpec: New"',
+        "calls_skill: openspec-new-change",
+        "tags: [workflow, artifacts, experimental]",
+        "---",
+        "",
+        "# Title",
+        "",
+        "正文内容",
+      ].join("\n"),
+      truncated: false,
+    });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-md-5"
+        workspacePath="/repo"
+        filePath="new.md"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId("file-markdown-preview");
+    expect(screen.getByTestId("file-markdown-frontmatter")).toBeTruthy();
+    expect(screen.getByText("OpenSpec: New")).toBeTruthy();
+    expect(screen.getByText("openspec-new-change")).toBeTruthy();
+    expect(screen.getByText("workflow · artifacts · experimental")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Title" })).toBeTruthy();
+    expect(screen.queryByText(/^name: "OpenSpec: New"/)).toBeNull();
   });
 
   it("keeps non-markdown preview on the existing code preview path", async () => {
@@ -412,6 +451,122 @@ describe("FileViewPanel markdown modes", () => {
       expect(container.querySelector(".fvp-code-preview")).toBeTruthy();
     });
     expect(screen.queryByTestId("file-markdown-preview")).toBeNull();
+  });
+
+  it("opens shell files in edit mode by default", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: [
+        "#!/usr/bin/env bash",
+        "",
+        "# build app",
+        "# with cached dependencies",
+        "pnpm install --frozen-lockfile",
+        "pnpm build",
+      ].join("\n"),
+      truncated: false,
+    });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-shell-1"
+        workspacePath="/repo"
+        filePath="scripts/build.sh"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const editor = await screen.findByTestId("mock-codemirror");
+    expect(editor).toBeTruthy();
+    expect(screen.queryByTestId("file-structured-preview")).toBeNull();
+  });
+
+  it("opens Dockerfile in edit mode by default", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: [
+        "# production image",
+        "FROM node:20-alpine",
+        "WORKDIR /app",
+        "COPY package.json pnpm-lock.yaml ./",
+        "RUN pnpm install --frozen-lockfile \\",
+        "  && pnpm store prune",
+      ].join("\n"),
+      truncated: false,
+    });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-docker-1"
+        workspacePath="/repo"
+        filePath="Dockerfile"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId("mock-codemirror");
+    expect(screen.queryByTestId("file-structured-preview")).toBeNull();
+  });
+
+  it("keeps structured preview only on the top-level preview path", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: [
+        "# production image",
+        "FROM node:20-alpine",
+        "RUN pnpm install",
+      ].join("\n"),
+      truncated: false,
+    });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-docker-2"
+        workspacePath="/repo"
+        filePath="Dockerfile"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId("mock-codemirror");
+    fireEvent.click(screen.getByRole("button", { name: /preview/i }));
+
+    await screen.findByTestId("file-structured-preview");
+    expect(screen.getByText("FROM")).toBeTruthy();
+    expect(screen.getByText("node:20-alpine")).toBeTruthy();
+  });
+
+  it("does not add structured edit tabs for regular code files", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: "export const value = 1;",
+      truncated: false,
+    });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-code-1"
+        workspacePath="/repo"
+        filePath="src/value.ts"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId("mock-codemirror");
+    expect(screen.queryByRole("tab", { name: "Code" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Render" })).toBeNull();
   });
 });
 

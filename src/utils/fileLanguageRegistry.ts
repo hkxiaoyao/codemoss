@@ -44,6 +44,10 @@ const FILE_NAME_RULES: Array<{ pattern: RegExp; rule: LanguageRule }> = [
     rule: { previewLanguage: "git", editorLanguage: "shell" },
   },
   {
+    pattern: /^dockerfile(?:\.[a-z0-9_.-]+)?$/i,
+    rule: { previewLanguage: "bash", editorLanguage: "shell" },
+  },
+  {
     pattern: /^(cargo|uv|poetry)\.lock$/i,
     rule: { previewLanguage: "toml", editorLanguage: "toml" },
   },
