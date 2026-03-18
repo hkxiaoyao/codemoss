@@ -109,3 +109,128 @@ export function resolveDiffPathFromWorkspacePath(
 
   return resolveWorkspaceRelativePath(workspacePath, normalizedInput);
 }
+
+function normalizeExtendedFsPath(path: string) {
+  const normalized = normalizeFsPath(path).trim();
+  if (normalized.startsWith("//?/UNC/")) {
+    return `//${normalized.slice("//?/UNC/".length)}`;
+  }
+  if (normalized.startsWith("//?/")) {
+    return normalized.slice("//?/".length);
+  }
+  return normalized;
+}
+
+function normalizeRootPath(path: string | null | undefined) {
+  if (!path) {
+    return "";
+  }
+  return normalizeExtendedFsPath(path).replace(/\/+$/, "");
+}
+
+function isLikelyAbsoluteFsPath(path: string) {
+  if (!path) {
+    return false;
+  }
+  if (path.startsWith("/")) {
+    return true;
+  }
+  if (/^[a-zA-Z]:\//.test(path)) {
+    return true;
+  }
+  if (path.startsWith("//")) {
+    return true;
+  }
+  return false;
+}
+
+function isPathInsideRoot(path: string, root: string, caseInsensitive: boolean) {
+  const comparablePath = normalizeComparablePath(path, caseInsensitive);
+  const comparableRoot = normalizeComparablePath(root, caseInsensitive);
+  if (comparablePath === comparableRoot) {
+    return true;
+  }
+  return comparablePath.startsWith(`${comparableRoot}/`);
+}
+
+type WorkspaceFileReadTarget = {
+  domain: "workspace";
+  normalizedInputPath: string;
+  workspaceRelativePath: string;
+};
+
+type ExternalSpecFileReadTarget = {
+  domain: "external-spec";
+  normalizedInputPath: string;
+  workspaceRelativePath: string;
+  externalSpecLogicalPath: string;
+};
+
+type UnsupportedExternalFileReadTarget = {
+  domain: "unsupported-external";
+  normalizedInputPath: string;
+  workspaceRelativePath: string;
+};
+
+export type FileReadTarget =
+  | WorkspaceFileReadTarget
+  | ExternalSpecFileReadTarget
+  | UnsupportedExternalFileReadTarget;
+
+export function resolveFileReadTarget(
+  workspacePath: string | null | undefined,
+  inputPath: string,
+  customSpecRoot?: string | null,
+): FileReadTarget {
+  const normalizedInputPath = normalizeExtendedFsPath(inputPath);
+  const workspaceRelativePath = resolveWorkspaceRelativePath(
+    workspacePath,
+    normalizedInputPath,
+  );
+  const normalizedWorkspaceRoot = normalizeRootPath(workspacePath);
+  if (normalizedWorkspaceRoot) {
+    const workspaceCaseInsensitive = isLikelyWindowsFsPath(normalizedWorkspaceRoot);
+    if (
+      isPathInsideRoot(
+        normalizedInputPath,
+        normalizedWorkspaceRoot,
+        workspaceCaseInsensitive,
+      )
+    ) {
+      return {
+        domain: "workspace",
+        normalizedInputPath,
+        workspaceRelativePath,
+      };
+    }
+  }
+
+  const normalizedSpecRoot = normalizeRootPath(customSpecRoot);
+  if (normalizedSpecRoot) {
+    const specCaseInsensitive = isLikelyWindowsFsPath(normalizedSpecRoot);
+    if (isPathInsideRoot(normalizedInputPath, normalizedSpecRoot, specCaseInsensitive)) {
+      const suffix = normalizedInputPath.slice(normalizedSpecRoot.length).replace(/^\/+/, "");
+      const externalSpecLogicalPath = suffix ? `openspec/${suffix}` : "openspec";
+      return {
+        domain: "external-spec",
+        normalizedInputPath,
+        workspaceRelativePath,
+        externalSpecLogicalPath,
+      };
+    }
+  }
+
+  if (isLikelyAbsoluteFsPath(normalizedInputPath)) {
+    return {
+      domain: "unsupported-external",
+      normalizedInputPath,
+      workspaceRelativePath,
+    };
+  }
+
+  return {
+    domain: "workspace",
+    normalizedInputPath,
+    workspaceRelativePath,
+  };
+}

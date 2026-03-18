@@ -41,7 +41,9 @@ import {
   getCodeIntelDefinition,
   getCodeIntelReferences,
   getGitFileFullDiff,
+  readExternalSpecFile,
   readWorkspaceFile,
+  writeExternalSpecFile,
   writeWorkspaceFile,
 } from "../../../services/tauri";
 import { highlightLine, languageFromPath } from "../../../utils/syntax";
@@ -67,12 +69,13 @@ import {
   isLikelyWindowsFsPath,
   normalizeComparablePath,
   normalizeFsPath,
-  resolveWorkspaceRelativePath,
+  resolveFileReadTarget,
 } from "../../../utils/workspacePaths";
 
 type FileViewPanelProps = {
   workspaceId: string;
   workspacePath: string;
+  customSpecRoot?: string | null;
   filePath: string;
   gitStatusFiles?: GitFileStatus[];
   openTabs?: string[];
@@ -485,6 +488,7 @@ function hasGitLineMarkers(markers: GitLineMarkers | null | undefined) {
 export function FileViewPanel({
   workspaceId,
   workspacePath,
+  customSpecRoot = null,
   filePath,
   gitStatusFiles,
   openTabs,
@@ -577,10 +581,11 @@ export function FileViewPanel({
     }
     return map;
   }, [gitStatusFiles]);
-  const workspaceRelativeFilePath = useMemo(
-    () => resolveWorkspaceRelativePath(workspacePath, filePath),
-    [workspacePath, filePath],
+  const fileReadTarget = useMemo(
+    () => resolveFileReadTarget(workspacePath, filePath, customSpecRoot),
+    [workspacePath, filePath, customSpecRoot],
   );
+  const workspaceRelativeFilePath = fileReadTarget.workspaceRelativePath;
   const fileGitStatus = useMemo(
     () =>
       gitStatusMap.get(workspaceRelativeFilePath) ??
@@ -590,8 +595,11 @@ export function FileViewPanel({
   );
   const fileGitStatusClass = fileGitStatus ? `git-${fileGitStatus.toLowerCase()}` : "";
   const absolutePath = useMemo(
-    () => resolveAbsolutePath(workspacePath, workspaceRelativeFilePath),
-    [workspacePath, workspaceRelativeFilePath],
+    () =>
+      fileReadTarget.domain === "workspace"
+        ? resolveAbsolutePath(workspacePath, workspaceRelativeFilePath)
+        : fileReadTarget.normalizedInputPath,
+    [workspacePath, workspaceRelativeFilePath, fileReadTarget],
   );
   const caseInsensitivePathCompare = useMemo(
     () => isLikelyWindowsFsPath(normalizeFsPath(workspacePath)),
@@ -685,7 +693,30 @@ export function FileViewPanel({
     setIsLoading(true);
     setError(null);
 
-    readWorkspaceFile(workspaceId, workspaceRelativeFilePath)
+    if (fileReadTarget.domain === "unsupported-external") {
+      setError("Invalid file path");
+      setIsLoading(false);
+      return;
+    }
+
+    const readPromise =
+      fileReadTarget.domain === "external-spec" && customSpecRoot
+        ? readExternalSpecFile(
+            workspaceId,
+            customSpecRoot,
+            fileReadTarget.externalSpecLogicalPath,
+          ).then((response) => {
+            if (!response.exists) {
+              throw new Error("Failed to open file: File does not exist");
+            }
+            return {
+              content: response.content ?? "",
+              truncated: Boolean(response.truncated),
+            };
+          })
+        : readWorkspaceFile(workspaceId, workspaceRelativeFilePath);
+
+    readPromise
       .then((response) => {
         if (cancelled || currentRequest !== requestIdRef.current) return;
         setContent(response.content ?? "");
@@ -705,11 +736,21 @@ export function FileViewPanel({
     return () => {
       cancelled = true;
     };
-  }, [workspaceId, workspaceRelativeFilePath, isBinary]);
+  }, [
+    customSpecRoot,
+    fileReadTarget,
+    isBinary,
+    workspaceId,
+    workspaceRelativeFilePath,
+  ]);
 
   useEffect(() => {
     const normalizedStatus = (fileGitStatus ?? "").toUpperCase();
     if (hasExplicitHighlightMarkers) {
+      setGitLineMarkers({ added: [], modified: [] });
+      return;
+    }
+    if (fileReadTarget.domain !== "workspace") {
       setGitLineMarkers({ added: [], modified: [] });
       return;
     }
@@ -739,6 +780,7 @@ export function FileViewPanel({
     workspaceId,
     workspaceRelativeFilePath,
     fileGitStatus,
+    fileReadTarget.domain,
     hasExplicitHighlightMarkers,
     isBinary,
   ]);
@@ -803,7 +845,22 @@ export function FileViewPanel({
     if (!isDirty || isSaving || truncated) return;
     setIsSaving(true);
     try {
-      await writeWorkspaceFile(workspaceId, workspaceRelativeFilePath, content);
+      if (
+        fileReadTarget.domain === "external-spec" &&
+        customSpecRoot &&
+        fileReadTarget.externalSpecLogicalPath
+      ) {
+        await writeExternalSpecFile(
+          workspaceId,
+          customSpecRoot,
+          fileReadTarget.externalSpecLogicalPath,
+          content,
+        );
+      } else if (fileReadTarget.domain === "unsupported-external") {
+        throw new Error("Invalid file path");
+      } else {
+        await writeWorkspaceFile(workspaceId, workspaceRelativeFilePath, content);
+      }
       savedContentRef.current = content;
     } catch (err) {
       pushErrorToast({
@@ -814,6 +871,8 @@ export function FileViewPanel({
       setIsSaving(false);
     }
   }, [
+    customSpecRoot,
+    fileReadTarget,
     workspaceId,
     workspaceRelativeFilePath,
     content,

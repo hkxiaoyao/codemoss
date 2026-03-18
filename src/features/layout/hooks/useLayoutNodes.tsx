@@ -68,6 +68,8 @@ import type {
   TurnPlan,
   WorkspaceInfo,
 } from "../../../types";
+import { getClientStoreSync } from "../../../services/clientStorage";
+import { normalizeSpecRootInput } from "../../spec/pathUtils";
 import type { EngineDisplayInfo } from "../../engine/hooks/useEngineController";
 import type { UpdateState } from "../../update/hooks/useUpdater";
 import type { TerminalSessionState } from "../../terminal/hooks/useTerminalSession";
@@ -1030,6 +1032,16 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
   const tabBarNode = (
     <TabBar activeTab={options.activeTab} onSelect={options.onSelectTab} />
   );
+  const activeWorkspaceCustomSpecRoot = useMemo(() => {
+    if (!options.activeWorkspace?.id) {
+      return null;
+    }
+    const value = getClientStoreSync<string | null>(
+      "app",
+      `specHub.specRoot.${options.activeWorkspace.id}`,
+    );
+    return normalizeSpecRootInput(value);
+  }, [options.activeWorkspace?.id]);
 
   const sidebarSelectedDiffPath =
     options.centerMode === "diff" ? options.selectedDiffPath : null;
@@ -1246,6 +1258,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       <FileViewPanel
         workspaceId={options.activeWorkspace.id}
         workspacePath={options.activeWorkspace.path}
+        customSpecRoot={activeWorkspaceCustomSpecRoot}
         filePath={options.editorFilePath}
         navigationTarget={options.editorNavigationTarget}
         highlightMarkers={

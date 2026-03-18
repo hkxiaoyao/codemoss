@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  resolveFileReadTarget,
   resolveDiffPathFromWorkspacePath,
   resolveWorkspaceRelativePath,
 } from "./workspacePaths";
@@ -31,5 +32,49 @@ describe("workspacePaths", () => {
         "C:/Users/Chen/Project",
       ),
     ).toBe("src/app.tsx");
+  });
+
+  it("routes absolute path under external spec root to external-spec domain", () => {
+    expect(
+      resolveFileReadTarget(
+        "/repo",
+        "/spec-root/changes/fix/tasks.md",
+        "/spec-root",
+      ),
+    ).toEqual({
+      domain: "external-spec",
+      normalizedInputPath: "/spec-root/changes/fix/tasks.md",
+      workspaceRelativePath: "/spec-root/changes/fix/tasks.md",
+      externalSpecLogicalPath: "openspec/changes/fix/tasks.md",
+    });
+  });
+
+  it("matches Windows external spec root paths case-insensitively", () => {
+    expect(
+      resolveFileReadTarget(
+        "C:/Users/Chen/Project",
+        "c:/spec-disk/openspec/changes/fix/tasks.md",
+        "C:/Spec-Disk/OpenSpec",
+      ),
+    ).toEqual({
+      domain: "external-spec",
+      normalizedInputPath: "c:/spec-disk/openspec/changes/fix/tasks.md",
+      workspaceRelativePath: "c:/spec-disk/openspec/changes/fix/tasks.md",
+      externalSpecLogicalPath: "openspec/changes/fix/tasks.md",
+    });
+  });
+
+  it("marks unsupported absolute paths outside workspace and spec root", () => {
+    expect(
+      resolveFileReadTarget(
+        "/repo",
+        "/another-project/src/App.tsx",
+        "/spec-root",
+      ),
+    ).toEqual({
+      domain: "unsupported-external",
+      normalizedInputPath: "/another-project/src/App.tsx",
+      workspaceRelativePath: "/another-project/src/App.tsx",
+    });
   });
 });
