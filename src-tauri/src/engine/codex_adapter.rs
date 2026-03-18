@@ -279,16 +279,14 @@ impl CodexSessionAdapter {
                 })
             }
 
-            "turn/error" => {
-                Some(EngineEvent::TurnError {
-                    workspace_id: self.workspace_id.clone(),
-                    error: extract_error_message(params.get("error"), "Unknown error"),
-                    code: params
-                        .get("code")
-                        .and_then(|c| c.as_str())
-                        .map(|s| s.to_string()),
-                })
-            }
+            "turn/error" => Some(EngineEvent::TurnError {
+                workspace_id: self.workspace_id.clone(),
+                error: extract_error_message(params.get("error"), "Unknown error"),
+                code: params
+                    .get("code")
+                    .and_then(|c| c.as_str())
+                    .map(|s| s.to_string()),
+            }),
 
             "thread/archived" => {
                 let thread_id = params.get("threadId")?.as_str()?;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, renderHook, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceInfo } from "../../../types";
 import {
   addWorkspace,
@@ -60,6 +60,10 @@ const workspaceTwo: WorkspaceInfo = {
   settings: { sidebarCollapsed: false, groupId: null },
 };
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe("useWorkspaces.renameWorktree", () => {
   it("optimistically updates and reconciles on success", async () => {
     const listWorkspacesMock = vi.mocked(listWorkspaces);
@@ -74,8 +78,8 @@ describe("useWorkspaces.renameWorktree", () => {
 
     const { result } = renderHook(() => useWorkspaces());
 
-    await act(async () => {
-      await Promise.resolve();
+    await waitFor(() => {
+      expect(result.current.workspaces).toHaveLength(1);
     });
 
     let renameCall: Promise<WorkspaceInfo>;
@@ -246,6 +250,37 @@ describe("useWorkspaces.addWorkspaceFromPath", () => {
     expect(addWorkspaceMock).toHaveBeenCalledWith("/tmp/repo", null);
     expect(result.current.workspaces).toHaveLength(1);
     expect(result.current.activeWorkspaceId).toBe("workspace-1");
+  });
+
+  it("reuses existing workspace instead of adding duplicate path", async () => {
+    const listWorkspacesMock = vi.mocked(listWorkspaces);
+    const addWorkspaceMock = vi.mocked(addWorkspace);
+    listWorkspacesMock.mockResolvedValue([
+      {
+        id: "workspace-existing",
+        name: "repo",
+        path: "/tmp/repo",
+        connected: true,
+        kind: "main",
+        parentId: null,
+        worktree: null,
+        settings: { sidebarCollapsed: false },
+      },
+    ]);
+
+    const { result } = renderHook(() => useWorkspaces());
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await result.current.addWorkspaceFromPath("/tmp/repo/");
+    });
+
+    expect(addWorkspaceMock).not.toHaveBeenCalled();
+    expect(result.current.workspaces).toHaveLength(1);
+    expect(result.current.activeWorkspaceId).toBe("workspace-existing");
   });
 });
 

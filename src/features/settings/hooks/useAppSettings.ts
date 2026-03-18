@@ -61,6 +61,16 @@ function normalizeGlobalSearchShortcut(value: string | null | undefined): string
   return normalized;
 }
 
+function normalizeNewWorktreeShortcut(
+  value: string | null | undefined,
+): string | null {
+  const normalized = normalizeShortcutValue(value);
+  if (normalized === "cmd+shift+n" || normalized === "ctrl+shift+n") {
+    return "cmd+alt+shift+n";
+  }
+  return normalized;
+}
+
 const defaultSettings: AppSettings = {
   codexBin: null,
   codexArgs: null,
@@ -76,7 +86,7 @@ const defaultSettings: AppSettings = {
   composerCollaborationShortcut: "shift+tab",
   interruptShortcut: getDefaultInterruptShortcut(),
   newAgentShortcut: "cmd+n",
-  newWorktreeAgentShortcut: "cmd+shift+n",
+  newWorktreeAgentShortcut: "cmd+alt+shift+n",
   newCloneAgentShortcut: "cmd+alt+n",
   archiveThreadShortcut: "cmd+ctrl+a",
   toggleProjectsSidebarShortcut: "cmd+shift+p",
@@ -189,6 +199,7 @@ function normalizeAppSettings(
     composerSendShortcut: allowedComposerSendShortcuts.has(settings.composerSendShortcut)
       ? settings.composerSendShortcut
       : "enter",
+    newWorktreeAgentShortcut: normalizeNewWorktreeShortcut(settings.newWorktreeAgentShortcut),
     toggleGlobalSearchShortcut: normalizeGlobalSearchShortcut(settings.toggleGlobalSearchShortcut),
     openAppTargets: normalizedTargets,
     selectedOpenAppId,

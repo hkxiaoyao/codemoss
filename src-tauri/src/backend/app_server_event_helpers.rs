@@ -71,7 +71,10 @@ fn extract_response_error_payload(value: &Value) -> Option<Value> {
     })
 }
 
-pub(super) fn build_late_turn_error_event(value: &Value, request: &TimedOutRequest) -> Option<Value> {
+pub(super) fn build_late_turn_error_event(
+    value: &Value,
+    request: &TimedOutRequest,
+) -> Option<Value> {
     let thread_id = request.thread_id.as_deref()?.trim();
     if thread_id.is_empty() {
         return None;

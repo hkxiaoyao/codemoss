@@ -6,7 +6,10 @@ import {
   getCodeIntelDefinition,
   getCodeIntelReferences,
   getGitFileFullDiff,
+  readExternalSpecFile,
   readWorkspaceFile,
+  writeExternalSpecFile,
+  writeWorkspaceFile,
 } from "../../../services/tauri";
 
 const mockCodeMirrorDispatch = vi.fn();
@@ -110,7 +113,9 @@ vi.mock("../../../components/FileIcon", () => ({
 
 vi.mock("../../../services/tauri", () => ({
   readWorkspaceFile: vi.fn(),
+  readExternalSpecFile: vi.fn(),
   writeWorkspaceFile: vi.fn(),
+  writeExternalSpecFile: vi.fn(),
   getGitFileFullDiff: vi.fn(),
   getCodeIntelDefinition: vi.fn(),
   getCodeIntelReferences: vi.fn(),
@@ -449,6 +454,95 @@ describe("FileViewPanel navigation", () => {
       "ws-windows-absolute-path",
       "src/Main.java",
     );
+  });
+
+  it("reads file content via external spec route when path is under custom spec root", async () => {
+    vi.mocked(readExternalSpecFile).mockResolvedValue({
+      exists: true,
+      content: "# External tasks",
+      truncated: false,
+    });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-external-read"
+        workspacePath="/repo"
+        customSpecRoot="/spec-root"
+        filePath="/spec-root/changes/fix/tasks.md"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId("file-markdown-preview");
+    expect(readExternalSpecFile).toHaveBeenCalledWith(
+      "ws-external-read",
+      "/spec-root",
+      "openspec/changes/fix/tasks.md",
+    );
+    expect(readWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("writes file content via external spec route when editing file under custom spec root", async () => {
+    vi.mocked(readExternalSpecFile).mockResolvedValue({
+      exists: true,
+      content: "line 1",
+      truncated: false,
+    });
+    vi.mocked(writeExternalSpecFile).mockResolvedValue();
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-external-write"
+        workspacePath="/repo"
+        customSpecRoot="/spec-root"
+        filePath="/spec-root/changes/fix/tasks.ts"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const editor = (await screen.findByTestId("mock-codemirror")) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: "line 2" } });
+    fireEvent.click(screen.getByRole("button", { name: /save|files\.save/i }));
+
+    await waitFor(() => {
+      expect(writeExternalSpecFile).toHaveBeenCalledWith(
+        "ws-external-write",
+        "/spec-root",
+        "openspec/changes/fix/tasks.ts",
+        "line 2",
+      );
+    });
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("shows recoverable error for unsupported external absolute path", async () => {
+    render(
+      <FileViewPanel
+        workspaceId="ws-unsupported-external"
+        workspacePath="/repo"
+        customSpecRoot="/spec-root"
+        filePath="/another-project/src/App.tsx"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Invalid file path")).toBeTruthy();
+    });
+    expect(readWorkspaceFile).not.toHaveBeenCalled();
+    expect(readExternalSpecFile).not.toHaveBeenCalled();
   });
 });
 

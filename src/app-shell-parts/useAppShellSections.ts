@@ -112,6 +112,7 @@ export function useAppShellSections(ctx: any) {
     activeWorkspaceRef,
     baseWorkspaceRef,
     handleAddWorkspace,
+    handleOpenNewWindow,
     handleAddAgent,
     handleAddWorktreeAgent,
     handleAddCloneAgent,
@@ -1236,6 +1237,9 @@ export function useAppShellSections(ctx: any) {
     baseWorkspaceRef,
     onAddWorkspace: () => {
       void handleAddWorkspace();
+    },
+    onNewWindow: () => {
+      void handleOpenNewWindow();
     },
     onAddAgent: (workspace, engine) => {
       void handleAddAgent(workspace, engine);

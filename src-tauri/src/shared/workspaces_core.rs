@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use crate::backend::app_server::WorkspaceSession;
 use crate::codex::args::resolve_workspace_codex_args;
 use crate::codex::home::resolve_workspace_codex_home;
-use crate::storage::write_workspaces;
+use crate::storage::{write_workspaces, write_workspaces_preserving_existing};
 use crate::types::{
     AppSettings, WorkspaceEntry, WorkspaceInfo, WorkspaceKind, WorkspaceSettings, WorktreeInfo,
     WorktreeSetupStatus,
@@ -268,7 +268,12 @@ where
         let mut workspaces = workspaces.lock().await;
         workspaces.insert(entry.id.clone(), entry.clone());
         let list: Vec<_> = workspaces.values().cloned().collect();
-        write_workspaces(storage_path, &list)
+        let merged = write_workspaces_preserving_existing(storage_path, &list)?;
+        *workspaces = merged
+            .into_iter()
+            .map(|workspace| (workspace.id.clone(), workspace))
+            .collect();
+        Ok::<(), String>(())
     } {
         {
             let mut workspaces = workspaces.lock().await;
@@ -517,7 +522,11 @@ where
         let mut workspaces = workspaces.lock().await;
         workspaces.insert(entry.id.clone(), entry.clone());
         let list: Vec<_> = workspaces.values().cloned().collect();
-        write_workspaces(storage_path, &list)?;
+        let merged = write_workspaces_preserving_existing(storage_path, &list)?;
+        *workspaces = merged
+            .into_iter()
+            .map(|workspace| (workspace.id.clone(), workspace))
+            .collect();
     }
 
     sessions.lock().await.insert(entry.id.clone(), session);

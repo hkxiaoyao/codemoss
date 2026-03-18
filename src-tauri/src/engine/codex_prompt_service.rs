@@ -5,8 +5,8 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
-use crate::backend::events::AppServerEvent;
 use crate::backend::app_server::WorkspaceSession;
+use crate::backend::events::AppServerEvent;
 use crate::engine::error_mapper::extract_error_message;
 use crate::state::AppState;
 
@@ -117,7 +117,8 @@ pub(crate) async fn run_codex_prompt_sync(
         let mut callbacks = session.background_thread_callbacks.lock().await;
         callbacks.insert(helper_thread_id.clone(), tx);
     }
-    let mut callback_guard = BackgroundCallbackGuard::new(session.clone(), helper_thread_id.clone());
+    let mut callback_guard =
+        BackgroundCallbackGuard::new(session.clone(), helper_thread_id.clone());
 
     let access_mode = access_mode.unwrap_or_else(|| "read-only".to_string());
     let mut writable_roots = vec![session.entry.path.clone()];

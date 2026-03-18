@@ -932,6 +932,35 @@
   cursor: pointer;
 }
 
+.workspace-folder-btn.is-session-running,
+.workspace-folder-btn.is-session-running:hover,
+.workspace-folder-btn.is-session-running[aria-expanded="true"] {
+  color: #10b981;
+  animation: sidebar-workspace-folder-breathe 1.45s ease-in-out infinite;
+}
+
+.workspace-folder-btn.is-session-running svg {
+  filter: drop-shadow(0 0 5px color-mix(in oklab, #10b981 45%, transparent));
+}
+
+@keyframes sidebar-workspace-folder-breathe {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scale(1);
+  }
+
+  45% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+
+  70% {
+    opacity: 0.84;
+    transform: scale(1.02);
+  }
+}
+
 .workspace-folder-btn .codicon {
   line-height: 1;
 }
@@ -1507,6 +1536,13 @@
   margin-left: 1px;
 }
 
+.worktree-node-icon.is-session-running {
+  color: #10b981;
+  opacity: 1;
+  animation: sidebar-workspace-folder-breathe 1.45s ease-in-out infinite;
+  filter: drop-shadow(0 0 5px color-mix(in oklab, #10b981 45%, transparent));
+}
+
 .worktree-row:hover {
   background: var(--worktree-hover);
   border-color: color-mix(in srgb, var(--border-subtle) 64%, transparent);
@@ -1996,6 +2032,14 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .workspace-folder-btn.is-session-running {
+    animation: none;
+  }
+
+  .worktree-node-icon.is-session-running {
+    animation: none;
+  }
+
   .thread-status.processing,
   .thread-engine-badge.is-processing {
     animation: none;

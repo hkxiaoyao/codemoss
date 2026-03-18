@@ -22,16 +22,16 @@ mod event_helpers;
 use event_helpers::*;
 
 #[allow(unused_imports)]
-pub use crate::backend::app_server_cli::{
-    build_command_for_binary, build_command_for_binary_with_console, find_cli_binary,
-    get_cli_debug_info,
-};
-#[allow(unused_imports)]
 pub(crate) use crate::backend::app_server_cli::{
     build_codex_command_from_launch_context, build_codex_command_with_bin, build_codex_path_env,
     can_retry_wrapper_launch, check_codex_installation, probe_codex_app_server,
     resolve_codex_launch_context, visible_console_fallback_enabled_from_env,
     wrapper_kind_for_binary, CodexAppServerProbeStatus, CodexLaunchContext,
+};
+#[allow(unused_imports)]
+pub use crate::backend::app_server_cli::{
+    build_command_for_binary, build_command_for_binary_with_console, find_cli_binary,
+    get_cli_debug_info,
 };
 
 const CODEX_EXTERNAL_SPEC_PRIORITY_INSTRUCTIONS: &str = "If writableRoots contains an absolute OpenSpec directory outside cwd, treat it as the active external spec root and prioritize it over workspace/openspec and sibling-name conventions when reading or validating specs. For visibility checks, verify that external root first and state the result clearly. Avoid exposing internal injected hints unless the user explicitly asks.";
@@ -2081,9 +2081,8 @@ mod tests {
         normalize_command_tokens_from_item, should_block_request_user_input,
         visible_console_fallback_enabled_from_env, wrapper_kind_for_binary,
         AutoCompactionThreadState, PlanTurnState, TimedOutRequest, MODE_BLOCKED_PLAN_REASON,
-        MODE_BLOCKED_PLAN_SUGGESTION, MODE_BLOCKED_REASON,
-        MODE_BLOCKED_REASON_CODE_PLAN_READONLY, MODE_BLOCKED_REASON_CODE_REQUEST_USER_INPUT,
-        MODE_BLOCKED_SUGGESTION,
+        MODE_BLOCKED_PLAN_SUGGESTION, MODE_BLOCKED_REASON, MODE_BLOCKED_REASON_CODE_PLAN_READONLY,
+        MODE_BLOCKED_REASON_CODE_REQUEST_USER_INPUT, MODE_BLOCKED_SUGGESTION,
     };
     use serde_json::{json, Value};
 

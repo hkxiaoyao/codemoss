@@ -258,6 +258,12 @@ export async function openWorkspaceIn(
   });
 }
 
+export async function openNewWindow(path?: string | null): Promise<void> {
+  return invoke("open_new_window", {
+    path: path ?? null,
+  });
+}
+
 export async function getOpenAppIcon(appName: string): Promise<string | null> {
   return invoke<string | null>("get_open_app_icon", { appName });
 }

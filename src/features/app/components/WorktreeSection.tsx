@@ -178,6 +178,9 @@ export function WorktreeSection({
             const isWorktreeExpanded = expandedWorkspaces.has(worktree.id);
             const hasPrimaryActiveThread =
               worktree.id === activeWorkspaceId && Boolean(activeThreadId);
+            const hasRunningSession = worktreeThreads.some(
+              (thread) => Boolean(threadStatusById[thread.id]?.isProcessing),
+            );
             const threadRows = threadRowsByWorktreeId.get(worktree.id);
             const worktreeThreadRows = threadRows?.unpinnedRows ?? [];
             const totalWorktreeRoots = threadRows?.totalRoots ?? 0;
@@ -188,6 +191,7 @@ export function WorktreeSection({
                 worktree={worktree}
                 isActive={worktree.id === activeWorkspaceId}
                 hasPrimaryActiveThread={hasPrimaryActiveThread}
+                hasRunningSession={hasRunningSession}
                 threadCount={totalWorktreeRoots}
                 hasThreadCursor={Boolean(worktreeNextCursor)}
                 isDeleting={deletingWorktreeIds.has(worktree.id)}

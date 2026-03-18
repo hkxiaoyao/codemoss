@@ -509,6 +509,31 @@ export function Sidebar({
     return worktrees;
   }, [workspaces]);
 
+  const hasRunningThreadByWorkspaceId = useMemo(() => {
+    const next = new Map<string, boolean>();
+    Object.entries(threadsByWorkspace).forEach(([workspaceId, threads]) => {
+      next.set(
+        workspaceId,
+        threads.some((thread) => Boolean(threadStatusById[thread.id]?.isProcessing)),
+      );
+    });
+    return next;
+  }, [threadStatusById, threadsByWorkspace]);
+
+  const hasRunningSessionByProjectId = useMemo(() => {
+    const next = new Map<string, boolean>();
+    workspaces
+      .filter((entry) => (entry.kind ?? "main") !== "worktree")
+      .forEach((entry) => {
+        const hasRunningThreadOnWorkspace = hasRunningThreadByWorkspaceId.get(entry.id) ?? false;
+        const hasRunningThreadOnWorktree = (worktreesByParent.get(entry.id) ?? []).some(
+          (worktree) => hasRunningThreadByWorkspaceId.get(worktree.id) ?? false,
+        );
+        next.set(entry.id, hasRunningThreadOnWorkspace || hasRunningThreadOnWorktree);
+      });
+    return next;
+  }, [hasRunningThreadByWorkspaceId, workspaces, worktreesByParent]);
+
   const handleToggleExpanded = useCallback((workspaceId: string) => {
     setExpandedWorkspaces((prev) => {
       const next = new Set(prev);
@@ -678,6 +703,7 @@ export function Sidebar({
       collapsedWorktreeSections.has(entry.id);
     const hasPrimaryActiveThread =
       entry.id === activeWorkspaceId && Boolean(activeThreadId);
+    const hasRunningSession = hasRunningSessionByProjectId.get(entry.id) ?? false;
     return (
       <WorkspaceCard
         key={entry.id}
@@ -685,6 +711,7 @@ export function Sidebar({
         workspaceName={renderHighlightedName(entry.name)}
         isActive={entry.id === activeWorkspaceId}
         hasPrimaryActiveThread={hasPrimaryActiveThread}
+        hasRunningSession={hasRunningSession}
         isCollapsed={isCollapsed}
         onSelectWorkspace={onSelectWorkspace}
         onShowWorkspaceMenu={showWorkspaceMenu}
@@ -776,6 +803,7 @@ export function Sidebar({
     handleToggleWorktreeSection,
     isThreadAutoNaming,
     isThreadPinned,
+    hasRunningSessionByProjectId,
     onCancelDeleteConfirm,
     onConfirmDeleteConfirm,
     onConnectWorkspace,

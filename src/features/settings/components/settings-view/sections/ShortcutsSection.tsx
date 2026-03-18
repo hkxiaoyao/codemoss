@@ -120,7 +120,7 @@ export function ShortcutsSection({
           </button>
         </div>
         <div className="settings-help">
-          {t("settings.defaultColon")} {formatShortcut("cmd+shift+n")}
+          {t("settings.defaultColon")} {formatShortcut("cmd+alt+shift+n")}
         </div>
       </div>
       <div className="settings-field">

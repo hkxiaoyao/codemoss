@@ -24,6 +24,7 @@ export function useMenuLocalization() {
       { id: "file_new_agent", text: t("menu.newAgent") },
       { id: "file_new_worktree_agent", text: t("menu.newWorktreeAgent") },
       { id: "file_new_clone_agent", text: t("menu.newCloneAgent") },
+      { id: "file_new_window", text: t("menu.newWindow") },
       { id: "file_add_workspace", text: t("menu.addWorkspace") },
       // Linux-specific items
       { id: "file_close_window", text: t("menu.closeWindow") },

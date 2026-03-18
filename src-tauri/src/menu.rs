@@ -5,6 +5,8 @@ use serde::Deserialize;
 use tauri::menu::{Menu, MenuItem, MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder};
 use tauri::{Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 
+const NEW_WINDOW_ACCELERATOR: &str = "CmdOrCtrl+Shift+N";
+
 pub struct MenuItemRegistry<R: Runtime> {
     items: Mutex<HashMap<String, MenuItem<R>>>,
     submenus: Mutex<HashMap<String, Submenu<R>>>,
@@ -144,12 +146,16 @@ pub(crate) fn build_menu<R: tauri::Runtime>(
         MenuItemBuilder::with_id("file_new_worktree_agent", "新建工作树代理").build(handle)?;
     let new_clone_agent_item =
         MenuItemBuilder::with_id("file_new_clone_agent", "新建克隆代理").build(handle)?;
+    let new_window_item = MenuItemBuilder::with_id("file_new_window", "新建窗口")
+        .accelerator(NEW_WINDOW_ACCELERATOR)
+        .build(handle)?;
     let add_workspace_item =
         MenuItemBuilder::with_id("file_add_workspace", "添加工作区…").build(handle)?;
 
     registry.register("file_new_agent", &new_agent_item);
     registry.register("file_new_worktree_agent", &new_worktree_agent_item);
     registry.register("file_new_clone_agent", &new_clone_agent_item);
+    registry.register("file_new_window", &new_window_item);
     registry.register("file_add_workspace", &add_workspace_item);
 
     #[cfg(target_os = "linux")]
@@ -164,6 +170,7 @@ pub(crate) fn build_menu<R: tauri::Runtime>(
                 &new_agent_item,
                 &new_worktree_agent_item,
                 &new_clone_agent_item,
+                &new_window_item,
                 &PredefinedMenuItem::separator(handle)?,
                 &add_workspace_item,
                 &PredefinedMenuItem::separator(handle)?,
@@ -181,6 +188,7 @@ pub(crate) fn build_menu<R: tauri::Runtime>(
                 &new_agent_item,
                 &new_worktree_agent_item,
                 &new_clone_agent_item,
+                &new_window_item,
                 &PredefinedMenuItem::separator(handle)?,
                 &add_workspace_item,
                 &PredefinedMenuItem::separator(handle)?,
@@ -410,11 +418,6 @@ pub(crate) fn handle_menu_event<R: tauri::Runtime>(
         "check_for_updates" => {
             let _ = app.emit("updater-check", ());
         }
-        "file_new_agent" => emit_menu_event(app, "menu-new-agent"),
-        "file_new_worktree_agent" => emit_menu_event(app, "menu-new-worktree-agent"),
-        "file_new_clone_agent" => emit_menu_event(app, "menu-new-clone-agent"),
-        "file_add_workspace" => emit_menu_event(app, "menu-add-workspace"),
-        "file_open_settings" => emit_menu_event(app, "menu-open-settings"),
         "file_close_window" | "window_close" => {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.close();
@@ -429,19 +432,6 @@ pub(crate) fn handle_menu_event<R: tauri::Runtime>(
                 let _ = window.set_fullscreen(!is_fullscreen);
             }
         }
-        "view_toggle_projects_sidebar" => emit_menu_event(app, "menu-toggle-projects-sidebar"),
-        "view_toggle_git_sidebar" => emit_menu_event(app, "menu-toggle-git-sidebar"),
-        "view_toggle_global_search" => emit_menu_event(app, "menu-toggle-global-search"),
-        "view_toggle_debug_panel" => emit_menu_event(app, "menu-toggle-debug-panel"),
-        "view_toggle_terminal" => emit_menu_event(app, "menu-toggle-terminal"),
-        "view_next_agent" => emit_menu_event(app, "menu-next-agent"),
-        "view_prev_agent" => emit_menu_event(app, "menu-prev-agent"),
-        "view_next_workspace" => emit_menu_event(app, "menu-next-workspace"),
-        "view_prev_workspace" => emit_menu_event(app, "menu-prev-workspace"),
-        "composer_cycle_model" => emit_menu_event(app, "menu-composer-cycle-model"),
-        "composer_cycle_access" => emit_menu_event(app, "menu-composer-cycle-access"),
-        "composer_cycle_reasoning" => emit_menu_event(app, "menu-composer-cycle-reasoning"),
-        "composer_cycle_collaboration" => emit_menu_event(app, "menu-composer-cycle-collaboration"),
         "window_minimize" => {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.minimize();
@@ -452,7 +442,36 @@ pub(crate) fn handle_menu_event<R: tauri::Runtime>(
                 let _ = window.maximize();
             }
         }
-        _ => {}
+        menu_id => {
+            if let Some(menu_event_name) = menu_event_name_for_id(menu_id) {
+                emit_menu_event(app, menu_event_name);
+            }
+        }
+    }
+}
+
+fn menu_event_name_for_id(menu_id: &str) -> Option<&'static str> {
+    match menu_id {
+        "file_new_agent" => Some("menu-new-agent"),
+        "file_new_worktree_agent" => Some("menu-new-worktree-agent"),
+        "file_new_clone_agent" => Some("menu-new-clone-agent"),
+        "file_new_window" => Some("menu-new-window"),
+        "file_add_workspace" => Some("menu-add-workspace"),
+        "file_open_settings" => Some("menu-open-settings"),
+        "view_toggle_projects_sidebar" => Some("menu-toggle-projects-sidebar"),
+        "view_toggle_git_sidebar" => Some("menu-toggle-git-sidebar"),
+        "view_toggle_global_search" => Some("menu-toggle-global-search"),
+        "view_toggle_debug_panel" => Some("menu-toggle-debug-panel"),
+        "view_toggle_terminal" => Some("menu-toggle-terminal"),
+        "view_next_agent" => Some("menu-next-agent"),
+        "view_prev_agent" => Some("menu-prev-agent"),
+        "view_next_workspace" => Some("menu-next-workspace"),
+        "view_prev_workspace" => Some("menu-prev-workspace"),
+        "composer_cycle_model" => Some("menu-composer-cycle-model"),
+        "composer_cycle_access" => Some("menu-composer-cycle-access"),
+        "composer_cycle_reasoning" => Some("menu-composer-cycle-reasoning"),
+        "composer_cycle_collaboration" => Some("menu-composer-cycle-collaboration"),
+        _ => None,
     }
 }
 
@@ -463,5 +482,24 @@ fn emit_menu_event<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: &str) {
         let _ = window.emit(event, ());
     } else {
         let _ = app.emit(event, ());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{menu_event_name_for_id, NEW_WINDOW_ACCELERATOR};
+
+    #[test]
+    fn new_window_menu_shortcut_matches_expected() {
+        assert_eq!(NEW_WINDOW_ACCELERATOR, "CmdOrCtrl+Shift+N");
+    }
+
+    #[test]
+    fn menu_event_mapping_includes_new_window() {
+        assert_eq!(
+            menu_event_name_for_id("file_new_window"),
+            Some("menu-new-window")
+        );
+        assert_eq!(menu_event_name_for_id("unknown"), None);
     }
 }

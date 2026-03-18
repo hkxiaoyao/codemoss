@@ -39,7 +39,7 @@ use crate::git_utils::resolve_git_root;
 use crate::remote_backend;
 use crate::shared::workspaces_core;
 use crate::state::AppState;
-use crate::storage::write_workspaces;
+use crate::storage::write_workspaces_preserving_existing;
 use crate::types::{
     WorkspaceEntry, WorkspaceInfo, WorkspaceKind, WorkspaceSettings, WorktreeSetupStatus,
 };
@@ -746,7 +746,11 @@ async fn add_workspace_for_cli_engine(
         let mut workspaces = state.workspaces.lock().await;
         workspaces.insert(entry.id.clone(), entry.clone());
         let list: Vec<_> = workspaces.values().cloned().collect();
-        write_workspaces(&state.storage_path, &list)?;
+        let merged = write_workspaces_preserving_existing(&state.storage_path, &list)?;
+        *workspaces = merged
+            .into_iter()
+            .map(|workspace| (workspace.id.clone(), workspace))
+            .collect();
     }
 
     Ok(WorkspaceInfo {
@@ -867,7 +871,12 @@ pub(crate) async fn add_clone(
         let mut workspaces = state.workspaces.lock().await;
         workspaces.insert(entry.id.clone(), entry.clone());
         let list: Vec<_> = workspaces.values().cloned().collect();
-        write_workspaces(&state.storage_path, &list)
+        let merged = write_workspaces_preserving_existing(&state.storage_path, &list)?;
+        *workspaces = merged
+            .into_iter()
+            .map(|workspace| (workspace.id.clone(), workspace))
+            .collect();
+        Ok::<(), String>(())
     } {
         {
             let mut workspaces = state.workspaces.lock().await;
@@ -1573,6 +1582,97 @@ pub(crate) async fn open_workspace_in(
     ))
 }
 
+const DEFAULT_MACOS_APP_NAME: &str = "CodeMoss";
+
+fn normalize_new_window_path(path: Option<String>) -> Option<String> {
+    path.as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn format_exit_detail(code: Option<i32>) -> String {
+    code.map(|value| format!("exit code {value}"))
+        .unwrap_or_else(|| "terminated by signal".to_string())
+}
+
+fn format_open_new_window_failure(code: Option<i32>) -> String {
+    format!(
+        "Failed to open new app window (open returned {}).",
+        format_exit_detail(code)
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_macos_app_bundle_path() -> Option<PathBuf> {
+    let executable = std::env::current_exe().ok()?;
+    for ancestor in executable.ancestors() {
+        if ancestor
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+        {
+            return Some(ancestor.to_path_buf());
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn build_macos_new_window_open_args(
+    bundle_path: Option<&Path>,
+    workspace_path: Option<&str>,
+) -> Vec<String> {
+    let mut args = vec!["-n".to_string(), "-a".to_string()];
+    let app_target = bundle_path
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| DEFAULT_MACOS_APP_NAME.to_string());
+    args.push(app_target);
+    if let Some(path) = workspace_path {
+        args.push(path.to_string());
+    }
+    args
+}
+
+#[tauri::command]
+pub(crate) async fn open_new_window(path: Option<String>) -> Result<(), String> {
+    let trimmed_path = normalize_new_window_path(path);
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = crate::utils::std_command("open");
+        let args = build_macos_new_window_open_args(
+            resolve_macos_app_bundle_path().as_deref(),
+            trimmed_path.as_deref(),
+        );
+        command.args(args);
+        let status = command
+            .status()
+            .map_err(|error| format!("Failed to open new app window: {error}"))?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err(format_open_new_window_failure(status.code()));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let executable = std::env::current_exe()
+            .map_err(|error| format!("Failed to resolve current executable: {error}"))?;
+        let mut command = crate::utils::std_command(executable);
+        if let Some(path) = trimmed_path.as_deref() {
+            command.arg(path);
+        }
+        command.stdin(Stdio::null());
+        command.stdout(Stdio::null());
+        command.stderr(Stdio::null());
+        command
+            .spawn()
+            .map_err(|error| format!("Failed to open new app window: {error}"))?;
+        Ok(())
+    }
+}
+
 #[tauri::command]
 pub(crate) async fn get_open_app_icon(app_name: String) -> Result<Option<String>, String> {
     #[cfg(target_os = "macos")]
@@ -1591,5 +1691,72 @@ pub(crate) async fn get_open_app_icon(app_name: String) -> Result<Option<String>
     {
         let _ = app_name;
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        format_open_new_window_failure, normalize_new_window_path, DEFAULT_MACOS_APP_NAME,
+    };
+
+    #[cfg(target_os = "macos")]
+    use super::build_macos_new_window_open_args;
+    #[cfg(target_os = "macos")]
+    use std::path::Path;
+
+    #[test]
+    fn normalize_new_window_path_trims_and_drops_empty_values() {
+        assert_eq!(normalize_new_window_path(None), None);
+        assert_eq!(normalize_new_window_path(Some("".to_string())), None);
+        assert_eq!(normalize_new_window_path(Some("   ".to_string())), None);
+        assert_eq!(
+            normalize_new_window_path(Some("  /tmp/demo  ".to_string())),
+            Some("/tmp/demo".to_string())
+        );
+    }
+
+    #[test]
+    fn format_open_new_window_failure_reports_exit_detail() {
+        assert_eq!(
+            format_open_new_window_failure(Some(9)),
+            "Failed to open new app window (open returned exit code 9)."
+        );
+        assert_eq!(
+            format_open_new_window_failure(None),
+            "Failed to open new app window (open returned terminated by signal)."
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn build_macos_new_window_open_args_uses_workspace_path_when_provided() {
+        let args = build_macos_new_window_open_args(
+            Some(Path::new("/Applications/CodeMoss.app")),
+            Some("/tmp/project"),
+        );
+        assert_eq!(
+            args,
+            vec![
+                "-n".to_string(),
+                "-a".to_string(),
+                "/Applications/CodeMoss.app".to_string(),
+                "/tmp/project".to_string(),
+            ]
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn build_macos_new_window_open_args_falls_back_to_default_app_name() {
+        let args = build_macos_new_window_open_args(None, None);
+        assert_eq!(
+            args,
+            vec![
+                "-n".to_string(),
+                "-a".to_string(),
+                DEFAULT_MACOS_APP_NAME.to_string(),
+            ]
+        );
     }
 }

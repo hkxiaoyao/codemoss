@@ -1,8 +1,12 @@
 import type { RefObject } from "react";
 import { useCallback } from "react";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { useTranslation } from "react-i18next";
 import { useNewAgentShortcut } from "./useNewAgentShortcut";
+import { openNewWindow, pickWorkspacePath } from "../../../services/tauri";
 import type { DebugEntry, EngineType, WorkspaceInfo } from "../../../types";
+
+type WorkspaceOpenMode = "current-window" | "new-window";
 
 type Params = {
   activeWorkspace: WorkspaceInfo | null;
@@ -31,7 +35,7 @@ export function useWorkspaceActions({
   isCompact,
   activeEngine,
   setActiveEngine,
-  addWorkspace,
+  addWorkspace: _addWorkspace,
   addWorkspaceFromPath,
   connectWorkspace,
   startThreadForWorkspace,
@@ -71,24 +75,34 @@ export function useWorkspaceActions({
     [isCompact, setActiveTab, setActiveThreadId],
   );
 
-  const handleAddWorkspace = useCallback(async () => {
-    try {
-      const workspace = await addWorkspace();
-      if (workspace) {
-        handleWorkspaceAdded(workspace);
+  const resolveWorkspaceOpenMode = useCallback(async (): Promise<WorkspaceOpenMode> => {
+    const useCurrentWindow = await ask(t("workspace.addWorkspaceOpenModePrompt"), {
+      title: t("workspace.addWorkspaceOpenModeTitle"),
+      kind: "info",
+      okLabel: t("workspace.addWorkspaceOpenCurrent"),
+      cancelLabel: t("workspace.addWorkspaceOpenNewWindow"),
+    });
+    return useCurrentWindow ? "current-window" : "new-window";
+  }, [t]);
+
+  const handleOpenNewWindow = useCallback(
+    async (path?: string | null) => {
+      try {
+        await openNewWindow(path);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        onDebug({
+          id: `${Date.now()}-client-open-new-window-error`,
+          timestamp: Date.now(),
+          source: "error",
+          label: "workspace/open-new-window error",
+          payload: message,
+        });
+        alert(`${t("errors.failedToOpenNewWindow")}\n\n${localizeErrorMessage(message)}`);
       }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      onDebug({
-        id: `${Date.now()}-client-add-workspace-error`,
-        timestamp: Date.now(),
-        source: "error",
-        label: "workspace/add error",
-        payload: message,
-      });
-      alert(`${t("errors.failedToAddWorkspace")}\n\n${localizeErrorMessage(message)}`);
-    }
-  }, [addWorkspace, handleWorkspaceAdded, localizeErrorMessage, onDebug, t]);
+    },
+    [localizeErrorMessage, onDebug, t],
+  );
 
   const handleAddWorkspaceFromPath = useCallback(
     async (path: string) => {
@@ -111,6 +125,38 @@ export function useWorkspaceActions({
     },
     [addWorkspaceFromPath, handleWorkspaceAdded, localizeErrorMessage, onDebug, t],
   );
+
+  const handleAddWorkspace = useCallback(async () => {
+    try {
+      const path = await pickWorkspacePath();
+      if (!path) {
+        return;
+      }
+      const mode = await resolveWorkspaceOpenMode();
+      if (mode === "new-window") {
+        await handleOpenNewWindow(path);
+        return;
+      }
+      await handleAddWorkspaceFromPath(path);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      onDebug({
+        id: `${Date.now()}-client-add-workspace-error`,
+        timestamp: Date.now(),
+        source: "error",
+        label: "workspace/add error",
+        payload: message,
+      });
+      alert(`${t("errors.failedToAddWorkspace")}\n\n${localizeErrorMessage(message)}`);
+    }
+  }, [
+    handleAddWorkspaceFromPath,
+    handleOpenNewWindow,
+    localizeErrorMessage,
+    onDebug,
+    resolveWorkspaceOpenMode,
+    t,
+  ]);
 
   const handleAddAgent = useCallback(
     async (workspace: WorkspaceInfo, engine?: EngineType) => {
@@ -182,6 +228,7 @@ export function useWorkspaceActions({
 
   return {
     handleAddWorkspace,
+    handleOpenNewWindow,
     handleAddWorkspaceFromPath,
     handleAddAgent,
     handleAddWorktreeAgent,

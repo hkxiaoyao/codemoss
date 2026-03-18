@@ -7,6 +7,7 @@ type WorktreeCardProps = {
   worktree: WorkspaceInfo;
   isActive: boolean;
   hasPrimaryActiveThread: boolean;
+  hasRunningSession?: boolean;
   threadCount: number;
   hasThreadCursor: boolean;
   isDeleting?: boolean;
@@ -41,6 +42,7 @@ export function WorktreeCard({
   worktree,
   isActive,
   hasPrimaryActiveThread,
+  hasRunningSession = false,
   threadCount,
   hasThreadCursor,
   isDeleting = false,
@@ -91,7 +93,10 @@ export function WorktreeCard({
           }
         }}
       >
-        <GitBranch className="worktree-node-icon" aria-hidden />
+        <GitBranch
+          className={`worktree-node-icon${hasRunningSession ? " is-session-running" : ""}`}
+          aria-hidden
+        />
         <div className="worktree-label-wrap">
           {parsedName.prefix ? (
             <span className="worktree-label-prefix">{parsedName.prefix}</span>

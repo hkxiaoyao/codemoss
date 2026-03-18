@@ -25,6 +25,7 @@ import {
   updateWorkspaceSettings as updateWorkspaceSettingsService,
 } from "../../../services/tauri";
 import { isDefaultWorkspacePath } from "../utils/defaultWorkspace";
+import { isWindowsPlatform } from "../../../utils/platform";
 
 const GROUP_ID_RANDOM_MODULUS = 1_000_000;
 const RESERVED_GROUP_NAME = "Ungrouped";
@@ -92,6 +93,11 @@ function resolveDefaultBaseRefFromList(
   }
   const [first] = names;
   return first ?? "";
+}
+
+function normalizeWorkspacePathForComparison(path: string) {
+  const normalized = path.replace(/\\/g, "/").replace(/\/+$/, "");
+  return isWindowsPlatform() ? normalized.toLowerCase() : normalized;
 }
 
 export function useWorkspaces(options: UseWorkspacesOptions = {}) {
@@ -251,6 +257,15 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
       if (!selection) {
         return null;
       }
+      const normalizedSelection = normalizeWorkspacePathForComparison(selection);
+      const existingWorkspace = workspaces.find(
+        (entry) =>
+          normalizeWorkspacePathForComparison(entry.path) === normalizedSelection,
+      );
+      if (existingWorkspace) {
+        setActiveWorkspaceId(existingWorkspace.id);
+        return existingWorkspace;
+      }
       onDebug?.({
         id: `${Date.now()}-client-add-workspace`,
         timestamp: Date.now(),
@@ -274,7 +289,7 @@ export function useWorkspaces(options: UseWorkspacesOptions = {}) {
         throw error;
       }
     },
-    [defaultCodexBin, onDebug],
+    [defaultCodexBin, onDebug, workspaces],
   );
 
   const addWorkspace = useCallback(async () => {

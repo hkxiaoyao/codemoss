@@ -4,6 +4,7 @@ import {
   subscribeMenuAddWorkspace,
   subscribeMenuNewAgent,
   subscribeMenuNewCloneAgent,
+  subscribeMenuNewWindow,
   subscribeMenuNewWorktreeAgent,
   subscribeMenuOpenSettings,
   subscribeMenuPrevAgent,
@@ -22,6 +23,7 @@ type Params = {
   activeWorkspaceRef: MutableRefObject<WorkspaceInfo | null>;
   baseWorkspaceRef: MutableRefObject<WorkspaceInfo | null>;
   onAddWorkspace: () => void;
+  onNewWindow: () => void;
   onAddAgent: (workspace: WorkspaceInfo, engine?: EngineType) => void;
   onAddWorktreeAgent: (workspace: WorkspaceInfo) => void;
   onAddCloneAgent: (workspace: WorkspaceInfo) => void;
@@ -44,6 +46,7 @@ export function useAppMenuEvents({
   activeWorkspaceRef,
   baseWorkspaceRef,
   onAddWorkspace,
+  onNewWindow,
   onAddAgent,
   onAddWorktreeAgent,
   onAddCloneAgent,
@@ -84,6 +87,10 @@ export function useAppMenuEvents({
 
   useTauriEvent(subscribeMenuAddWorkspace, () => {
     onAddWorkspace();
+  });
+
+  useTauriEvent(subscribeMenuNewWindow, () => {
+    onNewWindow();
   });
 
   useTauriEvent(subscribeMenuOpenSettings, () => {

@@ -22,6 +22,7 @@ import {
   resetGitCommit,
   listWorkspaces,
   openWorkspaceIn,
+  openNewWindow,
   readAgentMd,
   renameThreadTitleKey,
   setThreadTitle,
@@ -288,6 +289,17 @@ describe("tauri invoke wrappers", () => {
       app: "Xcode",
       command: null,
       args: ["--reuse-window"],
+    });
+  });
+
+  it("maps openNewWindow payload", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({});
+
+    await openNewWindow("/tmp/project");
+
+    expect(invokeMock).toHaveBeenCalledWith("open_new_window", {
+      path: "/tmp/project",
     });
   });
 

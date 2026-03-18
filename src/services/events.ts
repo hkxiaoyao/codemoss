@@ -92,6 +92,7 @@ const updaterCheckHub = createEventHub<void>("updater-check");
 const menuNewAgentHub = createEventHub<void>("menu-new-agent");
 const menuNewWorktreeAgentHub = createEventHub<void>("menu-new-worktree-agent");
 const menuNewCloneAgentHub = createEventHub<void>("menu-new-clone-agent");
+const menuNewWindowHub = createEventHub<void>("menu-new-window");
 const menuAddWorkspaceHub = createEventHub<void>("menu-add-workspace");
 const menuOpenSettingsHub = createEventHub<void>("menu-open-settings");
 const menuToggleProjectsSidebarHub = createEventHub<void>("menu-toggle-projects-sidebar");
@@ -196,6 +197,15 @@ export function subscribeMenuNewCloneAgent(
   options?: SubscriptionOptions,
 ): Unsubscribe {
   return menuNewCloneAgentHub.subscribe(() => {
+    onEvent();
+  }, options);
+}
+
+export function subscribeMenuNewWindow(
+  onEvent: () => void,
+  options?: SubscriptionOptions,
+): Unsubscribe {
+  return menuNewWindowHub.subscribe(() => {
     onEvent();
   }, options);
 }

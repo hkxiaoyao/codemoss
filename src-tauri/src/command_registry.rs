@@ -122,6 +122,7 @@ pub(crate) fn invoke_handler(
         crate::workspaces::run_workspace_command,
         crate::workspaces::run_spec_command,
         crate::workspaces::open_workspace_in,
+        crate::workspaces::open_new_window,
         crate::workspaces::get_open_app_icon,
         // Git
         crate::git::get_git_status,

@@ -244,4 +244,62 @@ describe("Sidebar", () => {
 
     expect(screen.getByText("Pinned Restored")).toBeTruthy();
   });
+
+  it("adds running animation class to project icon when any session is processing", () => {
+    const workspace = {
+      id: "ws-root",
+      name: "codemoss",
+      path: "/tmp/codemoss",
+      connected: true,
+      kind: "main" as const,
+      settings: {
+        sidebarCollapsed: false,
+        worktreeSetupScript: null,
+      },
+    };
+    const worktree = {
+      id: "ws-worktree",
+      name: "codemoss/worktree",
+      path: "/tmp/codemoss-worktree",
+      connected: true,
+      parentId: "ws-root",
+      kind: "worktree" as const,
+      settings: {
+        sidebarCollapsed: false,
+        worktreeSetupScript: null,
+      },
+      worktree: {
+        branch: "feature/running",
+      },
+    };
+    const runningThread = {
+      id: "thread-running",
+      name: "Running thread",
+      updatedAt: 123,
+    };
+
+    const { container } = render(
+      <Sidebar
+        {...baseProps}
+        workspaces={[workspace, worktree]}
+        groupedWorkspaces={[
+          {
+            id: null,
+            name: "Ungrouped",
+            workspaces: [workspace],
+          },
+        ]}
+        threadsByWorkspace={{ "ws-worktree": [runningThread] }}
+        threadStatusById={{
+          "thread-running": { isProcessing: true, hasUnread: false, isReviewing: false },
+        }}
+      />,
+    );
+
+    const rootWorkspaceCard = container.querySelector(".workspace-card");
+    const projectIcon = rootWorkspaceCard?.querySelector(".workspace-folder-btn");
+    expect(projectIcon?.classList.contains("is-session-running")).toBe(true);
+    const worktreeIcon = container.querySelector(".worktree-node-icon");
+    expect(worktreeIcon?.classList.contains("is-session-running")).toBe(true);
+  });
 });

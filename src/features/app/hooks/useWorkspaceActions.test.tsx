@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceInfo } from "../../../types";
 import { useWorkspaceActions } from "./useWorkspaceActions";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { openNewWindow, pickWorkspacePath } from "../../../services/tauri";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -12,6 +14,15 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("./useNewAgentShortcut", () => ({
   useNewAgentShortcut: vi.fn(),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  ask: vi.fn(),
+}));
+
+vi.mock("../../../services/tauri", () => ({
+  openNewWindow: vi.fn(async () => undefined),
+  pickWorkspacePath: vi.fn(async () => null),
 }));
 
 const baseWorkspace: WorkspaceInfo = {
@@ -45,6 +56,10 @@ function makeOptions(overrides?: Partial<Parameters<typeof useWorkspaceActions>[
 }
 
 describe("useWorkspaceActions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("uses selected engine for new session and switches active engine first", async () => {
     const workspace: WorkspaceInfo = { ...baseWorkspace, connected: false };
     const options = makeOptions({ activeEngine: "claude" });
@@ -76,5 +91,55 @@ describe("useWorkspaceActions", () => {
     expect(options.startThreadForWorkspace).toHaveBeenCalledWith("ws-1", {
       engine: "opencode",
     });
+  });
+
+  it("adds workspace to current window when open mode is current", async () => {
+    vi.mocked(pickWorkspacePath).mockResolvedValue("/tmp/new-repo");
+    vi.mocked(ask).mockResolvedValueOnce(true);
+    const options = makeOptions({
+      addWorkspaceFromPath: vi.fn(async () => ({
+        id: "ws-2",
+        name: "new-repo",
+        path: "/tmp/new-repo",
+        connected: true,
+        settings: { sidebarCollapsed: false },
+      })),
+    });
+    const { result } = renderHook(() => useWorkspaceActions(options));
+
+    await act(async () => {
+      await result.current.handleAddWorkspace();
+    });
+
+    expect(options.addWorkspaceFromPath).toHaveBeenCalledWith("/tmp/new-repo");
+    expect(openNewWindow).not.toHaveBeenCalled();
+  });
+
+  it("opens new window when mode is new-window", async () => {
+    vi.mocked(pickWorkspacePath).mockResolvedValue("/tmp/new-repo");
+    vi.mocked(ask).mockResolvedValueOnce(false);
+    const options = makeOptions();
+    const { result } = renderHook(() => useWorkspaceActions(options));
+
+    await act(async () => {
+      await result.current.handleAddWorkspace();
+    });
+
+    expect(openNewWindow).toHaveBeenCalledWith("/tmp/new-repo");
+    expect(options.addWorkspaceFromPath).not.toHaveBeenCalled();
+  });
+
+  it("asks user for mode once on each add workspace flow", async () => {
+    vi.mocked(pickWorkspacePath).mockResolvedValue("/tmp/new-repo");
+    vi.mocked(ask).mockResolvedValueOnce(false);
+    const options = makeOptions();
+    const { result } = renderHook(() => useWorkspaceActions(options));
+
+    await act(async () => {
+      await result.current.handleAddWorkspace();
+    });
+
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(openNewWindow).toHaveBeenCalledWith("/tmp/new-repo");
   });
 });

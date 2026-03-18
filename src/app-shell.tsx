@@ -2676,6 +2676,7 @@ export function AppShell() {
 
   const {
     handleAddWorkspace,
+    handleOpenNewWindow,
     handleAddWorkspaceFromPath,
     handleAddAgent,
     handleAddWorktreeAgent,
@@ -2872,7 +2873,7 @@ export function AppShell() {
     gitLogUpstream, gitPanelMode, gitPullRequestComments, gitPullRequestCommentsError, gitPullRequestCommentsLoading, gitPullRequestDiffs, gitPullRequestDiffsError, gitPullRequestDiffsLoading,
     gitPullRequests, gitPullRequestsError, gitPullRequestsLoading, gitPullRequestsTotal, gitRemoteUrl, gitRootCandidates, gitRootScanDepth, gitRootScanError,
     gitRootScanHasScanned, gitRootScanLoading, gitStatus, gitignoredDirectories, gitignoredFiles, globalSearchFilesByWorkspace, group, groupId,
-    groupedWorkspaces, handleActivateFileTab, handleActiveDiffPath, handleAddAgent, handleAddCloneAgent, handleAddWorkspace, handleAddWorkspaceFromPath, handleAddWorktreeAgent,
+    groupedWorkspaces, handleActivateFileTab, handleActiveDiffPath, handleAddAgent, handleAddCloneAgent, handleAddWorkspace, handleOpenNewWindow, handleAddWorkspaceFromPath, handleAddWorktreeAgent,
     handleAppModeChange, handleApplyWorktreeChanges, handleApprovalDecision, handleApprovalRemember, handleArchiveActiveThread, handleCancelSwitchAccount, handleCheckoutBranch, handleCloseAllFileTabs,
     handleCloseFileTab, handleCollaborationModeResolved, handleCommit, handleCommitAndPush, handleCommitAndSync, handleCommitMessageChange, handleCopyDebug, handleCopyThread,
     handleCreateBranch, handleCreatePrompt, handleDebugClick, handleDeletePrompt, handleDeleteQueued, handleDeleteThreadPromptCancel, handleDeleteThreadPromptConfirm, handleDraftChange,
