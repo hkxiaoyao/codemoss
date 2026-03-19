@@ -79,7 +79,7 @@ describe("workspacePaths", () => {
     });
   });
 
-  it("marks unsupported absolute paths outside workspace and spec root", () => {
+  it("routes absolute paths outside workspace and spec root to external-absolute domain", () => {
     expect(
       resolveFileReadTarget(
         "/repo",
@@ -87,9 +87,23 @@ describe("workspacePaths", () => {
         "/spec-root",
       ),
     ).toEqual({
-      domain: "unsupported-external",
+      domain: "external-absolute",
       normalizedInputPath: "/another-project/src/App.tsx",
       workspaceRelativePath: "/another-project/src/App.tsx",
+    });
+  });
+
+  it("marks empty input path as invalid", () => {
+    expect(
+      resolveFileReadTarget(
+        "/repo",
+        "   ",
+        "/spec-root",
+      ),
+    ).toEqual({
+      domain: "invalid",
+      normalizedInputPath: "",
+      workspaceRelativePath: "",
     });
   });
 });

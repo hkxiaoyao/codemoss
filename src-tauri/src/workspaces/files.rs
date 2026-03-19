@@ -1028,6 +1028,44 @@ pub(crate) fn read_workspace_file_inner(
     Ok(WorkspaceFileResponse { content, truncated })
 }
 
+pub(crate) fn read_external_absolute_file_inner(
+    absolute_path: &str,
+) -> Result<WorkspaceFileResponse, String> {
+    let trimmed = absolute_path.trim();
+    if trimmed.is_empty() {
+        return Err("Invalid file path".to_string());
+    }
+
+    let raw_path = PathBuf::from(trimmed);
+    if !raw_path.is_absolute() {
+        return Err("Invalid file path".to_string());
+    }
+
+    let canonical_path = raw_path
+        .canonicalize()
+        .map_err(|err| format!("Failed to open file: {err}"))?;
+
+    let metadata = std::fs::metadata(&canonical_path)
+        .map_err(|err| format!("Failed to read file metadata: {err}"))?;
+    if !metadata.is_file() {
+        return Err("Path is not a file".to_string());
+    }
+
+    let file = File::open(&canonical_path).map_err(|err| format!("Failed to open file: {err}"))?;
+    let mut buffer = Vec::new();
+    file.take(MAX_WORKSPACE_FILE_BYTES + 1)
+        .read_to_end(&mut buffer)
+        .map_err(|err| format!("Failed to read file: {err}"))?;
+
+    let truncated = buffer.len() > MAX_WORKSPACE_FILE_BYTES as usize;
+    if truncated {
+        buffer.truncate(MAX_WORKSPACE_FILE_BYTES as usize);
+    }
+
+    let content = decode_text_bytes(&buffer, "File")?;
+    Ok(WorkspaceFileResponse { content, truncated })
+}
+
 pub(crate) fn write_workspace_file_inner(
     root: &PathBuf,
     relative_path: &str,
@@ -1221,8 +1259,8 @@ mod tests {
         list_external_spec_tree_inner, list_workspace_directory_children_inner,
         list_workspace_files_inner,
         normalize_workspace_relative_path, read_external_spec_file_inner,
-        read_workspace_file_inner, search_workspace_text_inner, sort_and_truncate_named_entries,
-        WorkspaceTextSearchOptions,
+        read_external_absolute_file_inner, read_workspace_file_inner, search_workspace_text_inner,
+        sort_and_truncate_named_entries, WorkspaceTextSearchOptions,
     };
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1445,6 +1483,31 @@ mod tests {
         assert!(!response.truncated);
 
         std::fs::remove_dir_all(&root).expect("cleanup root");
+    }
+
+    #[test]
+    fn read_external_absolute_file_decodes_gb18030_text() {
+        let root = std::env::temp_dir().join(format!("mossx-read-absolute-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(root.join("docs")).expect("create docs");
+        let (encoded, _, had_errors) = encoding_rs::GB18030.encode("外部绝对路径可读取");
+        assert!(!had_errors, "encode should succeed");
+        let file_path = root.join("docs/skill.md");
+        std::fs::write(&file_path, encoded.as_ref()).expect("write file");
+
+        let response = read_external_absolute_file_inner(file_path.to_str().expect("file path"))
+            .expect("read file");
+
+        assert_eq!(response.content, "外部绝对路径可读取");
+        assert!(!response.truncated);
+
+        std::fs::remove_dir_all(&root).expect("cleanup root");
+    }
+
+    #[test]
+    fn read_external_absolute_file_rejects_relative_path() {
+        let result = read_external_absolute_file_inner("relative/path.md");
+        assert!(result.is_err());
+        assert_eq!(result.err().as_deref(), Some("Invalid file path"));
     }
 
     #[test]

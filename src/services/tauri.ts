@@ -1250,6 +1250,16 @@ export async function readExternalSpecFile(
   });
 }
 
+export async function readExternalAbsoluteFile(
+  workspaceId: string,
+  path: string,
+): Promise<{ content: string; truncated: boolean }> {
+  return invoke<{ content: string; truncated: boolean }>("read_external_absolute_file", {
+    workspaceId,
+    path,
+  });
+}
+
 export async function writeWorkspaceFile(
   workspaceId: string,
   path: string,

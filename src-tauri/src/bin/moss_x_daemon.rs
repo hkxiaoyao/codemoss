@@ -618,6 +618,20 @@ impl DaemonState {
         read_external_spec_file_inner(&spec_root, &path)
     }
 
+    async fn read_external_absolute_file(
+        &self,
+        workspace_id: String,
+        path: String,
+    ) -> Result<WorkspaceFileResponse, String> {
+        {
+            let workspaces = self.workspaces.lock().await;
+            if !workspaces.contains_key(&workspace_id) {
+                return Err(format!("Workspace not found: {workspace_id}"));
+            }
+        }
+        read_external_absolute_file_inner(&path)
+    }
+
     async fn write_external_spec_file(
         &self,
         workspace_id: String,
@@ -1783,6 +1797,42 @@ fn read_workspace_file_inner(
     Ok(WorkspaceFileResponse { content, truncated })
 }
 
+fn read_external_absolute_file_inner(absolute_path: &str) -> Result<WorkspaceFileResponse, String> {
+    let trimmed = absolute_path.trim();
+    if trimmed.is_empty() {
+        return Err("Invalid file path".to_string());
+    }
+
+    let raw_path = PathBuf::from(trimmed);
+    if !raw_path.is_absolute() {
+        return Err("Invalid file path".to_string());
+    }
+
+    let canonical_path = raw_path
+        .canonicalize()
+        .map_err(|err| format!("Failed to open file: {err}"))?;
+
+    let metadata = std::fs::metadata(&canonical_path)
+        .map_err(|err| format!("Failed to read file metadata: {err}"))?;
+    if !metadata.is_file() {
+        return Err("Path is not a file".to_string());
+    }
+
+    let file = File::open(&canonical_path).map_err(|err| format!("Failed to open file: {err}"))?;
+    let mut buffer = Vec::new();
+    file.take(MAX_WORKSPACE_FILE_BYTES + 1)
+        .read_to_end(&mut buffer)
+        .map_err(|err| format!("Failed to read file: {err}"))?;
+
+    let truncated = buffer.len() > MAX_WORKSPACE_FILE_BYTES as usize;
+    if truncated {
+        buffer.truncate(MAX_WORKSPACE_FILE_BYTES as usize);
+    }
+
+    let content = decode_text_bytes(&buffer, "File")?;
+    Ok(WorkspaceFileResponse { content, truncated })
+}
+
 fn default_data_dir() -> PathBuf {
     if let Ok(xdg) = env::var("XDG_DATA_HOME") {
         let trimmed = xdg.trim();
@@ -2141,6 +2191,12 @@ async fn handle_rpc_request(
             let response = state
                 .read_external_spec_file(workspace_id, spec_root, path)
                 .await?;
+            serde_json::to_value(response).map_err(|err| err.to_string())
+        }
+        "read_external_absolute_file" => {
+            let workspace_id = parse_string(&params, "workspaceId")?;
+            let path = parse_string(&params, "path")?;
+            let response = state.read_external_absolute_file(workspace_id, path).await?;
             serde_json::to_value(response).map_err(|err| err.to_string())
         }
         "write_external_spec_file" => {

@@ -739,6 +739,50 @@ describe("buildWorkspaceSessionActivity", () => {
     });
   });
 
+  it("keeps mixed external-spec and external-absolute read jump targets in one timeline", () => {
+    const threads: ThreadSummary[] = [{ id: "root", name: "Root", updatedAt: 1000 }];
+    const itemsByThread = {
+      root: [
+        toolItem("tool-read-spec", {
+          toolType: "mcpToolCall",
+          title: "Tool: read",
+          detail: JSON.stringify({
+            path: "openspec/project.md",
+            cwd: "/Users/test/code/codemoss-openspec",
+          }),
+          status: "started",
+        }),
+        toolItem("tool-read-skill", {
+          toolType: "mcpToolCall",
+          title: "Tool: read",
+          detail: JSON.stringify({
+            path: "SKILL.md",
+            cwd: "/Users/test/.codex/skills/openspec-apply-change",
+          }),
+          status: "started",
+        }),
+      ],
+    };
+
+    const result = buildWorkspaceSessionActivity({
+      activeThreadId: "root",
+      threads,
+      itemsByThread,
+      threadParentById: {},
+      threadStatusById: { root: { isProcessing: true } },
+    });
+
+    const fileEvents = result.timeline.filter((event) => event.jumpTarget?.type === "file");
+    const filePaths = fileEvents
+      .map((event) =>
+        event.jumpTarget?.type === "file" ? event.jumpTarget.path : "",
+      )
+      .filter(Boolean);
+
+    expect(filePaths).toContain("/Users/test/code/codemoss-openspec/openspec/project.md");
+    expect(filePaths).toContain("/Users/test/.codex/skills/openspec-apply-change/SKILL.md");
+  });
+
   it("treats namespaced exec_command tool as command event", () => {
     const threads: ThreadSummary[] = [{ id: "claude-pending-1", name: "Claude", updatedAt: 1000 }];
     const itemsByThread = {

@@ -43,6 +43,7 @@ import {
 import {
   getCodeIntelDefinition,
   getCodeIntelReferences,
+  readExternalAbsoluteFile,
   getGitFileFullDiff,
   readExternalSpecFile,
   readWorkspaceFile,
@@ -696,7 +697,7 @@ export function FileViewPanel({
     setIsLoading(true);
     setError(null);
 
-    if (fileReadTarget.domain === "unsupported-external") {
+    if (fileReadTarget.domain === "invalid") {
       setError("Invalid file path");
       setIsLoading(false);
       return;
@@ -717,6 +718,11 @@ export function FileViewPanel({
               truncated: Boolean(response.truncated),
             };
           })
+        : fileReadTarget.domain === "external-absolute"
+          ? readExternalAbsoluteFile(
+              workspaceId,
+              fileReadTarget.normalizedInputPath,
+            )
         : readWorkspaceFile(workspaceId, workspaceRelativeFilePath);
 
     readPromise
@@ -859,7 +865,9 @@ export function FileViewPanel({
           fileReadTarget.externalSpecLogicalPath,
           content,
         );
-      } else if (fileReadTarget.domain === "unsupported-external") {
+      } else if (fileReadTarget.domain === "external-absolute") {
+        throw new Error(t("files.externalAbsoluteReadOnly"));
+      } else if (fileReadTarget.domain === "invalid") {
         throw new Error("Invalid file path");
       } else {
         await writeWorkspaceFile(workspaceId, workspaceRelativeFilePath, content);

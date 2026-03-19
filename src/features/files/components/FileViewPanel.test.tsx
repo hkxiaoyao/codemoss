@@ -6,6 +6,7 @@ import {
   getCodeIntelDefinition,
   getCodeIntelReferences,
   getGitFileFullDiff,
+  readExternalAbsoluteFile,
   readExternalSpecFile,
   readWorkspaceFile,
   writeExternalSpecFile,
@@ -114,6 +115,7 @@ vi.mock("../../../components/FileIcon", () => ({
 vi.mock("../../../services/tauri", () => ({
   readWorkspaceFile: vi.fn(),
   readExternalSpecFile: vi.fn(),
+  readExternalAbsoluteFile: vi.fn(),
   writeWorkspaceFile: vi.fn(),
   writeExternalSpecFile: vi.fn(),
   getGitFileFullDiff: vi.fn(),
@@ -523,10 +525,15 @@ describe("FileViewPanel navigation", () => {
     expect(writeWorkspaceFile).not.toHaveBeenCalled();
   });
 
-  it("shows recoverable error for unsupported external absolute path", async () => {
+  it("reads file content via external absolute route when path is outside workspace and spec root", async () => {
+    vi.mocked(readExternalAbsoluteFile).mockResolvedValue({
+      content: "export const external = true;",
+      truncated: false,
+    });
+
     render(
       <FileViewPanel
-        workspaceId="ws-unsupported-external"
+        workspaceId="ws-external-absolute"
         workspacePath="/repo"
         customSpecRoot="/spec-root"
         filePath="/another-project/src/App.tsx"
@@ -538,11 +545,43 @@ describe("FileViewPanel navigation", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText("Invalid file path")).toBeTruthy();
-    });
+    await screen.findByTestId("mock-codemirror");
+    expect(readExternalAbsoluteFile).toHaveBeenCalledWith(
+      "ws-external-absolute",
+      "/another-project/src/App.tsx",
+    );
     expect(readWorkspaceFile).not.toHaveBeenCalled();
     expect(readExternalSpecFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps external absolute files read-only on save", async () => {
+    vi.mocked(readExternalAbsoluteFile).mockResolvedValue({
+      content: "const a = 1;",
+      truncated: false,
+    });
+
+    render(
+      <FileViewPanel
+        workspaceId="ws-external-absolute-save"
+        workspacePath="/repo"
+        customSpecRoot="/spec-root"
+        filePath="/another-project/src/App.tsx"
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const editor = (await screen.findByTestId("mock-codemirror")) as HTMLTextAreaElement;
+    fireEvent.change(editor, { target: { value: "const a = 2;" } });
+    fireEvent.click(screen.getByRole("button", { name: /save|files\.save/i }));
+
+    await waitFor(() => {
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      expect(writeExternalSpecFile).not.toHaveBeenCalled();
+    });
   });
 });
 

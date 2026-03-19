@@ -12,10 +12,10 @@ use uuid::Uuid;
 use super::files::{
     copy_workspace_item_inner, create_workspace_directory_inner, list_external_spec_tree_inner,
     list_workspace_directory_children_inner, list_workspace_files_inner,
-    read_external_spec_file_inner, read_workspace_file_inner, search_workspace_text_inner,
-    trash_workspace_item_inner, write_external_spec_file_inner, write_workspace_file_inner,
-    ExternalSpecFileResponse, WorkspaceFileResponse, WorkspaceFilesResponse,
-    WorkspaceTextSearchOptions, WorkspaceTextSearchResponse,
+    read_external_absolute_file_inner, read_external_spec_file_inner, read_workspace_file_inner,
+    search_workspace_text_inner, trash_workspace_item_inner, write_external_spec_file_inner,
+    write_workspace_file_inner, ExternalSpecFileResponse, WorkspaceFileResponse,
+    WorkspaceFilesResponse, WorkspaceTextSearchOptions, WorkspaceTextSearchResponse,
 };
 use super::git::{
     git_branch_exists, git_find_remote_for_branch, git_get_origin_url, git_remote_branch_exists,
@@ -449,6 +449,34 @@ pub(crate) async fn read_external_spec_file(
     }
 
     read_external_spec_file_inner(&spec_root, &path)
+}
+
+#[tauri::command]
+pub(crate) async fn read_external_absolute_file(
+    workspace_id: String,
+    path: String,
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<WorkspaceFileResponse, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let response = remote_backend::call_remote(
+            &*state,
+            app,
+            "read_external_absolute_file",
+            json!({ "workspaceId": workspace_id, "path": path }),
+        )
+        .await?;
+        return serde_json::from_value(response).map_err(|err| err.to_string());
+    }
+
+    {
+        let workspaces = state.workspaces.lock().await;
+        if !workspaces.contains_key(&workspace_id) {
+            return Err(format!("Workspace not found: {workspace_id}"));
+        }
+    }
+
+    read_external_absolute_file_inner(&path)
 }
 
 #[tauri::command]
