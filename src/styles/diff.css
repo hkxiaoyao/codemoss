@@ -132,7 +132,7 @@
   min-height: 24px;
   padding: 4px 2px 5px;
   border: none;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--text-faint);
@@ -147,7 +147,6 @@
 
 .git-panel-select-trigger:hover {
   color: var(--text-emphasis);
-  border-bottom-color: color-mix(in srgb, var(--border-default, #d1d5db) 80%, transparent);
 }
 
 .git-panel-select-trigger.is-open {
@@ -158,7 +157,6 @@
 .git-panel-select-trigger:focus-visible {
   outline: none;
   color: var(--text-accent, #7a9dcc);
-  border-bottom-color: var(--text-accent, #7a9dcc);
 }
 
 .git-panel-select-icon {
@@ -545,7 +543,7 @@
   align-items: center;
   gap: 4px;
   border: none;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 2px solid transparent;
   border-radius: 0;
   padding: 4px 2px 5px;
   font-size: 11px;
@@ -560,7 +558,6 @@
 
 .diff-list-view-button:hover {
   color: var(--text-emphasis);
-  border-bottom-color: color-mix(in srgb, var(--text-accent, #7a9dcc) 60%, var(--border-subtle));
 }
 
 .diff-list-view-button.active {
@@ -577,7 +574,7 @@
   justify-content: center;
   gap: 4px;
   border: none;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 2px solid transparent;
   border-radius: 0;
   min-width: 16px;
   min-height: 24px;
@@ -590,7 +587,6 @@
 
 .diff-list-view-collapse-toggle:hover {
   color: var(--text-emphasis);
-  border-bottom-color: color-mix(in srgb, var(--text-accent, #7a9dcc) 60%, var(--border-subtle));
 }
 
 .diff-list-view-collapse-toggle.active {
@@ -604,7 +600,7 @@
   align-items: center;
   gap: 4px;
   border: none;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--text-faint);
@@ -618,18 +614,17 @@
 
 .git-panel-history-button:hover {
   color: var(--text-emphasis);
-  border-bottom-color: color-mix(in srgb, var(--text-accent, #7a9dcc) 60%, var(--border-subtle));
 }
 
 .git-panel-history-button.is-active {
   color: var(--text-accent, #7a9dcc);
   border-bottom-color: var(--text-accent, #7a9dcc);
+  border-bottom-width: 2px;
 }
 
 .git-panel-history-button:focus-visible {
   outline: none;
   color: var(--text-accent, #7a9dcc);
-  border-bottom-color: var(--text-accent, #7a9dcc);
 }
 
 .diff-status-issues {

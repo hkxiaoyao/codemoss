@@ -166,8 +166,14 @@ type ExternalSpecFileReadTarget = {
   externalSpecLogicalPath: string;
 };
 
-type UnsupportedExternalFileReadTarget = {
-  domain: "unsupported-external";
+type ExternalAbsoluteFileReadTarget = {
+  domain: "external-absolute";
+  normalizedInputPath: string;
+  workspaceRelativePath: string;
+};
+
+type InvalidFileReadTarget = {
+  domain: "invalid";
   normalizedInputPath: string;
   workspaceRelativePath: string;
 };
@@ -175,7 +181,8 @@ type UnsupportedExternalFileReadTarget = {
 export type FileReadTarget =
   | WorkspaceFileReadTarget
   | ExternalSpecFileReadTarget
-  | UnsupportedExternalFileReadTarget;
+  | ExternalAbsoluteFileReadTarget
+  | InvalidFileReadTarget;
 
 export function resolveFileReadTarget(
   workspacePath: string | null | undefined,
@@ -183,6 +190,13 @@ export function resolveFileReadTarget(
   customSpecRoot?: string | null,
 ): FileReadTarget {
   const normalizedInputPath = normalizeExtendedFsPath(inputPath);
+  if (!normalizedInputPath) {
+    return {
+      domain: "invalid",
+      normalizedInputPath,
+      workspaceRelativePath: "",
+    };
+  }
   const workspaceRelativePath = resolveWorkspaceRelativePath(
     workspacePath,
     normalizedInputPath,
@@ -232,7 +246,7 @@ export function resolveFileReadTarget(
 
   if (isLikelyAbsoluteFsPath(normalizedInputPath)) {
     return {
-      domain: "unsupported-external",
+      domain: "external-absolute",
       normalizedInputPath,
       workspaceRelativePath,
     };

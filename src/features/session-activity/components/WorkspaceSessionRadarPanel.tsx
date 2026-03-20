@@ -8,6 +8,11 @@ import { useTranslation } from "react-i18next";
 import type { SessionRadarEntry } from "../hooks/useSessionRadarFeed";
 import { getClientStoreSync, writeClientStoreValue } from "../../../services/clientStorage";
 import { EngineIcon } from "../../engine/components/EngineIcon";
+import {
+  RADAR_STORE_NAME,
+  SESSION_RADAR_COLLAPSED_DATE_GROUPS_KEY,
+  SESSION_RADAR_READ_STATE_KEY,
+} from "../utils/sessionRadarPersistence";
 
 type WorkspaceSessionRadarPanelProps = {
   runningSessions: SessionRadarEntry[];
@@ -15,9 +20,18 @@ type WorkspaceSessionRadarPanelProps = {
   onSelectThread: (workspaceId: string, threadId: string) => void;
 };
 
-const RADAR_READ_STATE_KEY = "sessionRadar.readStateById";
-const RADAR_DATE_COLLAPSE_STATE_KEY = "sessionRadar.collapsedDateGroups";
-const RADAR_STORE_NAME = "leida";
+const WORKSPACE_ACCENT_PALETTE = [
+  "#c2410c",
+  "#d97706",
+  "#ca8a04",
+  "#a16207",
+  "#b45309",
+  "#9a3412",
+  "#be123c",
+  "#a21caf",
+  "#7c2d12",
+  "#78350f",
+];
 
 function formatActivityTime(timestamp: number) {
   return new Intl.DateTimeFormat(undefined, {
@@ -45,6 +59,29 @@ function formatDuration(durationMs: number | null, t: ReturnType<typeof useTrans
   return `${restSeconds}s`;
 }
 
+function resolveDurationToneClass(durationMs: number | null) {
+  if (durationMs == null) {
+    return "is-unknown";
+  }
+  const totalMinutes = durationMs / (60 * 1000);
+  if (totalMinutes < 1) {
+    return "is-seconds";
+  }
+  if (totalMinutes <= 5) {
+    return "is-lt-5m";
+  }
+  if (totalMinutes <= 10) {
+    return "is-lt-10m";
+  }
+  if (totalMinutes <= 20) {
+    return "is-lt-20m";
+  }
+  if (totalMinutes <= 30) {
+    return "is-lt-30m";
+  }
+  return "is-gt-30m";
+}
+
 function formatDateKey(timestamp: number) {
   const date = new Date(timestamp);
   const year = date.getFullYear();
@@ -53,18 +90,36 @@ function formatDateKey(timestamp: number) {
   return `${year}-${month}-${day}`;
 }
 
+function resolveWorkspaceAccent(workspaceSeed: string) {
+  if (!workspaceSeed) {
+    return WORKSPACE_ACCENT_PALETTE[0];
+  }
+  let hash = 0;
+  for (let index = 0; index < workspaceSeed.length; index += 1) {
+    hash = (hash * 31 + workspaceSeed.charCodeAt(index)) | 0;
+  }
+  const paletteIndex = Math.abs(hash) % WORKSPACE_ACCENT_PALETTE.length;
+  return WORKSPACE_ACCENT_PALETTE[paletteIndex];
+}
+
 export function WorkspaceSessionRadarPanel({
   runningSessions,
   recentCompletedSessions,
   onSelectThread,
 }: WorkspaceSessionRadarPanelProps) {
   const { t } = useTranslation();
+  const [previewExpandedById, setPreviewExpandedById] = useState<Record<string, boolean>>({});
   const [readStateById, setReadStateById] = useState<Record<string, number>>(
-    () => getClientStoreSync<Record<string, number>>(RADAR_STORE_NAME, RADAR_READ_STATE_KEY) ?? {},
+    () =>
+      getClientStoreSync<Record<string, number>>(RADAR_STORE_NAME, SESSION_RADAR_READ_STATE_KEY) ??
+      {},
   );
   const [collapsedDateGroups, setCollapsedDateGroups] = useState<Record<string, boolean>>(
     () =>
-      getClientStoreSync<Record<string, boolean>>(RADAR_STORE_NAME, RADAR_DATE_COLLAPSE_STATE_KEY) ??
+      getClientStoreSync<Record<string, boolean>>(
+        RADAR_STORE_NAME,
+        SESSION_RADAR_COLLAPSED_DATE_GROUPS_KEY,
+      ) ??
       {},
   );
   const headerSummary = useMemo(
@@ -82,7 +137,9 @@ export function WorkspaceSessionRadarPanel({
     }
     setReadStateById((current) => {
       const next = { ...current, [entry.id]: Date.now() };
-      writeClientStoreValue(RADAR_STORE_NAME, RADAR_READ_STATE_KEY, next, { immediate: true });
+      writeClientStoreValue(RADAR_STORE_NAME, SESSION_RADAR_READ_STATE_KEY, next, {
+        immediate: true,
+      });
       return next;
     });
   };
@@ -100,6 +157,15 @@ export function WorkspaceSessionRadarPanel({
 
   const renderReadMarkerIcon = (isUnreadRecent: boolean) =>
     isUnreadRecent ? <BellDot size={11} aria-hidden /> : <CheckCheck size={11} aria-hidden />;
+
+  const togglePreviewAndSelectThread = (entry: SessionRadarEntry) => {
+    markEntryAsRead(entry);
+    setPreviewExpandedById((current) => {
+      const nextExpanded = !current[entry.id];
+      return { ...current, [entry.id]: nextExpanded };
+    });
+    onSelectThread(entry.workspaceId, entry.threadId);
+  };
 
   const renderSection = (
     sectionTitle: string,
@@ -124,12 +190,10 @@ export function WorkspaceSessionRadarPanel({
                 type="button"
                 className={`session-activity-radar-row${entry.isProcessing ? " is-running" : ""}${
                   isUnreadRecent ? " is-unread" : ""
-                }`}
-                onClick={() => {
-                  markEntryAsRead(entry);
-                  onSelectThread(entry.workspaceId, entry.threadId);
-                }}
-                title={entry.threadName}
+                }${previewExpandedById[entry.id] ? " is-preview-expanded" : ""}`}
+                onClick={() => togglePreviewAndSelectThread(entry)}
+                aria-expanded={previewExpandedById[entry.id] ? true : false}
+                aria-label={entry.threadName}
               >
                 {!entry.isProcessing ? (
                   <span
@@ -161,20 +225,33 @@ export function WorkspaceSessionRadarPanel({
                     >
                       <EngineIcon engine={resolveEngine(entry)} size={13} />
                     </span>
-                    <span className="session-activity-radar-workspace">{entry.workspaceName}</span>
+                    <span
+                      className="session-activity-radar-workspace"
+                      style={{ color: resolveWorkspaceAccent(entry.workspaceId || entry.workspaceName) }}
+                    >
+                      {entry.workspaceName}
+                    </span>
                     <span>
                       {t("activityPanel.radar.startedAt")}{" "}
                       {entry.startedAt ? formatActivityTime(entry.startedAt) : t("activityPanel.radar.timeUnknown")}
                     </span>
-                    <span>
-                      {t("activityPanel.radar.endedAt")}{" "}
-                      {entry.completedAt ? formatActivityTime(entry.completedAt) : t("activityPanel.status.running")}
-                    </span>
-                    <span>
-                      {t("activityPanel.radar.totalDuration")} {formatDuration(entry.durationMs, t)}
-                    </span>
+                    {!entry.isProcessing ? (
+                      <>
+                        <span>
+                          {t("activityPanel.radar.endedAt")}{" "}
+                          {entry.completedAt ? formatActivityTime(entry.completedAt) : t("activityPanel.status.running")}
+                        </span>
+                        <span>
+                          {t("activityPanel.radar.totalDuration")}{" "}
+                          <span
+                            className={`session-activity-radar-duration ${resolveDurationToneClass(entry.durationMs)}`}
+                          >
+                            {formatDuration(entry.durationMs, t)}
+                          </span>
+                        </span>
+                      </>
+                    ) : null}
                   </span>
-                  <span className="session-activity-radar-row-title">{entry.threadName}</span>
                   <span className="session-activity-radar-row-preview">
                     {entry.preview || t("activityPanel.commandPendingSummary")}
                   </span>
@@ -226,10 +303,19 @@ export function WorkspaceSessionRadarPanel({
                         const next = { ...current, [dateKey]: !isCollapsed };
                         writeClientStoreValue(
                           RADAR_STORE_NAME,
-                          RADAR_DATE_COLLAPSE_STATE_KEY,
+                          SESSION_RADAR_COLLAPSED_DATE_GROUPS_KEY,
                           next,
                           { immediate: true },
                         );
+                        if (!isCollapsed) {
+                          setPreviewExpandedById((expandedCurrent) => {
+                            const expandedNext = { ...expandedCurrent };
+                            for (const entry of group) {
+                              delete expandedNext[entry.id];
+                            }
+                            return expandedNext;
+                          });
+                        }
                         return next;
                       })
                     }}
@@ -251,12 +337,12 @@ export function WorkspaceSessionRadarPanel({
                           <button
                             key={entry.id}
                             type="button"
-                            className={`session-activity-radar-row${isUnreadRecent ? " is-unread" : ""}`}
-                            onClick={() => {
-                              markEntryAsRead(entry);
-                              onSelectThread(entry.workspaceId, entry.threadId);
-                            }}
-                            title={entry.threadName}
+                            className={`session-activity-radar-row${isUnreadRecent ? " is-unread" : ""}${
+                              previewExpandedById[entry.id] ? " is-preview-expanded" : ""
+                            }`}
+                            onClick={() => togglePreviewAndSelectThread(entry)}
+                            aria-expanded={previewExpandedById[entry.id] ? true : false}
+                            aria-label={entry.threadName}
                           >
                             <span
                               className={`session-activity-radar-corner-badge${
@@ -284,7 +370,12 @@ export function WorkspaceSessionRadarPanel({
                                 >
                                   <EngineIcon engine={resolveEngine(entry)} size={13} />
                                 </span>
-                                <span className="session-activity-radar-workspace">{entry.workspaceName}</span>
+                                <span
+                                  className="session-activity-radar-workspace"
+                                  style={{ color: resolveWorkspaceAccent(entry.workspaceId || entry.workspaceName) }}
+                                >
+                                  {entry.workspaceName}
+                                </span>
                                 <span>
                                   {t("activityPanel.radar.startedAt")}{" "}
                                   {entry.startedAt
@@ -298,10 +389,14 @@ export function WorkspaceSessionRadarPanel({
                                     : t("activityPanel.status.running")}
                                 </span>
                                 <span>
-                                  {t("activityPanel.radar.totalDuration")} {formatDuration(entry.durationMs, t)}
+                                  {t("activityPanel.radar.totalDuration")}{" "}
+                                  <span
+                                    className={`session-activity-radar-duration ${resolveDurationToneClass(entry.durationMs)}`}
+                                  >
+                                    {formatDuration(entry.durationMs, t)}
+                                  </span>
                                 </span>
                               </span>
-                              <span className="session-activity-radar-row-title">{entry.threadName}</span>
                               <span className="session-activity-radar-row-preview">
                                 {entry.preview || t("activityPanel.commandPendingSummary")}
                               </span>

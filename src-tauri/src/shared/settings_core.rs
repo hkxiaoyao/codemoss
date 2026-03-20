@@ -8,6 +8,29 @@ use crate::shared::proxy_core;
 use crate::storage::write_settings;
 use crate::types::AppSettings;
 
+const UI_SCALE_MIN: f64 = 0.8;
+const UI_SCALE_MAX: f64 = 2.6;
+const UI_SCALE_DEFAULT: f64 = 1.0;
+
+fn sanitize_ui_scale(scale: f64) -> f64 {
+    if !scale.is_finite() || scale < UI_SCALE_MIN || scale > UI_SCALE_MAX {
+        return UI_SCALE_DEFAULT;
+    }
+    (scale * 100.0).round() / 100.0
+}
+
+fn validate_ui_scale(scale: f64) -> Result<(), String> {
+    if !scale.is_finite() {
+        return Err("uiScale must be a finite number".to_string());
+    }
+    if scale < UI_SCALE_MIN || scale > UI_SCALE_MAX {
+        return Err(format!(
+            "uiScale must be within [{UI_SCALE_MIN}, {UI_SCALE_MAX}]"
+        ));
+    }
+    Ok(())
+}
+
 fn sync_codex_config_flags(settings: &AppSettings) {
     let _ = codex_config::write_collab_enabled(settings.experimental_collab_enabled);
     let _ = codex_config::write_collaboration_modes_enabled(
@@ -38,6 +61,7 @@ pub(crate) async fn get_app_settings_core(app_settings: &Mutex<AppSettings>) -> 
     {
         settings.codex_mode_enforcement_enabled = mode_enforcement_enabled;
     }
+    settings.ui_scale = sanitize_ui_scale(settings.ui_scale);
     settings
 }
 
@@ -46,6 +70,7 @@ pub(crate) async fn update_app_settings_core(
     app_settings: &Mutex<AppSettings>,
     settings_path: &PathBuf,
 ) -> Result<AppSettings, String> {
+    validate_ui_scale(settings.ui_scale)?;
     proxy_core::validate_proxy_settings(&settings)?;
     sync_codex_config_flags(&settings);
     write_settings(settings_path, &settings)?;
@@ -100,4 +125,29 @@ pub(crate) fn get_codex_config_path_core() -> Result<String, String> {
                 .map(|value| value.to_string())
                 .ok_or_else(|| "Unable to resolve CODEX_HOME".to_string())
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sanitize_ui_scale, validate_ui_scale, UI_SCALE_DEFAULT};
+
+    #[test]
+    fn sanitize_ui_scale_falls_back_for_out_of_range() {
+        assert!((sanitize_ui_scale(0.2) - UI_SCALE_DEFAULT).abs() < f64::EPSILON);
+        assert!((sanitize_ui_scale(2.7) - UI_SCALE_DEFAULT).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn sanitize_ui_scale_keeps_supported_values() {
+        assert!((sanitize_ui_scale(0.8) - 0.8).abs() < f64::EPSILON);
+        assert!((sanitize_ui_scale(1.25) - 1.25).abs() < f64::EPSILON);
+        assert!((sanitize_ui_scale(2.6) - 2.6).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn validate_ui_scale_rejects_invalid_values() {
+        assert!(validate_ui_scale(0.7).is_err());
+        assert!(validate_ui_scale(2.7).is_err());
+        assert!(validate_ui_scale(f64::NAN).is_err());
+    }
 }

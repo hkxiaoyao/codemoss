@@ -38,7 +38,7 @@ describe("fileLanguageRegistry", () => {
     });
   });
 
-  it("covers new language types for java/spring/python/sql/toml/lock", () => {
+  it("covers language types for java/spring/python/sql/toml/lock and shell-script group", () => {
     expect(resolveFileLanguageFromPath("src/main/java/App.java")).toMatchObject({
       previewLanguage: "java",
       editorLanguage: "java",
@@ -67,6 +67,31 @@ describe("fileLanguageRegistry", () => {
       previewLanguage: "yaml",
       editorLanguage: "yaml",
       matchedBy: "extension",
+    });
+    expect(resolveFileLanguageFromPath("scripts/dev-local.sh")).toMatchObject({
+      previewLanguage: "bash",
+      editorLanguage: "shell",
+      matchedBy: "extension",
+    });
+    expect(resolveFileLanguageFromPath("scripts/release.zsh")).toMatchObject({
+      previewLanguage: "bash",
+      editorLanguage: "shell",
+      matchedBy: "extension",
+    });
+    expect(resolveFileLanguageFromPath("scripts/bootstrap.command")).toMatchObject({
+      previewLanguage: "bash",
+      editorLanguage: "shell",
+      matchedBy: "extension",
+    });
+    expect(resolveFileLanguageFromPath(".envrc")).toMatchObject({
+      previewLanguage: "bash",
+      editorLanguage: "shell",
+      matchedBy: "filename",
+    });
+    expect(resolveFileLanguageFromPath(".bashrc")).toMatchObject({
+      previewLanguage: "bash",
+      editorLanguage: "shell",
+      matchedBy: "filename",
     });
   });
 
@@ -117,6 +142,11 @@ describe("fileLanguageRegistry", () => {
       matchedBy: "none",
     });
     expect(resolveFileLanguageFromPath("README")).toEqual({
+      previewLanguage: null,
+      editorLanguage: null,
+      matchedBy: "none",
+    });
+    expect(resolveFileLanguageFromPath("script.")).toEqual({
       previewLanguage: null,
       editorLanguage: null,
       matchedBy: "none",

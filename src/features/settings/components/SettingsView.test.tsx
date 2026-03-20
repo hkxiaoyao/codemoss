@@ -352,25 +352,41 @@ describe("SettingsView Display", () => {
     expect(screen.queryByText("Reduce transparency")).toBeNull();
   });
 
-  it("updates ui scale from the basic font size selector", async () => {
+  it("updates ui scale from slider and save action", async () => {
     const onUpdateAppSettings = vi.fn().mockResolvedValue(undefined);
     renderDisplaySection({ onUpdateAppSettings });
 
-    const fontSizeSelect = screen.getByLabelText("Font size");
+    const fontSizeSlider = screen.getByLabelText("Font size");
 
-    fireEvent.change(fontSizeSelect, { target: { value: "1.4" } });
+    fireEvent.change(fontSizeSlider, { target: { value: "1.36" } });
+    fireEvent.click(screen.getByTestId("settings-ui-scale-save"));
 
     await waitFor(() => {
       expect(onUpdateAppSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ uiScale: 1.4 }),
+        expect.objectContaining({ uiScale: 1.36 }),
       );
     });
 
-    fireEvent.change(fontSizeSelect, { target: { value: "0.8" } });
+    fireEvent.change(fontSizeSlider, { target: { value: "0.8" } });
+    fireEvent.click(screen.getByTestId("settings-ui-scale-save"));
 
     await waitFor(() => {
       expect(onUpdateAppSettings).toHaveBeenCalledWith(
         expect.objectContaining({ uiScale: 0.8 }),
+      );
+    });
+  });
+
+  it("resets ui scale to 100% from settings", async () => {
+    const onUpdateAppSettings = vi.fn().mockResolvedValue(undefined);
+    renderDisplaySection({ onUpdateAppSettings, appSettings: { uiScale: 1.25 } });
+
+    fireEvent.click(screen.getByTestId("settings-ui-scale-reset"));
+    fireEvent.click(screen.getByTestId("settings-ui-scale-save"));
+
+    await waitFor(() => {
+      expect(onUpdateAppSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ uiScale: 1 }),
       );
     });
   });

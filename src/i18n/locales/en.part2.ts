@@ -417,6 +417,7 @@ const enPart2 = {
     saveShortcut: "⌘S to save",
     discardChanges: "Discard changes?",
     discardChangesMessage: "You have unsaved changes. Discard them?",
+    externalAbsoluteReadOnly: "External absolute files are read-only.",
     gotoDefinition: "Go to definition",
     findReferences: "Find references",
     navigating: "Navigating...",

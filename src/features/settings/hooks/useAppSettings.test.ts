@@ -48,7 +48,7 @@ describe("useAppSettings", () => {
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    expect(result.current.settings.uiScale).toBe(UI_SCALE_MAX);
+    expect(result.current.settings.uiScale).toBe(UI_SCALE_DEFAULT);
     expect(result.current.settings.theme).toBe("system");
     expect(result.current.settings.userMsgColor).toBe("");
     expect(result.current.settings.uiFontFamily).toMatch(/^Monaco,/);
@@ -94,7 +94,7 @@ describe("useAppSettings", () => {
       ...result.current.settings,
       codexArgs: "--profile dev",
       theme: "dark",
-      uiScale: 2.4,
+      uiScale: 1.25,
       uiFontFamily: "Avenir, sans-serif",
       codeFontFamily: "JetBrains Mono, monospace",
       codeFontSize: 13,
@@ -110,7 +110,7 @@ describe("useAppSettings", () => {
     expect(updateAppSettingsMock).toHaveBeenCalledWith(
       expect.objectContaining({
         theme: "system",
-        uiScale: 0.1,
+        uiScale: 0.8,
         uiFontFamily: expect.stringMatching(/^Monaco,/),
         codeFontFamily: expect.stringMatching(/^Monaco,/),
         codeFontSize: 9,
@@ -119,7 +119,7 @@ describe("useAppSettings", () => {
     );
     expect(returned).toEqual(saved);
     expect(result.current.settings.theme).toBe("dark");
-    expect(result.current.settings.uiScale).toBe(2.4);
+    expect(result.current.settings.uiScale).toBe(1.25);
   });
 
   it("surfaces doctor errors", async () => {

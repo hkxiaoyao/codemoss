@@ -1330,6 +1330,77 @@ mod tests {
         (root, repo)
     }
 
+    async fn commit_all_with_message(repo_root: &Path, message: &str) {
+        run_git_command(repo_root, &["add", "-A"])
+            .await
+            .expect("stage files");
+        run_git_command(
+            repo_root,
+            &[
+                "-c",
+                "user.name=TestUser",
+                "-c",
+                "user.email=test@example.com",
+                "commit",
+                "-m",
+                message,
+            ],
+        )
+        .await
+        .expect("commit staged files");
+    }
+
+    fn assert_worktree_clean(repo_root: &Path) {
+        let repo = open_repository_at_root(repo_root).expect("open repo");
+        let mut status_options = StatusOptions::new();
+        status_options
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(false);
+        let statuses = repo
+            .statuses(Some(&mut status_options))
+            .expect("collect statuses");
+        assert!(
+            statuses.is_empty(),
+            "expected clean worktree, found {} entries",
+            statuses.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn checkout_roundtrip_between_divergent_branches_stays_clean() {
+        let (root, _repo) = create_temp_repo();
+
+        fs::write(root.join("shared.txt"), "main base\n").expect("write initial main file");
+        commit_all_with_message(&root, "init main").await;
+        run_git_command(&root, &["branch", "-M", "main"])
+            .await
+            .expect("rename default branch to main");
+
+        run_git_command(&root, &["checkout", "-b", "feature/divergent"])
+            .await
+            .expect("create feature branch");
+        fs::remove_file(root.join("shared.txt")).expect("remove shared file on feature branch");
+        fs::write(root.join("feature-only.txt"), "feature branch content\n")
+            .expect("write feature-only file");
+        commit_all_with_message(&root, "feature commit").await;
+
+        run_git_command(&root, &["checkout", "main"])
+            .await
+            .expect("switch back to main");
+        fs::write(root.join("shared.txt"), "main updated\n").expect("rewrite shared file on main");
+        fs::write(root.join("main-only.txt"), "main branch content\n")
+            .expect("write main-only file");
+        commit_all_with_message(&root, "main commit").await;
+
+        for target in ["feature/divergent", "main", "feature/divergent", "main"] {
+            run_git_command(&root, &["checkout", target])
+                .await
+                .unwrap_or_else(|error| panic!("checkout {target} failed: {error}"));
+            assert_worktree_clean(&root);
+        }
+    }
+
     #[test]
     fn collect_workspace_diff_prefers_staged_changes() {
         let (root, repo) = create_temp_repo();

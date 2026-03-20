@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AppSettings } from "../../../types";
 import { getAppSettings, runCodexDoctor, updateAppSettings } from "../../../services/tauri";
-import { clampUiScale, UI_SCALE_DEFAULT } from "../../../utils/uiScale";
+import {
+  clampUiScale,
+  sanitizeUiScale,
+  UI_SCALE_DEFAULT,
+} from "../../../utils/uiScale";
 import {
   DEFAULT_CODE_FONT_FAMILY,
   DEFAULT_UI_FONT_FAMILY,
@@ -144,6 +148,7 @@ function normalizeAppSettings(
   settings: AppSettings,
   options?: {
     allowLegacyUserMsgColorFallback?: boolean;
+    fallbackUiScaleToDefault?: boolean;
   },
 ): AppSettings {
   const normalizedUserMsgColor = normalizeHexColor(settings.userMsgColor);
@@ -175,7 +180,9 @@ function normalizeAppSettings(
     systemProxyUrl: settings.systemProxyUrl?.trim()
       ? settings.systemProxyUrl.trim()
       : null,
-    uiScale: clampUiScale(settings.uiScale),
+    uiScale: options?.fallbackUiScaleToDefault
+      ? sanitizeUiScale(settings.uiScale)
+      : clampUiScale(settings.uiScale),
     theme: allowedThemes.has(settings.theme) ? settings.theme : "system",
     userMsgColor: fallbackUserMsgColor,
     uiFontFamily: normalizeFontFamily(
@@ -224,6 +231,7 @@ export function useAppSettings() {
               ...response,
             }, {
               allowLegacyUserMsgColorFallback,
+              fallbackUiScaleToDefault: true,
             }),
           );
         }

@@ -48,13 +48,21 @@ const FILE_NAME_RULES: Array<{ pattern: RegExp; rule: LanguageRule }> = [
     rule: { previewLanguage: "bash", editorLanguage: "shell" },
   },
   {
+    pattern: /^\.?envrc$/i,
+    rule: { previewLanguage: "bash", editorLanguage: "shell" },
+  },
+  {
+    pattern: /^\.?(?:bashrc|zshrc|kshrc|profile)$/i,
+    rule: { previewLanguage: "bash", editorLanguage: "shell" },
+  },
+  {
     pattern: /^(cargo|uv|poetry)\.lock$/i,
     rule: { previewLanguage: "toml", editorLanguage: "toml" },
   },
 ];
 
 const EXTENSION_RULES: Record<string, LanguageRule> = {
-  bash: { previewLanguage: "bash", editorLanguage: null },
+  bash: { previewLanguage: "bash", editorLanguage: "shell" },
   c: { previewLanguage: "c", editorLanguage: null },
   cpp: { previewLanguage: "cpp", editorLanguage: null },
   css: { previewLanguage: "css", editorLanguage: "css" },
@@ -77,7 +85,10 @@ const EXTENSION_RULES: Record<string, LanguageRule> = {
   rs: { previewLanguage: "rust", editorLanguage: "rust" },
   sass: { previewLanguage: "scss", editorLanguage: "css" },
   scss: { previewLanguage: "scss", editorLanguage: "css" },
-  sh: { previewLanguage: "bash", editorLanguage: null },
+  command: { previewLanguage: "bash", editorLanguage: "shell" },
+  dash: { previewLanguage: "bash", editorLanguage: "shell" },
+  ksh: { previewLanguage: "bash", editorLanguage: "shell" },
+  sh: { previewLanguage: "bash", editorLanguage: "shell" },
   sql: { previewLanguage: "sql", editorLanguage: "sql" },
   svg: { previewLanguage: null, editorLanguage: "xml" },
   swift: { previewLanguage: "swift", editorLanguage: null },
@@ -90,6 +101,7 @@ const EXTENSION_RULES: Record<string, LanguageRule> = {
   xml: { previewLanguage: "markup", editorLanguage: "xml" },
   yaml: { previewLanguage: "yaml", editorLanguage: "yaml" },
   yml: { previewLanguage: "yaml", editorLanguage: "yaml" },
+  zsh: { previewLanguage: "bash", editorLanguage: "shell" },
   lock: { previewLanguage: "yaml", editorLanguage: "yaml" },
 };
 

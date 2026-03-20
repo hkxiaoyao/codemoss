@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { highlightLine, languageFromPath } from "./syntax";
 
 describe("syntax", () => {
-  it("resolves preview languages for java/spring/python/sql/toml/gitignore/lock files", () => {
+  it("resolves preview languages for java/spring/python/sql/toml/gitignore/lock/shell files", () => {
     expect(languageFromPath("src/main/java/App.java")).toBe("java");
     expect(languageFromPath("pom.xml")).toBe("markup");
     expect(languageFromPath("src/main/resources/application.properties")).toBe("properties");
@@ -13,6 +13,9 @@ describe("syntax", () => {
     expect(languageFromPath(".gitignore")).toBe("git");
     expect(languageFromPath("Cargo.lock")).toBe("toml");
     expect(languageFromPath("yarn.lock")).toBe("yaml");
+    expect(languageFromPath("scripts/dev-local.sh")).toBe("bash");
+    expect(languageFromPath("scripts/release.zsh")).toBe("bash");
+    expect(languageFromPath(".envrc")).toBe("bash");
   });
 
   it("keeps baseline preview language mappings", () => {

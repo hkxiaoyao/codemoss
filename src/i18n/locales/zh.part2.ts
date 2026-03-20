@@ -402,6 +402,7 @@ const zhPart2 = {
     saveShortcut: "⌘S 保存",
     discardChanges: "放弃更改？",
     discardChangesMessage: "你有未保存的更改，确定放弃吗？",
+    externalAbsoluteReadOnly: "外部绝对路径文件为只读模式。",
     gotoDefinition: "跳转到定义",
     findReferences: "查找引用",
     navigating: "跳转中...",

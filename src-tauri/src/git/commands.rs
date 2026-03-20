@@ -1879,6 +1879,70 @@ pub(crate) async fn list_git_branches(
     }))
 }
 
+fn has_uncommitted_changes(repo: &Repository) -> Result<bool, String> {
+    let mut status_options = StatusOptions::new();
+    status_options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_ignored(false);
+    let statuses = repo
+        .statuses(Some(&mut status_options))
+        .map_err(|e| e.to_string())?;
+    Ok(!statuses.is_empty())
+}
+
+fn ensure_checkout_precondition_clean(repo: &Repository) -> Result<(), String> {
+    if has_uncommitted_changes(repo)? {
+        return Err(
+            "Working tree has uncommitted changes. Commit/stash/discard changes first.".to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn verify_checkout_postcondition(repo_root: &Path, expected_branch: &str) -> Result<(), String> {
+    let expected_local_branch = normalize_local_branch_ref(expected_branch);
+    let current_branch = current_local_branch(repo_root)?;
+    let current_branch = current_branch.ok_or_else(|| {
+        format!(
+            "Checkout verification failed: expected current branch '{expected_local_branch}', but HEAD is detached."
+        )
+    })?;
+    if current_branch != expected_local_branch {
+        return Err(format!(
+            "Checkout verification failed: expected current branch '{expected_local_branch}', but found '{current_branch}'."
+        ));
+    }
+
+    let repo = open_repository_at_root(repo_root)?;
+    if has_uncommitted_changes(&repo)? {
+        return Err(
+            "Working tree has uncommitted changes after checkout. Commit/stash/discard changes first."
+                .to_string(),
+        );
+    }
+
+    Ok(())
+}
+
+async fn checkout_existing_local_branch(repo_root: &Path, branch_name: &str) -> Result<(), String> {
+    run_git_command(repo_root, &["checkout", branch_name]).await?;
+    verify_checkout_postcondition(repo_root, branch_name)
+}
+
+async fn checkout_remote_branch_with_tracking(
+    repo_root: &Path,
+    remote_branch: &str,
+    local_branch: &str,
+) -> Result<(), String> {
+    run_git_command(
+        repo_root,
+        &["checkout", "-b", local_branch, "--track", remote_branch],
+    )
+    .await?;
+    verify_checkout_postcondition(repo_root, local_branch)
+}
+
 #[tauri::command]
 pub(crate) async fn checkout_git_branch(
     workspace_id: String,
@@ -1895,55 +1959,63 @@ pub(crate) async fn checkout_git_branch(
         return Err("Branch name cannot be empty.".to_string());
     }
 
+    enum CheckoutTarget {
+        ExistingLocal(String),
+        CreateTrackingLocal {
+            remote_branch: String,
+            local_branch: String,
+        },
+        Missing,
+    }
+
     let repo_root = resolve_git_root(&entry)?;
-    let local_name_to_track = {
+    let normalized_local_name = normalize_local_branch_ref(trimmed_name);
+    let checkout_target = {
         let repo = open_repository_at_root(&repo_root)?;
+        ensure_checkout_precondition_clean(&repo)?;
 
-        let mut status_options = StatusOptions::new();
-        status_options
-            .include_untracked(true)
-            .recurse_untracked_dirs(true)
-            .include_ignored(false);
-        let statuses = repo
-            .statuses(Some(&mut status_options))
-            .map_err(|e| e.to_string())?;
-        if !statuses.is_empty() {
-            return Err(
-                "Working tree has uncommitted changes. Commit/stash/discard changes first."
-                    .to_string(),
-            );
-        }
-
-        if repo.find_branch(trimmed_name, BranchType::Local).is_ok() {
-            return checkout_branch(&repo, trimmed_name).map_err(|e| e.to_string());
-        }
-
-        let remote_ref = format!("refs/remotes/{trimmed_name}");
-        if repo.refname_to_id(&remote_ref).is_ok() {
-            let local_name = trimmed_name.split('/').next_back().unwrap_or(trimmed_name);
-            let valid_local_name = validate_local_branch_name(local_name)?;
-            Some(valid_local_name)
+        if !normalized_local_name.is_empty()
+            && repo
+                .find_branch(normalized_local_name.as_str(), BranchType::Local)
+                .is_ok()
+        {
+            CheckoutTarget::ExistingLocal(normalized_local_name)
         } else {
-            None
+            let remote_ref = if trimmed_name.starts_with("refs/remotes/") {
+                trimmed_name.to_string()
+            } else {
+                format!("refs/remotes/{trimmed_name}")
+            };
+            if repo.refname_to_id(&remote_ref).is_ok() {
+                let local_name = trimmed_name.split('/').next_back().unwrap_or(trimmed_name);
+                let valid_local_name = validate_local_branch_name(local_name)?;
+                CheckoutTarget::CreateTrackingLocal {
+                    remote_branch: trimmed_name.to_string(),
+                    local_branch: valid_local_name,
+                }
+            } else {
+                CheckoutTarget::Missing
+            }
         }
     };
 
-    if let Some(local_name) = local_name_to_track {
-        run_git_command(
-            &repo_root,
-            &[
-                "checkout",
-                "-b",
-                local_name.as_str(),
-                "--track",
-                trimmed_name,
-            ],
-        )
-        .await?;
-        return Ok(());
+    match checkout_target {
+        CheckoutTarget::ExistingLocal(local_branch) => {
+            checkout_existing_local_branch(&repo_root, local_branch.as_str()).await
+        }
+        CheckoutTarget::CreateTrackingLocal {
+            remote_branch,
+            local_branch,
+        } => {
+            checkout_remote_branch_with_tracking(
+                &repo_root,
+                remote_branch.as_str(),
+                local_branch.as_str(),
+            )
+            .await
+        }
+        CheckoutTarget::Missing => Err(format!("Branch not found: {trimmed_name}")),
     }
-
-    Err(format!("Branch not found: {trimmed_name}"))
 }
 
 #[tauri::command]

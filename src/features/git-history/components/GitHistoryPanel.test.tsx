@@ -603,6 +603,123 @@ describe("GitHistoryPanel interactions", () => {
     });
   });
 
+  it("shows success notice and refreshes history after branch checkout succeeds", async () => {
+    vi.mocked(tauriService.listGitBranches).mockResolvedValue({
+      branches: [],
+      localBranches: [
+        {
+          name: "main",
+          isCurrent: true,
+          isRemote: false,
+          remote: null,
+          upstream: "origin/main",
+          lastCommit: 1739300000,
+          ahead: 0,
+          behind: 0,
+        },
+        {
+          name: "feature-clean-checkout",
+          isCurrent: false,
+          isRemote: false,
+          remote: null,
+          upstream: "origin/feature-clean-checkout",
+          lastCommit: 1739299997,
+          ahead: 0,
+          behind: 0,
+        },
+      ],
+      remoteBranches: [],
+      currentBranch: "main",
+    } as never);
+
+    render(<GitHistoryPanel workspace={workspace as never} />);
+
+    await waitFor(() => {
+      expect(document.querySelector(".git-history-branch-row .git-history-branch-name")).toBeTruthy();
+    });
+    const baselineHistoryCalls = vi.mocked(tauriService.getGitCommitHistory).mock.calls.length;
+
+    const branchRow = Array.from(document.querySelectorAll(".git-history-branch-row")).find((row) =>
+      row.textContent?.includes("feature-clean-checkout"),
+    );
+    expect(branchRow).toBeTruthy();
+    fireEvent.contextMenu(branchRow as Element, { clientX: 160, clientY: 180 });
+
+    const checkoutAction = await screen.findByText("git.historyBranchMenuCheckout");
+    const checkoutButton = checkoutAction.closest('[role="menuitem"]');
+    expect(checkoutButton).toBeTruthy();
+    fireEvent.click(checkoutButton as Element);
+
+    await waitFor(() => {
+      expect(tauriService.checkoutGitBranch).toHaveBeenCalledWith("w1", "feature-clean-checkout");
+      expect(
+        screen.getByText("git.historyOperationSucceeded:git.historyOperationCheckout"),
+      ).toBeTruthy();
+      expect(vi.mocked(tauriService.getGitCommitHistory).mock.calls.length).toBeGreaterThan(
+        baselineHistoryCalls,
+      );
+    });
+  });
+
+  it("shows dirty-tree guidance and does not report success when checkout is blocked", async () => {
+    vi.mocked(tauriService.listGitBranches).mockResolvedValue({
+      branches: [],
+      localBranches: [
+        {
+          name: "main",
+          isCurrent: true,
+          isRemote: false,
+          remote: null,
+          upstream: "origin/main",
+          lastCommit: 1739300000,
+          ahead: 0,
+          behind: 0,
+        },
+        {
+          name: "feature-dirty-checkout",
+          isCurrent: false,
+          isRemote: false,
+          remote: null,
+          upstream: "origin/feature-dirty-checkout",
+          lastCommit: 1739299996,
+          ahead: 0,
+          behind: 0,
+        },
+      ],
+      remoteBranches: [],
+      currentBranch: "main",
+    } as never);
+    vi.mocked(tauriService.checkoutGitBranch).mockRejectedValueOnce(
+      new Error("Working tree has uncommitted changes. Commit/stash/discard changes first."),
+    );
+
+    render(<GitHistoryPanel workspace={workspace as never} />);
+
+    await waitFor(() => {
+      expect(document.querySelector(".git-history-branch-row .git-history-branch-name")).toBeTruthy();
+    });
+
+    const branchRow = Array.from(document.querySelectorAll(".git-history-branch-row")).find((row) =>
+      row.textContent?.includes("feature-dirty-checkout"),
+    );
+    expect(branchRow).toBeTruthy();
+    fireEvent.contextMenu(branchRow as Element, { clientX: 160, clientY: 180 });
+
+    const checkoutAction = await screen.findByText("git.historyBranchMenuCheckout");
+    const checkoutButton = checkoutAction.closest('[role="menuitem"]');
+    expect(checkoutButton).toBeTruthy();
+    fireEvent.click(checkoutButton as Element);
+
+    await waitFor(() => {
+      expect(tauriService.checkoutGitBranch).toHaveBeenCalledWith("w1", "feature-dirty-checkout");
+      expect(screen.getByText(/git\.historyErrorWorkingTreeDirty/)).toBeTruthy();
+      expect(
+        screen.queryByText("git.historyOperationSucceeded:git.historyOperationCheckout"),
+      ).toBeNull();
+      expect(document.querySelector(".git-history-current-branch")?.textContent).toBe("main");
+    });
+  });
+
   it("opens branch vs worktree diff modal from branch context menu", async () => {
     vi.mocked(tauriService.listGitBranches).mockResolvedValue({
       branches: [],

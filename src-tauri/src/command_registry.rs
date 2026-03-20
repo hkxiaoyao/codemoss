@@ -114,6 +114,7 @@ pub(crate) fn invoke_handler(
         crate::workspaces::list_external_spec_tree,
         crate::workspaces::read_workspace_file,
         crate::workspaces::read_external_spec_file,
+        crate::workspaces::read_external_absolute_file,
         crate::workspaces::write_workspace_file,
         crate::workspaces::create_workspace_directory,
         crate::workspaces::write_external_spec_file,
@@ -215,6 +216,7 @@ pub(crate) fn invoke_handler(
         // Client storage
         crate::client_storage::client_store_read,
         crate::client_storage::client_store_write,
+        crate::client_storage::client_store_patch,
         crate::client_storage::client_panel_lock_password_read,
         crate::client_storage::client_panel_lock_password_write,
         // Input history

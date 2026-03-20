@@ -578,7 +578,7 @@ body[data-git-history-column-resizing="true"] .git-history-vertical-resizer::aft
   gap: 4px;
   appearance: none;
   border: none;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 2px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--text-secondary);
@@ -607,18 +607,12 @@ body[data-git-history-column-resizing="true"] .git-history-vertical-resizer::aft
 
 .git-history-overview-list-tab:hover {
   color: var(--text-emphasis);
-  border-bottom-color: color-mix(
-    in srgb,
-    var(--text-accent, #7a9dcc) 60%,
-    var(--border-subtle)
-  );
   background: transparent;
 }
 
 .git-history-overview-list-tab:focus-visible {
   outline: none;
   color: var(--text-accent, #7a9dcc);
-  border-bottom-color: var(--text-accent, #7a9dcc);
 }
 
 .git-history-overview-branch {
@@ -2797,4 +2791,3 @@ body[data-git-history-column-resizing="true"] .git-history-vertical-resizer::aft
   padding: 1px 6px;
   background: color-mix(in srgb, #f59e0b 16%, transparent);
 }
-

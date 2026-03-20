@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { codeMirrorExtensionsForPath } from "./codemirrorLanguageExtensions";
 
 describe("codeMirrorExtensionsForPath", () => {
-  it("returns editor extensions for java/spring/python/sql/toml/gitignore/lock paths", () => {
+  it("returns editor extensions for java/spring/python/sql/toml/gitignore/lock/shell-group paths", () => {
     expect(codeMirrorExtensionsForPath("src/main/java/App.java").length).toBeGreaterThan(0);
     expect(codeMirrorExtensionsForPath("src/main/resources/pom.xml").length).toBeGreaterThan(0);
     expect(codeMirrorExtensionsForPath("src/main/resources/application.properties").length).toBeGreaterThan(0);
@@ -13,6 +13,9 @@ describe("codeMirrorExtensionsForPath", () => {
     expect(codeMirrorExtensionsForPath(".gitignore").length).toBeGreaterThan(0);
     expect(codeMirrorExtensionsForPath("Cargo.lock").length).toBeGreaterThan(0);
     expect(codeMirrorExtensionsForPath("yarn.lock").length).toBeGreaterThan(0);
+    expect(codeMirrorExtensionsForPath("scripts/dev-local.sh").length).toBeGreaterThan(0);
+    expect(codeMirrorExtensionsForPath("scripts/release.zsh").length).toBeGreaterThan(0);
+    expect(codeMirrorExtensionsForPath(".envrc").length).toBeGreaterThan(0);
   });
 
   it("keeps baseline editor language coverage", () => {

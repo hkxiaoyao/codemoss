@@ -524,9 +524,9 @@
   border-radius: 8px;
   border: none;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-strong);
   font-size: 14px;
-  font-weight: 300;
+  font-weight: 400;
   text-align: left;
   cursor: pointer;
   transition:
@@ -542,12 +542,11 @@
 .sidebar-primary-nav-item:hover,
 .sidebar-primary-nav-item:focus-visible {
   background: var(--surface-hover);
-  color: var(--text-strong);
 }
 
 .sidebar-primary-nav-item.is-active {
   background: var(--surface-hover);
-  color: var(--text-strong);
+  font-weight: 500;
 }
 
 .sidebar-primary-nav-mode-item.is-active {
@@ -564,7 +563,7 @@
   margin-left: 0;
   width: 100%;
   font-size: 14px;
-  color: var(--text-muted);
+  color: var(--text-strong);
 }
 
 .sidebar-primary-nav-item-bottom {
@@ -589,7 +588,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1;
+  line-height: 1.15;
 }
 
 .sidebar-primary-nav-shortcut {
@@ -734,7 +733,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 4px;
+  padding: 0 8px 0 10px;
 }
 
 .workspace-group-header.is-toggleable {
@@ -755,8 +754,8 @@
 }
 
 .workspace-group-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   color: var(--text-muted);
   flex-shrink: 0;
 }
