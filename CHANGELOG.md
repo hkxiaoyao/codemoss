@@ -2,7 +2,7 @@
 
 ---
 
-##### **2026年3月21日（v0.3.2）**
+##### **2026年3月22日（v0.3.2）**
 
 English:
 
@@ -11,6 +11,9 @@ English:
 - Optimize serial scheduling rules and introduce a clearer Kanban label taxonomy
 - Enhance group-level batch operations and task-creation interactions in Kanban workflows
 - Support left-double-click expand/collapse behavior for workspace tree groups
+- Improve Session Activity hint bubbles and tabbar presentation details
+- Refine workspace project dropdown visuals and complete worktree list rendering
+- Integrate OpenApp button into main header and improve project-area hover visibility interactions
 
 🔧 Improvements
 - Add `windows-latest` doctor + integration CI gate for stronger cross-platform release confidence
@@ -20,6 +23,8 @@ English:
 - Fix scheduler lock contention and drag-sort anomalies under filtered Kanban views
 - Fix batch-complete confirmation bypass and outside-click handling in grouped operations
 - Enforce second-step confirmation for batch completion and polish confirm-modal behavior/styles
+- Fix Hook dependency warnings and stabilize session-panel memo dependency behavior
+- Fix non-Windows title-bar drag behavior and fullscreen boundary handling
 
 中文：
 
@@ -28,6 +33,9 @@ English:
 - 优化串行调度规则并完善看板标签体系，提升任务组织清晰度
 - 增强分组级批量操作与任务创建交互体验
 - 工作区树支持左键双击展开/折叠分组
+- 优化 Session Activity 提示气泡与标签栏展示细节
+- 优化工作区项目下拉外观并补全工作树列表渲染
+- 在主标题区融合 OpenApp 按钮并增强项目区域悬停显隐交互
 
 🔧 Improvements
 - 新增 `windows-latest` 的 doctor + integration CI 门禁，提升跨平台发布稳定性
@@ -37,6 +45,8 @@ English:
 - 修复过滤视图下调度锁竞争与拖拽排序异常
 - 修复分组批量完成流程中的确认放行与菜单外点击兼容问题
 - 修复批量完成缺少二次确认的问题并优化确认弹窗样式与行为
+- 修复 Hook 依赖告警并稳定会话面板 memo 依赖
+- 修复非 Windows 场景标题栏拖拽异常与全屏边界处理
 
 ---
 
@@ -46,6 +56,7 @@ English:
 
 ✨ Features
 - Add Session Radar history management in Settings > Other, with batch delete support for completed radar entries
+- Persist Session Radar deletion to local client store (`leida`) instead of UI-only removal
 - Enhance Session Radar recent-completion cards with click-to-expand behavior while preserving direct session navigation
 - Improve recent-completion readability with compact copy and clearer project identity cues
 - Support opening absolute paths outside project root from session activity file-change entries
