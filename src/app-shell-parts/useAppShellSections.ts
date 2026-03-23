@@ -92,6 +92,40 @@ export function shouldSyncComposerEngineForKanbanExecution(params: {
   return params.activate !== false;
 }
 
+export async function syncKanbanExecutionEngineAndModel(params: {
+  activate?: boolean;
+  engine: "claude" | "codex";
+  modelId?: string | null;
+  setActiveEngine: (engine: "claude" | "codex") => Promise<void> | void;
+  setSelectedModelId: (modelId: string) => void;
+  setEngineSelectedModelIdByType: (
+    updater: (prev: Record<string, string>) => Record<string, string>,
+  ) => void;
+}): Promise<{ shouldSyncComposerSelection: boolean; outboundModel?: string }> {
+  const shouldSyncComposerSelection = shouldSyncComposerEngineForKanbanExecution({
+    activate: params.activate,
+  });
+  if (shouldSyncComposerSelection) {
+    await params.setActiveEngine(params.engine);
+  }
+  let outboundModel: string | undefined;
+  if (params.modelId) {
+    if (shouldSyncComposerSelection) {
+      if (params.engine === "codex") {
+        params.setSelectedModelId(params.modelId);
+      } else {
+        params.setEngineSelectedModelIdByType((prev) => ({
+          ...prev,
+          [params.engine]: params.modelId,
+        }));
+      }
+    } else {
+      outboundModel = params.modelId;
+    }
+  }
+  return { shouldSyncComposerSelection, outboundModel };
+}
+
 export function useAppShellSections(ctx: any) {
   const {
     activeWorkspace,
@@ -851,27 +885,14 @@ export function useAppShellSections(ctx: any) {
 
         await connectWorkspace(workspace);
         const engine = (task.engineType ?? activeEngine) as "claude" | "codex";
-        const shouldSyncComposerSelection = shouldSyncComposerEngineForKanbanExecution({
+        const { outboundModel } = await syncKanbanExecutionEngineAndModel({
           activate: params.activate,
+          engine,
+          modelId: task.modelId,
+          setActiveEngine,
+          setSelectedModelId,
+          setEngineSelectedModelIdByType,
         });
-        if (shouldSyncComposerSelection) {
-          await setActiveEngine(engine);
-        }
-        let outboundModel: string | undefined;
-        if (task.modelId) {
-          if (shouldSyncComposerSelection) {
-            if (engine === "codex") {
-              setSelectedModelId(task.modelId);
-            } else {
-              setEngineSelectedModelIdByType((prev) => ({
-                ...prev,
-                [engine]: task.modelId,
-              }));
-            }
-          } else {
-            outboundModel = task.modelId;
-          }
-        }
 
         const shouldForceNewThread = Boolean(params.forceNewThread);
         let threadId = shouldForceNewThread ? null : task.threadId;
