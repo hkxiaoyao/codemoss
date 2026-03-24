@@ -402,8 +402,8 @@ export function VendorSettingsPanel() {
                 {t("settings.vendor.manageModels")}
               </Button>
             </div>
+            <GeminiVendorPanel />
           </div>
-          <GeminiVendorPanel />
         </TabsPanel>
 
       </Tabs>

@@ -302,6 +302,47 @@ function extractTokenUsageFromNormalizedEvent(
   };
 }
 
+type ThreadAgentCompletedItemTracker = Record<string, Record<string, true>>;
+
+function resolveAgentCompletionKey(itemId: string, text: string): string {
+  const normalizedItemId = itemId.trim();
+  if (normalizedItemId) {
+    return `item:${normalizedItemId}`;
+  }
+  const normalizedText = text.trim();
+  if (normalizedText) {
+    return `text:${normalizedText}`;
+  }
+  return "";
+}
+
+function hasThreadAgentCompletion(
+  trackerRef: MutableRefObject<ThreadAgentCompletedItemTracker>,
+  threadId: string,
+): boolean {
+  const threadTracker = trackerRef.current[threadId];
+  return Boolean(threadTracker && Object.keys(threadTracker).length > 0);
+}
+
+function markThreadAgentCompletionSeen(
+  trackerRef: MutableRefObject<ThreadAgentCompletedItemTracker>,
+  threadId: string,
+  itemId: string,
+  text: string,
+): boolean {
+  const completionKey = resolveAgentCompletionKey(itemId, text);
+  if (!completionKey) {
+    return true;
+  }
+  const threadTracker = trackerRef.current[threadId] ?? {};
+  if (threadTracker[completionKey]) {
+    return false;
+  }
+  threadTracker[completionKey] = true;
+  trackerRef.current[threadId] = threadTracker;
+  return true;
+}
+
 function routeNormalizedRealtimeEvent({
   handlers,
   workspaceId,
@@ -313,7 +354,7 @@ function routeNormalizedRealtimeEvent({
   workspaceId: string;
   event: NormalizedThreadEvent;
   threadAgentDeltaSeenRef: MutableRefObject<Record<string, true>>;
-  threadAgentCompletedSeenRef: MutableRefObject<Record<string, true>>;
+  threadAgentCompletedSeenRef: MutableRefObject<ThreadAgentCompletedItemTracker>;
 }): boolean {
   const threadId = event.threadId;
   const itemId = event.item.id;
@@ -371,7 +412,7 @@ function routeNormalizedRealtimeEvent({
       if (tokenUsage) {
         handlers.onThreadTokenUsageUpdated?.(workspaceId, threadId, tokenUsage);
       }
-      if (threadAgentCompletedSeenRef.current[threadId]) {
+      if (!markThreadAgentCompletionSeen(threadAgentCompletedSeenRef, threadId, itemId, text)) {
         return true;
       }
       handlers.onAgentMessageCompleted?.({
@@ -380,7 +421,6 @@ function routeNormalizedRealtimeEvent({
         itemId,
         text,
       });
-      threadAgentCompletedSeenRef.current[threadId] = true;
       return true;
     }
     case "appendReasoningSummaryDelta": {
@@ -430,7 +470,7 @@ function tryRouteNormalizedRealtimeEvent({
   workspaceId: string;
   message: Record<string, unknown>;
   threadAgentDeltaSeenRef: MutableRefObject<Record<string, true>>;
-  threadAgentCompletedSeenRef: MutableRefObject<Record<string, true>>;
+  threadAgentCompletedSeenRef: MutableRefObject<ThreadAgentCompletedItemTracker>;
 }): boolean {
   const params = (message.params as Record<string, unknown> | undefined) ?? {};
   const turn = (params.turn as Record<string, unknown> | undefined) ?? {};
@@ -467,7 +507,7 @@ export function useAppServerEvents(
   options: UseAppServerEventsOptions = {},
 ) {
   const threadAgentDeltaSeenRef = useRef<Record<string, true>>({});
-  const threadAgentCompletedSeenRef = useRef<Record<string, true>>({});
+  const threadAgentCompletedSeenRef = useRef<ThreadAgentCompletedItemTracker>({});
   useEffect(() => {
     const useNormalizedRealtimeAdapters = options.useNormalizedRealtimeAdapters === true;
     const unlisten = subscribeAppServerEvents((payload) => {
@@ -776,7 +816,10 @@ export function useAppServerEvents(
         const turnId = String(turn?.id ?? params.turnId ?? params.turn_id ?? "");
         if (threadId) {
           const seenDelta = Boolean(threadAgentDeltaSeenRef.current[threadId]);
-          const seenCompleted = Boolean(threadAgentCompletedSeenRef.current[threadId]);
+          const seenCompleted = hasThreadAgentCompletion(
+            threadAgentCompletedSeenRef,
+            threadId,
+          );
           const result = (params.result as Record<string, unknown> | undefined) ?? undefined;
           const textFromResult = [
             typeof params.text === "string" ? params.text : "",
@@ -788,13 +831,22 @@ export function useAppServerEvents(
             .map((item) => item.trim())
             .find((item) => item.length > 0);
           if (!seenDelta && !seenCompleted && textFromResult) {
-            handlers.onAgentMessageCompleted?.({
-              workspaceId: workspace_id,
-              threadId,
-              itemId: turnId || `assistant-final-${Date.now()}`,
-              text: textFromResult,
-            });
-            threadAgentCompletedSeenRef.current[threadId] = true;
+            const fallbackItemId = turnId || `assistant-final-${Date.now()}`;
+            if (
+              markThreadAgentCompletionSeen(
+                threadAgentCompletedSeenRef,
+                threadId,
+                fallbackItemId,
+                textFromResult,
+              )
+            ) {
+              handlers.onAgentMessageCompleted?.({
+                workspaceId: workspace_id,
+                threadId,
+                itemId: fallbackItemId,
+                text: textFromResult,
+              });
+            }
           }
           delete threadAgentDeltaSeenRef.current[threadId];
           delete threadAgentCompletedSeenRef.current[threadId];
@@ -1075,14 +1127,21 @@ export function useAppServerEvents(
         if (threadId && item?.type === "agentMessage") {
           const itemId = String(item.id ?? "");
           const text = String(item.text ?? "");
-          if (itemId && !threadAgentCompletedSeenRef.current[threadId]) {
+          if (
+            itemId &&
+            markThreadAgentCompletionSeen(
+              threadAgentCompletedSeenRef,
+              threadId,
+              itemId,
+              text,
+            )
+          ) {
             handlers.onAgentMessageCompleted?.({
               workspaceId: workspace_id,
               threadId,
               itemId,
               text,
             });
-            threadAgentCompletedSeenRef.current[threadId] = true;
           }
         }
         return;

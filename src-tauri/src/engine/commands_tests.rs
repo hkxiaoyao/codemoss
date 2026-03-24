@@ -76,10 +76,10 @@ fn gemini_routing_segments_text_and_reasoning_runs() {
     assert_eq!(text_1, "gemini-item-1");
     assert_eq!(text_1_cont, "gemini-item-1");
     assert_eq!(reasoning_1, "gemini-item-1:reasoning-seg-1");
-    assert_eq!(reasoning_1_cont, "gemini-item-1:reasoning-seg-2");
+    assert_eq!(reasoning_1_cont, "gemini-item-1:reasoning-seg-1");
     assert_eq!(text_2, "gemini-item-1:text-2");
     assert_eq!(text_2_cont, "gemini-item-1:text-2");
-    assert_eq!(reasoning_2, "gemini-item-1:reasoning-seg-3");
+    assert_eq!(reasoning_2, "gemini-item-1:reasoning-seg-2");
 }
 
 #[test]

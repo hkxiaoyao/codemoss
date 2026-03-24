@@ -1300,6 +1300,98 @@ describe("useAppServerEvents", () => {
     });
   });
 
+  it("keeps multiple agent completions in the same thread when item ids differ", async () => {
+    const handlers: Handlers = {
+      onAgentMessageCompleted: vi.fn(),
+      onItemCompleted: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            item: { type: "agentMessage", id: "item-1", text: "first short paragraph" },
+          },
+        },
+      });
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            item: { type: "agentMessage", id: "item-2", text: "second short paragraph" },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageCompleted).toHaveBeenCalledTimes(2);
+    expect(handlers.onAgentMessageCompleted).toHaveBeenNthCalledWith(1, {
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "item-1",
+      text: "first short paragraph",
+    });
+    expect(handlers.onAgentMessageCompleted).toHaveBeenNthCalledWith(2, {
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "item-2",
+      text: "second short paragraph",
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("dedupes repeated item/completed snapshots for the same agent item id", async () => {
+    const handlers: Handlers = {
+      onAgentMessageCompleted: vi.fn(),
+      onItemCompleted: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            item: { type: "agentMessage", id: "item-dup-1", text: "same completion text" },
+          },
+        },
+      });
+      listener?.({
+        workspace_id: "ws-1",
+        message: {
+          method: "item/completed",
+          params: {
+            threadId: "thread-1",
+            item: { type: "agentMessage", id: "item-dup-1", text: "same completion text" },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageCompleted).toHaveBeenCalledTimes(1);
+    expect(handlers.onAgentMessageCompleted).toHaveBeenCalledWith({
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId: "item-dup-1",
+      text: "same completion text",
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
   it("routes processing heartbeat events", async () => {
     const handlers: Handlers = {
       onProcessingHeartbeat: vi.fn(),

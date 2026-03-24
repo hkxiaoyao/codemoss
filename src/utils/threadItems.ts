@@ -34,7 +34,17 @@ const FILE_CHANGE_PATH_KEYS = [
 ];
 const FILE_CHANGE_STATUS_KEYS = ["kind", "status", "type", "action", "operation", "op"];
 const FILE_CHANGE_DIFF_KEYS = ["diff", "patch", "unifiedDiff", "unified_diff"];
-const FILE_CHANGE_PATCH_KEYS = ["patch", "input", "diff"];
+const FILE_CHANGE_PATCH_KEYS = [
+  "patch",
+  "input",
+  "diff",
+  "output",
+  "aggregatedOutput",
+  "result",
+  "stdout",
+  "stderr",
+  "text",
+];
 const FILE_CHANGE_LIST_KEYS = ["files", "changes", "edits"];
 const PATH_HINT_REGEX = /[\\/]/;
 const PATHLIKE_REGEX = /(\.[a-z0-9]+$)|(^\.{1,2}$)/i;

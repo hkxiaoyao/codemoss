@@ -67,8 +67,8 @@ export function GeminiVendorPanel() {
     draft.authMode === "vertex_api_key" ? draft.googleApiKey : draft.geminiApiKey;
 
   return (
-    <div className="vendor-tab-content vendor-gemini-shell">
-      <div className="vendor-gemini-grid">
+    <div className="vendor-gemini-shell">
+      <div className="vendor-gemini-primary-grid">
         <section className="vendor-gemini-card vendor-gemini-card-checks">
           <div className="vendor-gemini-section-head">
             <span className="vendor-gemini-section-title">
@@ -114,220 +114,222 @@ export function GeminiVendorPanel() {
           </div>
         </section>
 
-        <section className="vendor-gemini-card vendor-gemini-card-env">
-          <label className="vendor-gemini-section-title">{t("settings.vendor.gemini.envVars")}</label>
-          <textarea
-            className="vendor-code-editor vendor-gemini-env-editor"
-            value={draft.envText}
-            onChange={(event) => {
-              handleDraftEnvTextChange(event.target.value);
-            }}
-            placeholder={"GEMINI_API_KEY=...\nGEMINI_MODEL=gemini-3-pro-preview"}
-          />
+        <section className="vendor-gemini-card vendor-gemini-card-auth">
+          <div className="vendor-gemini-auth-header">
+            <div>
+              <label className="vendor-gemini-section-title">
+                {t("settings.vendor.gemini.authConfig")}
+              </label>
+              <p className="vendor-gemini-help">
+                {t("settings.vendor.gemini.authConfigDescription")}
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                openUrl("https://geminicli.com/docs/get-started/authentication/").catch(
+                  () => {},
+                );
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {t("settings.vendor.gemini.viewAuthDoc")}
+            </Button>
+          </div>
+
+          <div className="vendor-form-group vendor-gemini-auth-enabled">
+            <label className="vendor-input-row" htmlFor="gemini-vendor-enabled">
+              <input
+                id="gemini-vendor-enabled"
+                type="checkbox"
+                checked={draft.enabled}
+                onChange={(event) => handleEnabledChange(event.target.checked)}
+              />
+              <span>{t("settings.vendor.gemini.enabledSwitch")}</span>
+            </label>
+            <div className="vendor-hint">
+              {draft.enabled
+                ? t("settings.vendor.gemini.enabled")
+                : t("settings.vendor.gemini.disabled")}
+            </div>
+          </div>
+
+          <div className="vendor-gemini-auth-grid">
+            <div className="vendor-form-group vendor-gemini-auth-field">
+              <label htmlFor="gemini-auth-mode">{t("settings.vendor.gemini.authMode")}</label>
+              <select
+                id="gemini-auth-mode"
+                className="vendor-input"
+                value={draft.authMode}
+                onChange={(event) => {
+                  const nextMode = event.target.value as GeminiAuthMode;
+                  if (GEMINI_AUTH_MODES.includes(nextMode)) {
+                    handleGeminiAuthModeChange(nextMode);
+                  }
+                }}
+              >
+                {GEMINI_AUTH_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {modeLabel(t, mode)}
+                  </option>
+                ))}
+              </select>
+              <div className="vendor-hint">{modeHint(t, draft.authMode)}</div>
+            </div>
+
+            <div className="vendor-form-group vendor-gemini-auth-field">
+              <label htmlFor="gemini-model">Model</label>
+              <input
+                id="gemini-model"
+                className="vendor-input"
+                value={draft.model}
+                placeholder="gemini-3-pro-preview"
+                onChange={(event) => {
+                  handleGeminiFieldChange("model", event.target.value);
+                }}
+              />
+              <div className="vendor-hint">{t("settings.vendor.gemini.modelHintDefault")}</div>
+            </div>
+
+            {shouldShowApiBaseUrl && (
+              <div className="vendor-form-group vendor-gemini-auth-field vendor-gemini-auth-field-wide">
+                <label htmlFor="gemini-api-base-url">GOOGLE_GEMINI_BASE_URL</label>
+                <input
+                  id="gemini-api-base-url"
+                  className="vendor-input"
+                  value={draft.apiBaseUrl}
+                  placeholder="https://your-gemini-endpoint.example.com"
+                  onChange={(event) => {
+                    handleGeminiFieldChange("apiBaseUrl", event.target.value);
+                  }}
+                />
+              </div>
+            )}
+
+            {shouldShowApiKey && (
+              <div className="vendor-form-group vendor-gemini-auth-field vendor-gemini-auth-field-wide">
+                <label htmlFor="gemini-api-key">{keyLabel}</label>
+                <div className="vendor-input-row">
+                  <input
+                    id="gemini-api-key"
+                    className="vendor-input"
+                    type={showKey ? "text" : "password"}
+                    value={keyValue}
+                    placeholder="AIza..."
+                    onChange={(event) => {
+                      if (draft.authMode === "vertex_api_key") {
+                        handleGeminiFieldChange("googleApiKey", event.target.value);
+                      } else {
+                        handleGeminiFieldChange("geminiApiKey", event.target.value);
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="vendor-btn-icon"
+                    onClick={() => setShowKey((current) => !current)}
+                    title={
+                      showKey
+                        ? t("settings.vendor.gemini.hideKey")
+                        : t("settings.vendor.gemini.showKey")
+                    }
+                  >
+                    {showKey ? <EyeOff /> : <Eye />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {isVertexMode && (
+              <div className="vendor-model-grid vendor-gemini-auth-field vendor-gemini-auth-field-wide">
+                <div>
+                  <label htmlFor="gemini-cloud-project">GOOGLE_CLOUD_PROJECT</label>
+                  <input
+                    id="gemini-cloud-project"
+                    className="vendor-input"
+                    value={draft.googleCloudProject}
+                    placeholder="my-gcp-project-id"
+                    onChange={(event) => {
+                      handleGeminiFieldChange("googleCloudProject", event.target.value);
+                    }}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="gemini-cloud-location">GOOGLE_CLOUD_LOCATION</label>
+                  <input
+                    id="gemini-cloud-location"
+                    className="vendor-input"
+                    value={draft.googleCloudLocation}
+                    placeholder="global / us-central1"
+                    onChange={(event) => {
+                      handleGeminiFieldChange("googleCloudLocation", event.target.value);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {draft.authMode === "vertex_service_account" && (
+              <div className="vendor-form-group vendor-gemini-auth-field vendor-gemini-auth-field-wide">
+                <label htmlFor="gemini-google-application-credentials">
+                  GOOGLE_APPLICATION_CREDENTIALS
+                </label>
+                <input
+                  id="gemini-google-application-credentials"
+                  className="vendor-input"
+                  value={draft.googleApplicationCredentials}
+                  placeholder="<service-account-json-path>"
+                  onChange={(event) => {
+                    handleGeminiFieldChange(
+                      "googleApplicationCredentials",
+                      event.target.value,
+                    );
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
           <div className="vendor-gemini-actions-row">
             <Button
               size="sm"
               onClick={() => {
-                void handleSaveEnv();
+                void handleSaveConfig();
               }}
-              disabled={savingEnv}
+              disabled={savingConfig}
             >
               <Save className="h-3.5 w-3.5" />
-              {savingEnv
+              {savingConfig
                 ? t("settings.vendor.gemini.saving")
-                : t("settings.vendor.gemini.saveEnv")}
+                : t("settings.vendor.gemini.saveConfig")}
             </Button>
           </div>
         </section>
       </div>
 
-      <section className="vendor-gemini-card vendor-gemini-card-auth">
-        <div className="vendor-gemini-auth-header">
-          <div>
-            <label className="vendor-gemini-section-title">
-              {t("settings.vendor.gemini.authConfig")}
-            </label>
-            <p className="vendor-gemini-help">
-              {t("settings.vendor.gemini.authConfigDescription")}
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              openUrl("https://geminicli.com/docs/get-started/authentication/").catch(
-                () => {},
-              );
-            }}
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            {t("settings.vendor.gemini.viewAuthDoc")}
-          </Button>
-        </div>
-
-        <div className="vendor-form-group">
-          <label className="vendor-input-row" htmlFor="gemini-vendor-enabled">
-            <input
-              id="gemini-vendor-enabled"
-              type="checkbox"
-              checked={draft.enabled}
-              onChange={(event) => handleEnabledChange(event.target.checked)}
-            />
-            <span>{t("settings.vendor.gemini.enabledSwitch")}</span>
-          </label>
-          <div className="vendor-hint">
-            {draft.enabled
-              ? t("settings.vendor.gemini.enabled")
-              : t("settings.vendor.gemini.disabled")}
-          </div>
-        </div>
-
-        <div className="vendor-form-group">
-          <label htmlFor="gemini-auth-mode">{t("settings.vendor.gemini.authMode")}</label>
-          <select
-            id="gemini-auth-mode"
-            className="vendor-input"
-            value={draft.authMode}
-            onChange={(event) => {
-              const nextMode = event.target.value as GeminiAuthMode;
-              if (GEMINI_AUTH_MODES.includes(nextMode)) {
-                handleGeminiAuthModeChange(nextMode);
-              }
-            }}
-          >
-            {GEMINI_AUTH_MODES.map((mode) => (
-              <option key={mode} value={mode}>
-                {modeLabel(t, mode)}
-              </option>
-            ))}
-          </select>
-          <div className="vendor-hint">{modeHint(t, draft.authMode)}</div>
-        </div>
-
-        <div className="vendor-form-group">
-          <label htmlFor="gemini-model">Model</label>
-          <input
-            id="gemini-model"
-            className="vendor-input"
-            value={draft.model}
-            placeholder="gemini-3-pro-preview"
-            onChange={(event) => {
-              handleGeminiFieldChange("model", event.target.value);
-            }}
-          />
-          <div className="vendor-hint">{t("settings.vendor.gemini.modelHintDefault")}</div>
-        </div>
-
-        {shouldShowApiBaseUrl && (
-          <div className="vendor-form-group">
-            <label htmlFor="gemini-api-base-url">GOOGLE_GEMINI_BASE_URL</label>
-            <input
-              id="gemini-api-base-url"
-              className="vendor-input"
-              value={draft.apiBaseUrl}
-              placeholder="https://your-gemini-endpoint.example.com"
-              onChange={(event) => {
-                handleGeminiFieldChange("apiBaseUrl", event.target.value);
-              }}
-            />
-          </div>
-        )}
-
-        {shouldShowApiKey && (
-          <div className="vendor-form-group">
-            <label htmlFor="gemini-api-key">{keyLabel}</label>
-            <div className="vendor-input-row">
-              <input
-                id="gemini-api-key"
-                className="vendor-input"
-                type={showKey ? "text" : "password"}
-                value={keyValue}
-                placeholder="AIza..."
-                onChange={(event) => {
-                  if (draft.authMode === "vertex_api_key") {
-                    handleGeminiFieldChange("googleApiKey", event.target.value);
-                  } else {
-                    handleGeminiFieldChange("geminiApiKey", event.target.value);
-                  }
-                }}
-              />
-              <button
-                type="button"
-                className="vendor-btn-icon"
-                onClick={() => setShowKey((current) => !current)}
-                title={
-                  showKey
-                    ? t("settings.vendor.gemini.hideKey")
-                    : t("settings.vendor.gemini.showKey")
-                }
-              >
-                {showKey ? <EyeOff /> : <Eye />}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {isVertexMode && (
-          <div className="vendor-model-grid">
-            <div>
-              <label htmlFor="gemini-cloud-project">GOOGLE_CLOUD_PROJECT</label>
-              <input
-                id="gemini-cloud-project"
-                className="vendor-input"
-                value={draft.googleCloudProject}
-                placeholder="my-gcp-project-id"
-                onChange={(event) => {
-                  handleGeminiFieldChange("googleCloudProject", event.target.value);
-                }}
-              />
-            </div>
-            <div>
-              <label htmlFor="gemini-cloud-location">GOOGLE_CLOUD_LOCATION</label>
-              <input
-                id="gemini-cloud-location"
-                className="vendor-input"
-                value={draft.googleCloudLocation}
-                placeholder="global / us-central1"
-                onChange={(event) => {
-                  handleGeminiFieldChange("googleCloudLocation", event.target.value);
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {draft.authMode === "vertex_service_account" && (
-          <div className="vendor-form-group">
-            <label htmlFor="gemini-google-application-credentials">
-              GOOGLE_APPLICATION_CREDENTIALS
-            </label>
-            <input
-              id="gemini-google-application-credentials"
-              className="vendor-input"
-              value={draft.googleApplicationCredentials}
-              placeholder="<service-account-json-path>"
-              onChange={(event) => {
-                handleGeminiFieldChange(
-                  "googleApplicationCredentials",
-                  event.target.value,
-                );
-              }}
-            />
-          </div>
-        )}
-
+      <section className="vendor-gemini-card vendor-gemini-card-env">
+        <label className="vendor-gemini-section-title">{t("settings.vendor.gemini.envVars")}</label>
+        <textarea
+          className="vendor-code-editor vendor-gemini-env-editor"
+          value={draft.envText}
+          onChange={(event) => {
+            handleDraftEnvTextChange(event.target.value);
+          }}
+          placeholder={"GEMINI_API_KEY=...\nGEMINI_MODEL=gemini-3-pro-preview"}
+        />
         <div className="vendor-gemini-actions-row">
           <Button
             size="sm"
             onClick={() => {
-              void handleSaveConfig();
+              void handleSaveEnv();
             }}
-            disabled={savingConfig}
+            disabled={savingEnv}
           >
             <Save className="h-3.5 w-3.5" />
-            {savingConfig
+            {savingEnv
               ? t("settings.vendor.gemini.saving")
-              : t("settings.vendor.gemini.saveConfig")}
+              : t("settings.vendor.gemini.saveEnv")}
           </Button>
         </div>
       </section>

@@ -80,7 +80,10 @@ fn next_gemini_routed_item_id(
         state.active_text_item_id = Some(text_item_id);
     }
 
-    if matches!(render_lane, GeminiRenderLane::Reasoning) {
+    if matches!(render_lane, GeminiRenderLane::Reasoning)
+        && (state.last_render_lane != GeminiRenderLane::Reasoning
+            || state.active_reasoning_item_id.is_none())
+    {
         state.reasoning_run_index += 1;
         state.active_reasoning_item_id = Some(format!(
             "{base_item_id}:reasoning-seg-{}",

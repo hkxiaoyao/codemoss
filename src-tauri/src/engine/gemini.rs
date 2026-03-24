@@ -1517,6 +1517,21 @@ fn parse_gemini_event(workspace_id: &str, event: &Value) -> Option<EngineEvent> 
                 text,
             })
         }
+        "gemini" => {
+            let role = event
+                .get("role")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if role == "user" || role == "system" {
+                return None;
+            }
+            let text = extract_event_text(event)?;
+            Some(EngineEvent::TextDelta {
+                workspace_id: workspace_id.to_string(),
+                text,
+            })
+        }
         "tool_use" => {
             let tool_id = first_non_empty_str(&[
                 event.get("tool_id").and_then(|v| v.as_str()),
@@ -1857,6 +1872,32 @@ mod tests {
             }
             _ => panic!("expected TextDelta"),
         }
+    }
+
+    #[test]
+    fn parse_gemini_snapshot_content_maps_to_text_delta() {
+        let payload = json!({
+            "type": "gemini",
+            "content": "接下来，我将创建 PhoneRequest.java 文件。"
+        });
+        let parsed = parse_gemini_event("workspace-1", &payload);
+        match parsed {
+            Some(EngineEvent::TextDelta { text, .. }) => {
+                assert_eq!(text, "接下来，我将创建 PhoneRequest.java 文件。");
+            }
+            _ => panic!("expected TextDelta"),
+        }
+    }
+
+    #[test]
+    fn parse_gemini_snapshot_ignores_user_role() {
+        let payload = json!({
+            "type": "gemini",
+            "role": "user",
+            "content": "用户输入"
+        });
+        let parsed = parse_gemini_event("workspace-1", &payload);
+        assert!(parsed.is_none());
     }
 
     #[test]

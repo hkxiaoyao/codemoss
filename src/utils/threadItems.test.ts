@@ -993,6 +993,30 @@ go lang`,
     }
   });
 
+  it("infers file changes from output-only unified diff payloads", () => {
+    const item = buildConversationItem({
+      type: "fileChange",
+      id: "change-output-only-1",
+      status: "completed",
+      output: [
+        "diff --git a/src/main/java/com/example/OperationLog.java b/src/main/java/com/example/OperationLog.java",
+        "--- a/src/main/java/com/example/OperationLog.java",
+        "+++ b/src/main/java/com/example/OperationLog.java",
+        "@@ -1,1 +1,2 @@",
+        " public class OperationLog {}",
+        "+// added line",
+      ].join("\n"),
+    });
+
+    expect(item).not.toBeNull();
+    if (item && item.kind === "tool") {
+      expect(item.detail).toBe("M src/main/java/com/example/OperationLog.java");
+      expect(item.changes?.[0]?.path).toBe("src/main/java/com/example/OperationLog.java");
+      expect(item.changes?.[0]?.kind).toBe("modified");
+      expect(item.output).toContain("+// added line");
+    }
+  });
+
   it("builds commandExecution items with structured detail payload", () => {
     const item = buildConversationItem({
       type: "commandExecution",
