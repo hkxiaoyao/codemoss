@@ -342,6 +342,110 @@ fn is_image_path_candidate(path: &str) -> bool {
     .any(|suffix| normalized.ends_with(suffix))
 }
 
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn percent_decode_path(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut output = String::with_capacity(value.len());
+    let mut cursor = 0usize;
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'%' && cursor + 2 < bytes.len() {
+            let hi = hex_value(bytes[cursor + 1]);
+            let lo = hex_value(bytes[cursor + 2]);
+            if let (Some(hi), Some(lo)) = (hi, lo) {
+                output.push((hi * 16 + lo) as char);
+                cursor += 3;
+                continue;
+            }
+        }
+        output.push(bytes[cursor] as char);
+        cursor += 1;
+    }
+    output
+}
+
+fn has_windows_drive_prefix(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && (bytes[1] == b':' || bytes[1] == b'|')
+        && (bytes[2] == b'/' || bytes[2] == b'\\')
+}
+
+fn has_windows_drive_host(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 2
+        && bytes[0].is_ascii_alphabetic()
+        && (bytes[1] == b':' || bytes[1] == b'|')
+}
+
+fn normalize_file_uri_path(file_uri: &str) -> Option<String> {
+    if !file_uri
+        .get(..7)
+        .map(|value| value.eq_ignore_ascii_case("file://"))
+        .unwrap_or(false)
+    {
+        return None;
+    }
+    let mut remainder = file_uri[7..].trim();
+    if remainder.is_empty() {
+        return None;
+    }
+
+    if remainder.to_ascii_lowercase().starts_with("localhost/") {
+        remainder = &remainder["localhost/".len()..];
+    } else if !remainder.starts_with('/')
+        && !has_windows_drive_prefix(remainder)
+        && !has_windows_drive_host(remainder)
+    {
+        let (host, tail) = remainder
+            .split_once('/')
+            .map(|(lhs, rhs)| (lhs, format!("/{}", rhs)))
+            .unwrap_or((remainder, String::new()));
+        if tail.is_empty() {
+            return Some(format!("//{}", host));
+        } else {
+            return Some(format!("//{}{}", host, percent_decode_path(&tail)));
+        }
+    }
+
+    let mut normalized = remainder.replace('|', ":");
+    if normalized.len() >= 3
+        && normalized.starts_with('/')
+        && normalized.as_bytes()[1].is_ascii_alphabetic()
+        && normalized.as_bytes()[2] == b':'
+    {
+        normalized = normalized[1..].to_string();
+    }
+    Some(percent_decode_path(&normalized))
+}
+
+fn normalize_history_image_source(value: &str) -> String {
+    let trimmed = value.trim();
+    normalize_file_uri_path(trimmed).unwrap_or_else(|| trimmed.to_string())
+}
+
+fn is_local_image_path(path: &str) -> bool {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if has_windows_drive_prefix(trimmed) {
+        return true;
+    }
+    if trimmed.starts_with('/') || trimmed.starts_with("\\\\") || trimmed.starts_with("//") {
+        return true;
+    }
+    !trimmed.contains("://") && !trimmed.starts_with("data:")
+}
+
 #[derive(Debug, Clone)]
 struct AtImageReference {
     start: usize,
@@ -481,7 +585,7 @@ fn collect_content_image_sources(value: &Value, output: &mut Vec<String>) {
                 .map(|value| value.to_ascii_lowercase().starts_with("image/"))
                 .unwrap_or_else(|| is_image_path_candidate(file_uri))
             {
-                output.push(file_uri.to_string());
+                output.push(normalize_history_image_source(file_uri));
             }
         }
     }
@@ -507,19 +611,42 @@ fn dedupe_string_list(values: Vec<String>) -> Vec<String> {
 }
 
 fn extract_message_images(message: &Value) -> Vec<String> {
-    let mut images = Vec::new();
+    let mut display_images = Vec::new();
     if let Some(display_text) = extract_display_text(message) {
         for reference in extract_image_at_references(&display_text) {
-            images.push(reference.path);
+            display_images.push(normalize_history_image_source(&reference.path));
         }
     }
-    if !images.is_empty() {
-        return dedupe_string_list(images);
-    }
+    let mut content_images = Vec::new();
     if let Some(content) = message.get("content") {
-        collect_content_image_sources(content, &mut images);
+        collect_content_image_sources(content, &mut content_images);
     }
-    dedupe_string_list(images)
+
+    if content_images
+        .iter()
+        .any(|value| value.to_ascii_lowercase().starts_with("data:image/"))
+    {
+        return dedupe_string_list(content_images);
+    }
+
+    if !display_images.is_empty() {
+        let existing_display_images = display_images
+            .iter()
+            .filter(|value| !is_local_image_path(value) || Path::new(value).exists())
+            .cloned()
+            .collect::<Vec<_>>();
+        if !existing_display_images.is_empty() {
+            return dedupe_string_list(existing_display_images);
+        }
+    }
+
+    if !content_images.is_empty() {
+        return dedupe_string_list(content_images);
+    }
+    if !display_images.is_empty() {
+        return dedupe_string_list(display_images);
+    }
+    Vec::new()
 }
 
 fn count_inline_images(value: &Value) -> usize {
@@ -1175,7 +1302,10 @@ mod tests {
         assert_eq!(entries[0].kind, "message");
         assert_eq!(entries[0].role, "user");
         assert_eq!(entries[0].text, "描述一下");
-        assert_eq!(entries[0].images, Some(vec!["/tmp/a b.png".to_string()]));
+        assert_eq!(
+            entries[0].images,
+            Some(vec!["data:image/png;base64,AAAA".to_string()])
+        );
     }
 
     #[test]
@@ -1239,6 +1369,47 @@ mod tests {
         assert_eq!(
             entries[0].images,
             Some(vec!["data:image/png;base64,AAAA".to_string()])
+        );
+    }
+
+    #[test]
+    fn parse_messages_normalizes_file_uri_image_sources() {
+        let value = json!({
+            "messages": [
+                {
+                    "type": "user",
+                    "id": "user-1",
+                    "content": [
+                        {
+                            "fileData": {
+                                "fileUri": "file:///tmp/a%20b.png",
+                                "mimeType": "image/png"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "type": "user",
+                    "id": "user-2",
+                    "content": [
+                        {
+                            "fileData": {
+                                "fileUri": "file:///C:/Users/Chen/Pictures/a%20b.png",
+                                "mimeType": "image/png"
+                            }
+                        }
+                    ]
+                }
+            ]
+        });
+
+        let parsed = parse_messages_from_value(&value);
+        let entries = parsed.messages;
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].images, Some(vec!["/tmp/a b.png".to_string()]));
+        assert_eq!(
+            entries[1].images,
+            Some(vec!["C:/Users/Chen/Pictures/a b.png".to_string()])
         );
     }
 }

@@ -296,6 +296,28 @@ describe('ChatInputBoxAdapter toggle bridge', () => {
     );
   });
 
+  it("falls back to external attachments when submit callback omits attachments", async () => {
+    const onSend = vi.fn();
+    renderAdapter({
+      onSend,
+      attachments: ["file:///tmp/fallback-image.png"],
+    });
+
+    await waitFor(() => expect(mockState.latestProps).toBeTruthy());
+
+    const latest = mockState.latestProps as {
+      onSubmit?: (content: string) => void;
+    };
+
+    act(() => {
+      latest.onSubmit?.("fresh child snapshot");
+    });
+
+    expect(onSend).toHaveBeenCalledWith("fresh child snapshot", [
+      "file:///tmp/fallback-image.png",
+    ]);
+  });
+
   it("keeps file URI attachments unchanged for claude sends", async () => {
     const onSend = vi.fn();
     renderAdapter({ onSend });

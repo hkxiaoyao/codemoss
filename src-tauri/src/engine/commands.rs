@@ -2007,11 +2007,19 @@ pub async fn engine_send_message(
                 .get_claude_session(&workspace_id, &workspace_path)
                 .await;
 
+            let has_images = images.as_ref().is_some_and(|entries| {
+                entries.iter().any(|entry| !entry.trim().is_empty())
+            });
+            let continue_session_for_send = continue_session && !has_images;
+
             // Resolve session id according to mode:
             // 1) continue_session=true  -> explicit session_id or tracked session id
             // 2) continue_session=false -> force a fresh unique session id so concurrent
             //    Claude turns never collapse into one shared persisted session.
-            let resolved_session_id = if continue_session {
+            // 3) image attachments          -> force fresh session to isolate image context
+            let resolved_session_id = if has_images {
+                Some(uuid::Uuid::new_v4().to_string())
+            } else if continue_session {
                 if session_id.is_some() {
                     session_id
                 } else {
@@ -2045,7 +2053,7 @@ pub async fn engine_send_message(
                 effort,
                 access_mode,
                 images,
-                continue_session,
+                continue_session: continue_session_for_send,
                 session_id: resolved_session_id,
                 agent: None,
                 variant: None,
@@ -2164,10 +2172,14 @@ pub async fn engine_send_message(
             let session_clone = session.clone();
             let turn_id_clone = turn_id.clone();
             tokio::spawn(async move {
-                if let Err(e) = session_clone
-                    .send_message_with_auto_compact_retry(params, &turn_id_clone)
-                    .await
-                {
+                let send_result = if has_images {
+                    session_clone.send_message(params, &turn_id_clone).await
+                } else {
+                    session_clone
+                        .send_message_with_auto_compact_retry(params, &turn_id_clone)
+                        .await
+                };
+                if let Err(e) = send_result {
                     log::error!("Claude send_message failed: {}", e);
                 }
             });
@@ -2575,7 +2587,14 @@ pub async fn engine_send_message_sync(
                 .get_claude_session(&workspace_id, &workspace_path)
                 .await;
 
-            let resolved_session_id = if session_id.is_some() {
+            let has_images = images.as_ref().is_some_and(|entries| {
+                entries.iter().any(|entry| !entry.trim().is_empty())
+            });
+            let continue_session_for_send = continue_session && !has_images;
+
+            let resolved_session_id = if has_images {
+                Some(uuid::Uuid::new_v4().to_string())
+            } else if session_id.is_some() {
                 session_id
             } else if continue_session {
                 session.get_session_id().await
@@ -2601,7 +2620,7 @@ pub async fn engine_send_message_sync(
                 effort,
                 access_mode,
                 images,
-                continue_session,
+                continue_session: continue_session_for_send,
                 session_id: resolved_session_id,
                 agent: None,
                 variant: None,
@@ -2610,10 +2629,15 @@ pub async fn engine_send_message_sync(
             };
 
             let turn_id = format!("claude-sync-{}", uuid::Uuid::new_v4());
-            let response = timeout(
-                Duration::from_secs(900),
-                session.send_message_with_auto_compact_retry(params, &turn_id),
-            )
+            let response = timeout(Duration::from_secs(900), async {
+                if has_images {
+                    session.send_message(params, &turn_id).await
+                } else {
+                    session
+                        .send_message_with_auto_compact_retry(params, &turn_id)
+                        .await
+                }
+            })
             .await
             .map_err(|_| "Claude response timed out".to_string())??;
 

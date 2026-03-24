@@ -55,12 +55,23 @@ pub(super) fn build_message_content(params: &SendMessageParams) -> Result<Value,
                         .strip_prefix("data:")
                         .and_then(|s| s.strip_suffix(";base64"))
                         .unwrap_or("image/png");
+                    let normalized_base64 = normalize_base64_payload(parts[1]);
+                    if normalized_base64.is_empty() {
+                        image_failures.push("empty data-url base64 payload".to_string());
+                        continue;
+                    }
+                    if STANDARD.decode(normalized_base64.as_bytes()).is_err() {
+                        image_failures.push(
+                            "invalid data-url base64 payload (decode failed)".to_string(),
+                        );
+                        continue;
+                    }
                     content.push(json!({
                         "type": "image",
                         "source": {
                             "type": "base64",
                             "media_type": media_type,
-                            "data": parts[1]
+                            "data": normalized_base64
                         }
                     }));
                 }
@@ -210,6 +221,10 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
+fn normalize_base64_payload(input: &str) -> String {
+    input.chars().filter(|c| !c.is_ascii_whitespace()).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{build_message_content, normalize_image_path};
@@ -271,6 +286,17 @@ mod tests {
 
         let error = build_message_content(&params).expect_err("expected error");
         assert!(error.contains("Failed to attach image inputs for Claude"));
+    }
+
+    #[test]
+    fn build_message_content_returns_error_when_data_url_base64_invalid() {
+        let mut params = SendMessageParams::default();
+        params.text = "describe".to_string();
+        params.images = Some(vec!["data:image/png;base64,not-valid-base64-***".to_string()]);
+
+        let error = build_message_content(&params).expect_err("expected error");
+        assert!(error.contains("Failed to attach image inputs for Claude"));
+        assert!(error.contains("invalid data-url base64 payload"));
     }
 
     #[test]
