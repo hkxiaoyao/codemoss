@@ -56,9 +56,21 @@ function getViewportHeight(): number {
   return window.innerHeight;
 }
 
-export function clampGitHistoryPanelHeight(height: number, viewportHeight = getViewportHeight()): number {
-  const maxHeight = Math.max(GIT_HISTORY_PANEL_MIN_HEIGHT, viewportHeight - GIT_HISTORY_PANEL_MIN_TOP_CLEARANCE);
+export function getGitHistoryPanelResizeBounds(viewportHeight = getViewportHeight()) {
+  const maxHeight = Math.max(
+    GIT_HISTORY_PANEL_MIN_HEIGHT,
+    viewportHeight - GIT_HISTORY_PANEL_MIN_TOP_CLEARANCE,
+  );
   const minHeight = Math.min(GIT_HISTORY_PANEL_MIN_HEIGHT, maxHeight);
+  return {
+    viewportHeight,
+    minHeight,
+    maxHeight,
+  };
+}
+
+export function clampGitHistoryPanelHeight(height: number, viewportHeight = getViewportHeight()): number {
+  const { maxHeight, minHeight } = getGitHistoryPanelResizeBounds(viewportHeight);
   return Math.round(Math.min(maxHeight, Math.max(minHeight, height)));
 }
 
