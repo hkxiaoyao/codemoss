@@ -2,27 +2,29 @@
 
 ---
 
-##### **2026年3月29日（v0.3.6）**
+##### **2026年3月30日（v0.3.6）**
 
 English:
 
 ✨ Features
 - Redesign Skills management into a tree-based global browser that unifies multi-source skill directories, and add in-panel editing/saving with structured preview so users can inspect and update skills without leaving Settings
-- Complete missing Web Git RPC coverage in local daemon and split `daemon_state` into dedicated modules, making Web-mode Git actions more complete while improving daemon lifecycle maintainability
-- Harden multi-engine history-chain recovery in Web mode by reorganizing oversized bridge/runtime paths, reducing cross-engine history replay fragility and improving recovery consistency after interruptions
-- Refactor real-time canvas controls in the message flow into clearer control groups/constants, and fix focus-follow regressions so interaction context remains stable during live updates
-- Enhance Session Activity by exposing `search_query` tool-chain details and strengthening history replay recovery for better traceability
+- Complete missing Web Git RPC coverage in the local daemon and split `daemon_state` into dedicated modules, making Web-mode Git actions more complete while improving daemon lifecycle maintainability
+- Harden multi-engine history-chain recovery in Web mode by reorganizing oversized bridge/runtime paths, reducing replay fragility after interruptions and improving cross-engine continuity
+- Rework realtime message-canvas controls into clearer control groups/constants and keep focus-follow behavior stable during live updates
+- Enhance Session Activity by exposing `search_query` tool-chain details, strengthening history replay recovery, and adding date-group bulk delete for faster cleanup
+- Improve repo-awareness across detached file tree, file view, and Session Activity so sub-repo Git state mapping and diff targets resolve against the correct `gitRoot`
+- Support Claude custom model passthrough and dynamic model discovery, enabling newly configured models to appear and be selected without manual patching
+- Optimize tool-block file-change summaries and Markdown rendering so long command/tool outputs are easier to scan inside conversations
+- Convert successful `apply_patch` command-execution items into structured `File changes` cards in thread activity, including inferred file path/kind and richer change detail rendering
 - Unify `File changes` and `Batch` icon semantics with theme-aware color refinement for clearer visual scanning
 - Refresh the home-chat welcome area with client iconography and adjusted landing styles for stronger first-screen hierarchy
-- Add date-group bulk delete in Session Activity radar so users can remove all completed entries from a selected day in one action
-- Convert successful `apply_patch` command-execution items into structured `File changes` cards in thread activity, including inferred file path/kind and richer change detail rendering
 
 🔧 Improvements
 - Align file-tree Git folder status coloring with actual changed-path semantics, including test and style alignment, so folder-level change scanning is more predictable and visually consistent
 - Migrate message-flow tests into modular suites and harden realtime control-button compatibility to reduce UI regression risk
-- Improve sub-repo Git status path mapping by threading `gitRoot` across detached/file-tree/file-view flows, preventing workspace-root false matches and ensuring repo-relative diff targets resolve correctly
-- Add success-signal parsing for `apply_patch` command output (`Success. Updated the following files:`) and merge command/output artifacts to improve file-change inference robustness
 - Refactor `threadItems` by extracting exploration summarization and file-change inference into dedicated utility modules, reducing monolith complexity while preserving behavior
+- Move the live middle-step collapsed hint closer to the input/working-indicator zone, improving visibility during thinking-state streaming
+- Keep failed or non-executed patch command entries as regular `commandExecution` items so only real edits are promoted into file-change cards
 
 🐛 Fixes
 - Fix local web-service auto-start failures caused by daemon binary discovery issues by adding a more robust binary-location fallback path in bootstrap logic
@@ -31,8 +33,8 @@ English:
 - Fix duplicated skill chips/tokens when selecting same-name skills from multi-source entries (global/project overlap) by tightening token grouping and de-dup assembly logic
 - Reduce noisy "missing file" alerts from detached file-window monitoring to avoid unnecessary disruption
 - Fix screenshot-message side effects that could trigger unintended session switching and history-chain breaks in Claude threads
-- Keep failed or non-executed patch command entries as regular `commandExecution` items to avoid false-positive file-change conversion
-- Move the live middle-step collapsed hint to render near the input/working-indicator zone, improving visibility during thinking-state streaming
+- Fix Claude custom models being reset unexpectedly and refresh the model list when opening a new session so the configured selection remains available
+- Fix realtime focus-follow regressions and preserve stable interaction context while streaming updates
 
 中文：
 
@@ -40,19 +42,21 @@ English:
 - 将 Skills 管理重构为树形全局浏览器，统一聚合多来源技能目录，并补齐面板内编辑/保存与结构化预览能力，减少在设置与文件系统之间来回切换
 - 补齐本地 daemon 在 Web 模式下缺失的 Git RPC 覆盖，并拆分 `daemon_state` 为独立职责模块，在提升 Git 操作完整度的同时改善 daemon 生命周期可维护性
 - 通过重组多引擎桥接与运行时链路、拆分超大 Web 模块，加固 Web 模式历史链路恢复能力，降低跨引擎会话回放在中断后的脆弱性
-- 重构消息实时幕布控制为更清晰的控制组与常量映射，并修复焦点跟随回归问题，保证实时更新时交互上下文稳定
-- 增强 Session Activity：补齐 `search_query` 工具链路展示并加固历史回放恢复能力，提升问题追踪可见性
+- 重构消息实时幕布控制为更清晰的控制组与常量映射，并保持焦点跟随链路稳定，保证实时更新时交互上下文不漂移
+- 增强 Session Activity：补齐 `search_query` 工具链路展示、加固历史回放恢复能力，并支持按日期分组一键批量删除
+- 打通 detached/file-tree/file-view/Session Activity 的仓库感知链路，完善子仓库 `gitRoot` 状态映射与 diff 目标定位
+- 支持 Claude 自定义模型透传与动态模型发现，让新增模型配置可以直接被会话选择使用
+- 优化工具块中的文件变更摘要与 Markdown 渲染体验，提升长输出、多文件场景下的可读性
+- 在线程活动中，将成功执行的 `apply_patch` 命令自动转换为结构化 `File changes` 卡片，补齐变更文件路径、变更类型与更丰富的差异展示
 - 统一 `File changes` 与 `Batch` 图标语义并优化主题配色映射，提升工具卡视觉辨识度
 - 优化首页欢迎区首屏层次：新增客户端图标并调整欢迎样式编排
-- Session Activity 雷达支持按日期分组一键批量删除，便于快速清理某天的历史完成记录
-- 在线程活动中，将成功执行的 `apply_patch` 命令自动转换为结构化 `File changes` 卡片，补齐变更文件路径、变更类型与更丰富的差异展示
 
 🔧 Improvements
 - 对齐文件树 Git 文件夹状态着色与实际变更路径语义，并同步测试与样式表现，使目录级变更扫描更可预测、视觉反馈更一致
 - 将消息链路测试迁移为模块化结构，并加固实时控制按钮兼容性，降低后续 UI 演进时的回归风险
-- 打通 `gitRoot` 在 detached/file-tree/file-view 全链路透传，修复子仓库场景下 Git 状态路径映射与 diff 目标路径匹配，避免同名根目录文件被误着色
-- 增强 `apply_patch` 输出成功信号解析（`Success. Updated the following files:`），并联合命令文本与输出内容推断文件变更，提高识别鲁棒性
 - 重构 `threadItems`：将探索摘要与文件变更推断逻辑拆分为独立工具模块，降低单文件复杂度并保持原有行为一致
+- 调整实时中间步骤折叠提示的渲染位置，使其更贴近输入区与工作指示器，提升思考态流式阶段的可见性
+- 对失败执行或仅包含 patch 文本但未真正执行 `apply_patch` 的场景，保持原有 `commandExecution` 展示，避免误判为文件变更
 
 🐛 Fixes
 - 修复本地 web-service 自动启动时 daemon 二进制定位失败的问题：在 bootstrap 链路增加更稳健的二进制定位兜底路径
@@ -61,8 +65,8 @@ English:
 - 修复同名 Skill 在多来源（global/project）并存时选择后出现重复 skill chip/token 的问题：收紧 token 分组键与去重组装逻辑
 - 修复 detached 文件窗口监控链路“文件缺失”告警噪声过高的问题，减少非必要打断
 - 修复截图消息导致 Claude 线程会话误切换与历史链路断裂的问题
-- 对失败执行或仅包含 patch 文本但未真正执行 `apply_patch` 的场景，保持原有 `commandExecution` 展示，避免误判为文件变更
-- 调整实时中间步骤折叠提示的渲染位置，使其更贴近输入区与工作指示器，提升思考态流式阶段的可见性
+- 修复 Claude 自定义模型被意外重置的问题，并在新会话中自动刷新模型列表，保证配置后的模型可持续可见
+- 修复实时更新中的焦点跟随回归，保证流式阶段的交互上下文稳定
 
 ---
 
