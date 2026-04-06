@@ -187,6 +187,7 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
       statusPanelExpanded = true,
       showStatusPanelToggle = true,
       onToggleStatusPanel,
+      workspaceId,
       sdkInstalled = true, // Default to true to avoid disabling input box on initial state
       sdkStatusLoading = false, // SDK status loading state
       onInstallSdk,
@@ -950,16 +951,20 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
     // Prompt enhancer hook
     const {
       isEnhancing,
+      enhancingEngine,
       showEnhancerDialog,
       originalPrompt,
       enhancedPrompt,
+      canUseEnhancedPrompt,
       handleEnhancePrompt,
       handleUseEnhancedPrompt,
       handleKeepOriginalPrompt,
       handleCloseEnhancerDialog,
     } = usePromptEnhancer({
+      workspaceId,
       editableRef,
       getTextContent,
+      currentProvider,
       selectedModel,
       setHasContent,
       handleInput,
@@ -1362,8 +1367,10 @@ export const ChatInputBox = memo(forwardRef<ChatInputBoxHandle, ChatInputBoxProp
               promptEnhancer={{
                 isOpen: showEnhancerDialog,
                 isLoading: isEnhancing,
+                loadingEngine: enhancingEngine,
                 originalPrompt,
                 enhancedPrompt,
+                canUseEnhanced: canUseEnhancedPrompt,
                 onUseEnhanced: handleUseEnhancedPrompt,
                 onKeepOriginal: handleKeepOriginalPrompt,
                 onClose: handleCloseEnhancerDialog,

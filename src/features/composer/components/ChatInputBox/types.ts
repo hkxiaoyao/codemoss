@@ -548,6 +548,8 @@ export interface ChatInputBoxProps {
   disabled?: boolean;
   /** Controlled mode: input content */
   value?: string;
+  /** Current workspace id for prompt enhancer and local providers */
+  workspaceId?: string | null;
 
   /** Current active file */
   activeFile?: string;

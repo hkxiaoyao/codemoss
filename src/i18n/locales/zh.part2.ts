@@ -1505,10 +1505,12 @@ const zhPart2 = {
   // 聊天输入框
   chat: {
     sendMessage: "给 {{provider}} 发送消息",
-    inputPlaceholder: "@引用文件，@@引用记忆，$选择技能，#唤起智能体，!插入提示词，Enter 发送",
-    inputPlaceholderEnter: "@引用文件，@@引用记忆，$选择技能，#唤起智能体，!插入提示词，Enter 发送",
+    inputPlaceholder:
+      "@引用文件，@@引用记忆，$选择技能，#唤起智能体，!插入提示词，⌘/Ctrl+/ 提示词增强，Enter 发送",
+    inputPlaceholderEnter:
+      "@引用文件，@@引用记忆，$选择技能，#唤起智能体，!插入提示词，⌘/Ctrl+/ 提示词增强，Enter 发送",
     inputPlaceholderCmdEnter:
-      "@引用文件，@@引用记忆，$选择技能，#唤起智能体，!插入提示词，\u2318/Ctrl+Enter 发送",
+      "@引用文件，@@引用记忆，$选择技能，#唤起智能体，!插入提示词，⌘/Ctrl+/ 提示词增强，⌘/Ctrl+Enter 发送",
     skillScopeProject: "项目技能",
     skillScopeGlobal: "全局技能",
     sendMessageEnter: "发送消息 (Enter)",
@@ -1682,7 +1684,7 @@ const zhPart2 = {
     title: "增强提示词",
     tooltip: "增强提示词",
     tooltipFull: "重写提示词以提供更多上下文并改善 AI 响应",
-    shortcut: "\u2318/",
+    shortcut: "\u2318/ / Ctrl+/",
     enhancing: "正在增强提示词...",
     originalPrompt: "原始提示词",
     enhancedPrompt: "增强后的提示词",

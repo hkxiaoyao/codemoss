@@ -1532,11 +1532,11 @@ const enPart2 = {
   chat: {
     sendMessage: "Send message to {{provider}}",
     inputPlaceholder:
-      "@reference files, @@reference memories, $select skills, #invoke agents, !insert prompts, Enter to send",
+      "@reference files, @@reference memories, $select skills, #invoke agents, !insert prompts, ⌘/Ctrl+/ enhance prompt, Enter to send",
     inputPlaceholderEnter:
-      "@reference files, @@reference memories, $select skills, #invoke agents, !insert prompts, Enter to send",
+      "@reference files, @@reference memories, $select skills, #invoke agents, !insert prompts, ⌘/Ctrl+/ enhance prompt, Enter to send",
     inputPlaceholderCmdEnter:
-      "@reference files, @@reference memories, $select skills, #invoke agents, !insert prompts, \u2318/Ctrl+Enter to send",
+      "@reference files, @@reference memories, $select skills, #invoke agents, !insert prompts, ⌘/Ctrl+/ enhance prompt, ⌘/Ctrl+Enter to send",
     skillScopeProject: "Project skill",
     skillScopeGlobal: "Global skill",
     sendMessageEnter: "Send message (Enter)",
@@ -1710,7 +1710,7 @@ const enPart2 = {
     title: "Prompt Enhancer",
     tooltip: "Enhance Prompt",
     tooltipFull: "Rewrite prompt to provide more context and improve agent responses",
-    shortcut: "\u2318/",
+    shortcut: "\u2318/ / Ctrl+/",
     enhancing: "Enhancing prompt...",
     originalPrompt: "Original Prompt",
     enhancedPrompt: "Enhanced Prompt",

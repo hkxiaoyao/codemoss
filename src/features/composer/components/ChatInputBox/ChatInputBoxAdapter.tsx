@@ -1194,6 +1194,7 @@ export const ChatInputBoxAdapter = forwardRef<ChatInputBoxHandle, ChatInputBoxAd
         isLoading={isProcessing}
         disabled={disabled}
         value={text}
+        workspaceId={workspaceId}
         placeholder={placeholder ?? t('chat.inputPlaceholder')}
         sendShortcut={sendShortcut}
         selectedModel={resolvedSelectedModelId}
