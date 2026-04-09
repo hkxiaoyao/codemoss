@@ -164,6 +164,23 @@ impl ClaudeSession {
         );
     }
 
+    async fn fail_send_setup_and_terminate_child(
+        &self,
+        turn_id: &str,
+        child: &mut Child,
+        error_msg: String,
+    ) -> Result<String, String> {
+        if let Err(error) = self.terminate_child_process(turn_id, child).await {
+            log::debug!(
+                "[claude] failed to terminate setup-failed child process (turn={}): {}",
+                turn_id,
+                error
+            );
+        }
+        self.clear_turn_ephemeral_state(turn_id);
+        Err(error_msg)
+    }
+
     /// Set session ID (after successful execution)
     pub async fn set_session_id(&self, id: Option<String>) {
         *self.session_id.write().await = id;
@@ -330,20 +347,63 @@ impl ClaudeSession {
         // This path is required for image payloads and multiline text prompts.
         if use_stream_json_input {
             if let Some(mut stdin) = child.stdin.take() {
-                let message = build_message_content(&params)?;
-                let message_str = serde_json::to_string(&message)
-                    .map_err(|e| format!("Failed to serialize message: {}", e))?;
+                let message = match build_message_content(&params) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        drop(stdin);
+                        return self
+                            .fail_send_setup_and_terminate_child(
+                                turn_id,
+                                &mut child,
+                                format!("Failed to build message: {}", error),
+                            )
+                            .await;
+                    }
+                };
+                let message_str = match serde_json::to_string(&message) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        drop(stdin);
+                        return self
+                            .fail_send_setup_and_terminate_child(
+                                turn_id,
+                                &mut child,
+                                format!("Failed to serialize message: {}", error),
+                            )
+                            .await;
+                    }
+                };
 
-                stdin
-                    .write_all(message_str.as_bytes())
-                    .await
-                    .map_err(|e| format!("Failed to write to stdin: {}", e))?;
-                stdin
-                    .write_all(b"\n")
-                    .await
-                    .map_err(|e| format!("Failed to write newline: {}", e))?;
+                if let Err(error) = stdin.write_all(message_str.as_bytes()).await {
+                    drop(stdin);
+                    return self
+                        .fail_send_setup_and_terminate_child(
+                            turn_id,
+                            &mut child,
+                            format!("Failed to write to stdin: {}", error),
+                        )
+                        .await;
+                }
+                if let Err(error) = stdin.write_all(b"\n").await {
+                    drop(stdin);
+                    return self
+                        .fail_send_setup_and_terminate_child(
+                            turn_id,
+                            &mut child,
+                            format!("Failed to write newline: {}", error),
+                        )
+                        .await;
+                }
                 // Drop stdin to signal EOF
                 drop(stdin);
+            } else {
+                return self
+                    .fail_send_setup_and_terminate_child(
+                        turn_id,
+                        &mut child,
+                        "Failed to capture stdin for stream-json mode".to_string(),
+                    )
+                    .await;
             }
         } else {
             // For non-image messages, drop stdin immediately so the CLI
@@ -351,15 +411,31 @@ impl ClaudeSession {
             drop(child.stdin.take());
         }
 
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| "Failed to capture stdout".to_string())?;
+        let stdout = match child.stdout.take() {
+            Some(value) => value,
+            None => {
+                return self
+                    .fail_send_setup_and_terminate_child(
+                        turn_id,
+                        &mut child,
+                        "Failed to capture stdout".to_string(),
+                    )
+                    .await;
+            }
+        };
 
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| "Failed to capture stderr".to_string())?;
+        let stderr = match child.stderr.take() {
+            Some(value) => value,
+            None => {
+                return self
+                    .fail_send_setup_and_terminate_child(
+                        turn_id,
+                        &mut child,
+                        "Failed to capture stderr".to_string(),
+                    )
+                    .await;
+            }
+        };
 
         // Store child for interruption (per turn)
         {
