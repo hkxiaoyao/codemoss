@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationItem } from "../../../types";
 import { Messages } from "./Messages";
@@ -152,6 +152,75 @@ describe("Messages live behavior", () => {
     );
 
     expect(container.querySelector(".bash-group-container")).toBeTruthy();
+  });
+
+  it("switches codex working spinner between waiting and ingress phases", () => {
+    vi.useFakeTimers();
+    try {
+      const baseItems: ConversationItem[] = [
+        {
+          id: "user-stream-phase",
+          kind: "message",
+          role: "user",
+          text: "继续输出",
+        },
+        {
+          id: "assistant-stream-phase",
+          kind: "message",
+          role: "assistant",
+          text: "",
+        },
+      ];
+
+      const { container, rerender } = render(
+        <Messages
+          items={baseItems}
+          threadId="thread-1"
+          workspaceId="ws-1"
+          isThinking
+          processingStartedAt={Date.now() - 1_000}
+          activeEngine="codex"
+          openTargets={[]}
+          selectedOpenAppId=""
+        />,
+      );
+
+      const waitingNode = container.querySelector(".working");
+      expect(waitingNode?.className ?? "").toContain("is-waiting");
+
+      rerender(
+        <Messages
+          items={[
+            baseItems[0]!,
+            {
+              id: "assistant-stream-phase",
+              kind: "message",
+              role: "assistant",
+              text: "增量片段",
+            },
+          ]}
+          threadId="thread-1"
+          workspaceId="ws-1"
+          isThinking
+          processingStartedAt={Date.now() - 1_000}
+          activeEngine="codex"
+          openTargets={[]}
+          selectedOpenAppId=""
+        />,
+      );
+
+      const ingressNode = container.querySelector(".working");
+      expect(ingressNode?.className ?? "").toContain("is-ingress");
+
+      act(() => {
+        vi.advanceTimersByTime(1_200);
+      });
+
+      const backToWaitingNode = container.querySelector(".working");
+      expect(backToWaitingNode?.className ?? "").toContain("is-waiting");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("disables auto-follow scrolling when live auto-follow toggle is off", () => {

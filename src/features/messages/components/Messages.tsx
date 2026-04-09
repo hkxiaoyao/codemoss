@@ -56,6 +56,10 @@ import {
   parseMemoryContextSummary,
 } from "./messagesMemoryContext";
 import {
+  useStreamActivityPhase,
+  type StreamActivityPhase,
+} from "../../threads/hooks/useStreamActivityPhase";
+import {
   collapseConsecutiveReasoningRuns,
   compactComparableReasoningText,
   dedupeAdjacentReasoningItems,
@@ -109,6 +113,7 @@ type WorkingIndicatorProps = {
   activeEngine?: "claude" | "codex" | "gemini" | "opencode";
   waitingForFirstChunk?: boolean;
   presentationProfile?: PresentationProfile | null;
+  streamActivityPhase?: StreamActivityPhase;
 };
 
 type MessageRowProps = {
@@ -573,7 +578,7 @@ function shouldHideCodexCanvasCommandCard(
   item: Extract<ConversationItem, { kind: "tool" }>,
   activeEngine: "claude" | "codex" | "gemini" | "opencode",
 ) {
-  if (activeEngine !== "codex") {
+  if (activeEngine !== "codex" && activeEngine !== "claude") {
     return false;
   }
   if (item.toolType === "commandExecution") {
@@ -687,6 +692,7 @@ const WorkingIndicator = memo(function WorkingIndicator({
   activeEngine = "claude",
   waitingForFirstChunk = false,
   presentationProfile = null,
+  streamActivityPhase = "idle",
 }: WorkingIndicatorProps) {
   const { t } = useTranslation();
   const [elapsedMs, setElapsedMs] = useState(0);
@@ -712,6 +718,10 @@ const WorkingIndicator = memo(function WorkingIndicator({
     reasoningLabel,
     activityLabel,
   );
+  const streamPhaseClass =
+    activeEngine === "codex" && streamActivityPhase !== "idle"
+      ? ` is-${streamActivityPhase}`
+      : "";
   const nonStreamingHintText = t("messages.nonStreamingHint");
   const resolvedNonStreamingHint =
     nonStreamingHintText === "messages.nonStreamingHint"
@@ -768,7 +778,7 @@ const WorkingIndicator = memo(function WorkingIndicator({
   return (
     <>
       {isThinking && (
-        <div className="working">
+        <div className={`working${streamPhaseClass}`}>
           {proxyEnabled && (
             <ProxyStatusBadge
               proxyUrl={proxyUrl}
@@ -1726,6 +1736,10 @@ export const Messages = memo(function Messages({
     }
     return true;
   }, [isThinking, effectiveItems]);
+  const streamActivityPhase = useStreamActivityPhase({
+    isProcessing: isThinking && activeEngine === "codex",
+    items: effectiveItems,
+  });
 
   const visibleItems = useMemo(() => {
     const filtered = effectiveItems.filter((item) => {
@@ -2369,7 +2383,7 @@ export const Messages = memo(function Messages({
       );
     }
     if (entry.kind === "bashGroup") {
-      if (activeEngine === "codex") {
+      if (activeEngine === "codex" || activeEngine === "claude") {
         return null;
       }
       const firstItem = entry.items[0];
@@ -2486,6 +2500,7 @@ export const Messages = memo(function Messages({
             activeEngine={activeEngine}
             waitingForFirstChunk={waitingForFirstChunk}
             presentationProfile={presentationProfile}
+            streamActivityPhase={streamActivityPhase}
           />
           {!effectiveItems.length && !userInputNode && (
             <div className="empty messages-empty">
