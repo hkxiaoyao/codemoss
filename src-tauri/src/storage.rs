@@ -127,6 +127,60 @@ fn read_workspace_list(path: &Path) -> Result<Vec<WorkspaceEntry>, String> {
     serde_json::from_str(&data).map_err(|e| e.to_string())
 }
 
+const DEFAULT_WORKSPACE_PATH_SUFFIXES: [&str; 6] = [
+    "/.ccgui/workspace",
+    "/.mossx/workspace",
+    "/.codemoss/workspace",
+    "/com.zhukunpenglinyutong.ccgui/workspace",
+    "/com.zhukunpenglinyutong.mossx/workspace",
+    "/com.zhukunpenglinyutong.codemoss/workspace",
+];
+
+fn normalize_workspace_path(path: &str) -> String {
+    path.trim()
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_ascii_lowercase()
+}
+
+fn default_workspace_path_priority(path: &str) -> Option<usize> {
+    let normalized = normalize_workspace_path(path);
+    DEFAULT_WORKSPACE_PATH_SUFFIXES
+        .iter()
+        .position(|suffix| normalized.ends_with(suffix))
+}
+
+fn dedupe_default_workspace_entries(entries: Vec<WorkspaceEntry>) -> (Vec<WorkspaceEntry>, bool) {
+    let mut default_entries: Vec<(usize, usize)> = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            default_workspace_path_priority(&entry.path).map(|priority| (index, priority))
+        })
+        .collect();
+
+    if default_entries.len() <= 1 {
+        return (entries, false);
+    }
+
+    default_entries.sort_by_key(|(index, priority)| (*priority, *index));
+    let keep_index = default_entries[0].0;
+
+    let pruned = entries
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, entry)| {
+            if default_workspace_path_priority(&entry.path).is_some() && index != keep_index {
+                None
+            } else {
+                Some(entry)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    (pruned, true)
+}
+
 fn merge_workspace_entries(
     existing: Vec<WorkspaceEntry>,
     incoming: &[WorkspaceEntry],
@@ -150,6 +204,16 @@ fn merge_workspace_entries(
 
 pub(crate) fn read_workspaces(path: &PathBuf) -> Result<HashMap<String, WorkspaceEntry>, String> {
     let list = read_workspace_list(path)?;
+    let (list, changed) = dedupe_default_workspace_entries(list);
+    if changed {
+        if let Err(error) = write_workspaces(path, &list) {
+            eprintln!(
+                "[storage] failed to persist default workspace dedupe for {}: {}",
+                path.display(),
+                error
+            );
+        }
+    }
     Ok(list
         .into_iter()
         .map(|entry| (entry.id.clone(), entry))
@@ -356,5 +420,150 @@ mod tests {
         let read = read_workspaces(&path).expect("read pruned list");
         assert_eq!(read.len(), 1);
         assert!(read.contains_key("workspace-a"));
+    }
+
+    #[test]
+    fn read_workspaces_prunes_duplicate_default_workspace_entries() {
+        let temp_dir = std::env::temp_dir().join(format!("moss-x-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let path = temp_dir.join("workspaces.json");
+
+        let entries = vec![
+            WorkspaceEntry {
+                id: "default-codemoss".to_string(),
+                name: "workspace".to_string(),
+                path: "/Users/demo/.codemoss/workspace".to_string(),
+                codex_bin: None,
+                kind: WorkspaceKind::Main,
+                parent_id: None,
+                worktree: None,
+                settings: WorkspaceSettings::default(),
+            },
+            WorkspaceEntry {
+                id: "project-main".to_string(),
+                name: "project-main".to_string(),
+                path: "/Users/demo/project-main".to_string(),
+                codex_bin: None,
+                kind: WorkspaceKind::Main,
+                parent_id: None,
+                worktree: None,
+                settings: WorkspaceSettings::default(),
+            },
+            WorkspaceEntry {
+                id: "default-ccgui".to_string(),
+                name: "workspace".to_string(),
+                path: "/Users/demo/.ccgui/workspace".to_string(),
+                codex_bin: None,
+                kind: WorkspaceKind::Main,
+                parent_id: None,
+                worktree: None,
+                settings: WorkspaceSettings::default(),
+            },
+        ];
+
+        write_workspaces(&path, &entries).expect("write duplicated defaults");
+
+        let read = read_workspaces(&path).expect("read pruned defaults");
+        assert_eq!(read.len(), 2);
+        assert!(read.contains_key("project-main"));
+        assert!(read.contains_key("default-ccgui"));
+        assert!(!read.contains_key("default-codemoss"));
+    }
+
+    #[test]
+    fn read_workspaces_prunes_duplicate_default_workspace_entries_windows_style_paths() {
+        let temp_dir = std::env::temp_dir().join(format!("moss-x-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let path = temp_dir.join("workspaces.json");
+
+        let entries = vec![
+            WorkspaceEntry {
+                id: "default-codemoss".to_string(),
+                name: "workspace".to_string(),
+                path: "C:\\Users\\Demo\\.CodeMoss\\Workspace".to_string(),
+                codex_bin: None,
+                kind: WorkspaceKind::Main,
+                parent_id: None,
+                worktree: None,
+                settings: WorkspaceSettings::default(),
+            },
+            WorkspaceEntry {
+                id: "default-ccgui".to_string(),
+                name: "workspace".to_string(),
+                path: " C:\\Users\\Demo\\.CCGUI\\Workspace\\ ".to_string(),
+                codex_bin: None,
+                kind: WorkspaceKind::Main,
+                parent_id: None,
+                worktree: None,
+                settings: WorkspaceSettings::default(),
+            },
+        ];
+
+        write_workspaces(&path, &entries).expect("write duplicated defaults");
+
+        let read = read_workspaces(&path).expect("read pruned defaults");
+        assert_eq!(read.len(), 1);
+        assert!(read.contains_key("default-ccgui"));
+        assert!(!read.contains_key("default-codemoss"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn read_workspaces_succeeds_even_when_dedupe_writeback_fails() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp_dir = std::env::temp_dir().join(format!("moss-x-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let path = temp_dir.join("workspaces.json");
+
+        let entries = vec![
+            WorkspaceEntry {
+                id: "default-codemoss".to_string(),
+                name: "workspace".to_string(),
+                path: "/Users/demo/.codemoss/workspace".to_string(),
+                codex_bin: None,
+                kind: WorkspaceKind::Main,
+                parent_id: None,
+                worktree: None,
+                settings: WorkspaceSettings::default(),
+            },
+            WorkspaceEntry {
+                id: "default-ccgui".to_string(),
+                name: "workspace".to_string(),
+                path: "/Users/demo/.ccgui/workspace".to_string(),
+                codex_bin: None,
+                kind: WorkspaceKind::Main,
+                parent_id: None,
+                worktree: None,
+                settings: WorkspaceSettings::default(),
+            },
+        ];
+
+        write_workspaces(&path, &entries).expect("write duplicated defaults");
+
+        let mut readonly_perms = std::fs::metadata(&temp_dir)
+            .expect("read temp dir metadata")
+            .permissions();
+        readonly_perms.set_mode(0o555);
+        std::fs::set_permissions(&temp_dir, readonly_perms).expect("set temp dir readonly");
+
+        let read_result = read_workspaces(&path);
+
+        let mut writable_perms = std::fs::metadata(&temp_dir)
+            .expect("read temp dir metadata")
+            .permissions();
+        writable_perms.set_mode(0o755);
+        std::fs::set_permissions(&temp_dir, writable_perms).expect("restore temp dir writable");
+
+        let read = read_result.expect("read should still succeed when writeback fails");
+        assert_eq!(read.len(), 1);
+        assert!(read.contains_key("default-ccgui"));
+        assert!(!read.contains_key("default-codemoss"));
+
+        // Writeback failed due to readonly dir, so on-disk data should remain unchanged.
+        let raw_after = std::fs::read_to_string(&path).expect("read original file");
+        let persisted: Vec<WorkspaceEntry> =
+            serde_json::from_str(&raw_after).expect("parse unchanged file");
+        assert_eq!(persisted.len(), 2);
     }
 }
