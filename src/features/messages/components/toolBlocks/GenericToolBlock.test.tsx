@@ -26,6 +26,25 @@ const fileChangeItem: Extract<ConversationItem, { kind: "tool" }> = {
   ],
 };
 
+const fileChangeManyItem: Extract<ConversationItem, { kind: "tool" }> = {
+  id: "tool-2-many",
+  kind: "tool",
+  toolType: "fileChange",
+  title: "File changes",
+  detail: "{}",
+  status: "completed",
+  changes: [
+    { path: "src/App.tsx", kind: "modified", diff: "@@ -1 +1 @@\n-old\n+new" },
+    { path: "src/New.tsx", kind: "added", diff: "@@ -0,0 +1 @@\n+const x = 1;" },
+    { path: "src/routes/Home.tsx", kind: "modified", diff: "@@ -1 +1 @@\n-old\n+new" },
+    { path: "src/routes/About.tsx", kind: "modified", diff: "@@ -1 +1 @@\n-old\n+new" },
+    { path: "src/lib/api.ts", kind: "modified", diff: "@@ -1 +1 @@\n-old\n+new" },
+    { path: "src/lib/store.ts", kind: "modified", diff: "@@ -1 +1 @@\n-old\n+new" },
+    { path: "src/styles/app.css", kind: "modified", diff: "@@ -1 +1 @@\n-old\n+new" },
+    { path: "package.json", kind: "modified", diff: "@@ -1 +1 @@\n-old\n+new" },
+  ],
+};
+
 const fileChangeWithOutputItem: Extract<ConversationItem, { kind: "tool" }> = {
   id: "tool-2-output",
   kind: "tool",
@@ -186,20 +205,80 @@ describe("GenericToolBlock", () => {
     expect(screen.getAllByText("+1").length).toBeGreaterThan(1);
   });
 
-  it("shows first file icon/name in collapsed file-change summary", () => {
-    const parseDiffSpy = vi.spyOn(diffParser, "parseDiff");
+  it("uses singular file label for collapsed single file changes", () => {
     render(
       <GenericToolBlock
-        item={fileChangeItem}
+        item={fileChangeWithOutputItem}
+        isExpanded={false}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("1 file")).toBeTruthy();
+    expect(screen.queryByText("1 files")).toBeNull();
+  });
+
+  it("shows each changed file as its own collapsed row without overflow summary", () => {
+    const parseDiffSpy = vi.spyOn(diffParser, "parseDiff");
+    const view = render(
+      <GenericToolBlock
+        item={fileChangeManyItem}
         isExpanded={false}
         onToggle={vi.fn()}
       />,
     );
 
     expect(screen.getByText("App.tsx")).toBeTruthy();
-    expect(screen.getByText("+1 more")).toBeTruthy();
+    expect(screen.getByText("New.tsx")).toBeTruthy();
+    expect(screen.getByText("Home.tsx")).toBeTruthy();
+    expect(screen.getByText("About.tsx")).toBeTruthy();
+    expect(screen.getByText("api.ts")).toBeTruthy();
+    expect(screen.getByText("store.ts")).toBeTruthy();
+    expect(screen.getByText("app.css")).toBeTruthy();
+    expect(screen.getByText("package.json")).toBeTruthy();
+    expect(screen.queryByText(/\+\d+\s+more files/i)).toBeNull();
+    expect(view.container.querySelectorAll(".tool-change-stack-entry").length).toBe(8);
     expect(parseDiffSpy).not.toHaveBeenCalled();
     parseDiffSpy.mockRestore();
+  });
+
+  it("toggles collapsed multi-file rows independently", () => {
+    const view = render(
+      <GenericToolBlock
+        item={fileChangeManyItem}
+        isExpanded={false}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    const headers = Array.from(
+      view.container.querySelectorAll(".tool-change-stack-entry .tool-change-stack-header"),
+    );
+    expect(headers.length).toBe(8);
+    expect(view.container.querySelectorAll(".tool-change-stack-entry .task-details").length).toBe(0);
+
+    fireEvent.click(headers[0]!);
+    expect(view.container.querySelectorAll(".tool-change-stack-entry .task-details").length).toBe(1);
+
+    fireEvent.click(headers[1]!);
+    expect(view.container.querySelectorAll(".tool-change-stack-entry .task-details").length).toBe(2);
+
+    fireEvent.click(headers[0]!);
+    expect(view.container.querySelectorAll(".tool-change-stack-entry .task-details").length).toBe(1);
+    expect(view.container.querySelectorAll(".tool-change-stack-entry .tool-change-inline-diff").length).toBe(1);
+  });
+
+  it("renders each expanded file change inside its own visual card", () => {
+    const view = render(
+      <GenericToolBlock
+        item={fileChangeItem}
+        isExpanded
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(view.container.querySelectorAll(".tool-change-entry").length).toBe(2);
+    expect(view.container.querySelector(".tool-change-entry .tool-change-inline-diff")).toBeTruthy();
   });
 
   it("shows inline diff preview for file changes and hides raw diff output pane", () => {
