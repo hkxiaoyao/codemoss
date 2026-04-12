@@ -1,3 +1,14 @@
+export type SubagentNavigationTarget =
+  | {
+      kind: "thread";
+      threadId: string;
+    }
+  | {
+      kind: "claude-task";
+      taskId?: string | null;
+      toolUseId?: string | null;
+    };
+
 export interface TodoItem {
   content: string;
   status: "pending" | "in_progress" | "completed";
@@ -9,6 +20,7 @@ export interface SubagentInfo {
   type: string;
   description: string;
   status: "running" | "completed" | "error";
+  navigationTarget?: SubagentNavigationTarget | null;
 }
 
 export interface FileChangeSummary {

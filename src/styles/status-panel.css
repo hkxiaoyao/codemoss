@@ -306,13 +306,27 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 6px 8px;
+  border: none;
   border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
   transition: background 0.1s ease;
 }
 
 .sp-subagent-item:hover {
   background: var(--surface-hover);
+}
+
+.sp-subagent-item.is-clickable {
+  cursor: pointer;
+}
+
+.sp-subagent-item.is-clickable:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent-color, #61afef) 72%, white 12%);
+  outline-offset: -1px;
 }
 
 .sp-subagent-icon {

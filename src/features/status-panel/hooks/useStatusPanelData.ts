@@ -5,6 +5,7 @@ import type {
   SubagentInfo,
   FileChangeSummary,
   CommandSummary,
+  SubagentNavigationTarget,
 } from "../types";
 import {
   extractToolName,
@@ -163,6 +164,10 @@ export function useStatusPanelData(
           description: taskDescription,
           status: threadScopedStatus ?? taskStatus,
           statusPriority: threadScopedStatus ? 5 : 2,
+          navigationTarget:
+            scopedTools.rootThreadId && threadId !== scopedTools.rootThreadId
+              ? { kind: "thread", threadId }
+              : buildTaskLikeNavigationTarget(item, args),
         });
       }
 
@@ -215,6 +220,7 @@ export function useStatusPanelData(
                   collabActionName === "close agent"
                 ? 3
                 : 1,
+          navigationTarget: { kind: "thread", threadId: agentId },
         });
       });
     });
@@ -459,6 +465,36 @@ function extractTaskType(args: Record<string, unknown> | null, fallbackToolName:
   return normalizedType.length > 0 ? normalizedType : fallbackToolName || "task";
 }
 
+function buildTaskLikeNavigationTarget(
+  item: ToolItem,
+  args: Record<string, unknown> | null,
+): SubagentNavigationTarget | null {
+  const normalizedToolType = item.toolType.trim().toLowerCase();
+  const normalizedTitle = extractToolName(item.title).trim().toLowerCase();
+  const isClaudeAgentTool =
+    normalizedToolType === "agent" || normalizedTitle === "agent";
+  if (isClaudeAgentTool) {
+    const taskId = resolveTaskLikeTaskId(args);
+    return {
+      kind: "claude-task",
+      taskId,
+      toolUseId: item.id,
+    };
+  }
+  return null;
+}
+
+function resolveTaskLikeTaskId(args: Record<string, unknown> | null) {
+  const rawTaskId =
+    typeof args?.task_id === "string"
+      ? args.task_id
+      : typeof args?.taskId === "string"
+        ? args.taskId
+        : "";
+  const normalized = rawTaskId.trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
 function extractCollabActionName(title: string) {
   const matched = title.match(/^Collab:\s*(.+)$/i);
   return (matched?.[1] ?? "")
@@ -665,10 +701,38 @@ function upsertSubagent(
     ...existing,
     type: choosePreferredSubagentLabel(existing.type, next.type),
     description: choosePreferredDescription(existing.description, next.description),
+    navigationTarget: choosePreferredNavigationTarget(
+      existing.navigationTarget,
+      next.navigationTarget,
+    ),
     status:
       next.statusPriority >= existing.statusPriority ? next.status : existing.status,
     statusPriority: Math.max(existing.statusPriority, next.statusPriority),
   });
+}
+
+function choosePreferredNavigationTarget(
+  current: SubagentNavigationTarget | null | undefined,
+  next: SubagentNavigationTarget | null | undefined,
+): SubagentNavigationTarget | null {
+  if (!current) {
+    return next ?? null;
+  }
+  if (!next) {
+    return current;
+  }
+  if (current.kind !== next.kind) {
+    return current;
+  }
+  if (current.kind === "thread" && next.kind === "thread") {
+    return current.threadId ? current : next;
+  }
+  if (current.kind === "claude-task" && next.kind === "claude-task") {
+    const currentScore = Number(Boolean(current.taskId)) + Number(Boolean(current.toolUseId));
+    const nextScore = Number(Boolean(next.taskId)) + Number(Boolean(next.toolUseId));
+    return nextScore > currentScore ? next : current;
+  }
+  return current;
 }
 
 function choosePreferredSubagentLabel(current: string, next: string) {

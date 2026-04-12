@@ -169,6 +169,8 @@ import { useAppShellSections } from "./app-shell-parts/useAppShellSections";
 import { useAppShellLayoutNodesSection } from "./app-shell-parts/useAppShellLayoutNodesSection";
 import { renderAppShell } from "./app-shell-parts/renderAppShell";
 import { useSelectedAgentSession } from "./app-shell-parts/useSelectedAgentSession";
+import type { AgentTaskScrollRequest } from "./features/messages/types";
+import type { SubagentInfo } from "./features/status-panel/types";
 import {
   RADAR_STORE_NAME,
   SESSION_RADAR_RECENT_STORAGE_KEY,
@@ -314,6 +316,8 @@ export function AppShell() {
     toggleTerminalShortcut: appSettings.toggleTerminalShortcut,
   });
   const [appMode, setAppMode] = useState<AppMode>("chat");
+  const [agentTaskScrollRequest, setAgentTaskScrollRequest] =
+    useState<AgentTaskScrollRequest | null>(null);
   const appRootRef = useRef<HTMLDivElement | null>(null);
   const {
     gitHistoryPanelHeight,
@@ -1753,13 +1757,21 @@ export function AppShell() {
     }
   }, []);
 
-
-  const navigateToThread = useCallback(
-    (workspaceId: string, threadId: string) => {
+  const navigateToThreadWithUiOptions = useCallback(
+    (
+      workspaceId: string,
+      threadId: string,
+      options: {
+        collapseRightPanel?: boolean;
+      } = {},
+    ) => {
+      const { collapseRightPanel: shouldCollapseRightPanel = true } = options;
       exitDiffView();
       setAppMode("chat");
       setActiveTab("codex");
-      collapseRightPanel();
+      if (shouldCollapseRightPanel) {
+        collapseRightPanel();
+      }
       setSelectedKanbanTaskId(null);
       selectWorkspace(workspaceId);
       setActiveThreadId(threadId, workspaceId);
@@ -1781,6 +1793,13 @@ export function AppShell() {
     ],
   );
 
+  const navigateToThread = useCallback(
+    (workspaceId: string, threadId: string) => {
+      navigateToThreadWithUiOptions(workspaceId, threadId);
+    },
+    [navigateToThreadWithUiOptions],
+  );
+
   // Register system notification click handler to navigate to the completed thread
   useEffect(() => {
     setNotificationActionHandler((extra) => {
@@ -1791,6 +1810,43 @@ export function AppShell() {
       }
     });
   }, [navigateToThread]);
+
+  const handleSelectStatusPanelSubagent = useCallback(
+    (agent: SubagentInfo) => {
+      const target = agent.navigationTarget;
+      if (!target) {
+        return;
+      }
+      if (target.kind === "thread") {
+        if (!activeWorkspaceId) {
+          return;
+        }
+        navigateToThreadWithUiOptions(activeWorkspaceId, target.threadId, {
+          collapseRightPanel: false,
+        });
+        return;
+      }
+      if (target.kind === "claude-task") {
+        exitDiffView();
+        setAppMode("chat");
+        setCenterMode("chat");
+        setActiveTab("codex");
+        setAgentTaskScrollRequest({
+          nonce: Date.now(),
+          taskId: target.taskId ?? null,
+          toolUseId: target.toolUseId ?? null,
+        });
+      }
+    },
+    [
+      activeWorkspaceId,
+      exitDiffView,
+      navigateToThread,
+      navigateToThreadWithUiOptions,
+      setActiveTab,
+      setCenterMode,
+    ],
+  );
 
   const openAppIconById = useOpenAppIcons(appSettings.openAppTargets);
 
@@ -2772,7 +2828,7 @@ export function AppShell() {
   const appShellContext = {
     GitHubPanelData, RECENT_THREAD_LIMIT, SettingsView, accessMode, accountByWorkspace, accountSwitching, activeAccount, activeDiffError,
     activeDiffLoading, activeDiffs, activeDraft, activeEditorFilePath, activeEditorLineRange, activeEngine, activeGitRoot, activeImages,
-    activeItems, activeParentWorkspace, activePath, activePlan, activeQueue, activeRateLimits, activeRenamePrompt, activeTab,
+    activeItems, activeParentWorkspace, activePath, activePlan, activeQueue, activeRateLimits, activeRenamePrompt, activeTab, agentTaskScrollRequest,
     activeTerminalId, activeThreadId, activeThreadIdForModeRef, activeThreadIdRef, activeTokenUsage, activeWorkspace, activeWorkspaceId, activeWorkspaceIdRef,
     activeWorkspaceKanbanTasks, activeWorkspaceRef, activeWorkspaceThreads, addCloneAgent, addDebugEntry, addWorkspace, addWorkspaceFromPath, addWorktreeAgent,
     agent, alertError, appMode, appRoot, appRootRef, appSettings, appSettingsLoading, applySelectedCollaborationMode,
@@ -2804,7 +2860,7 @@ export function AppShell() {
     handleGitPullRequestDiffsChange, handleGitPullRequestsChange, handleInsertComposerText, handleLockPanel, handleMovePrompt, handleOpenDetachedFileExplorer, handleOpenFile, handleOpenModelSettings, handleOpenRenameWorktree,
     handlePickGitRoot, handlePointerMove, handlePointerUp, handlePush, handleRenamePromptCancel, handleRenamePromptChange, handleRenamePromptConfirm, handleRenameThread,
     handleRenameWorktreeCancel, handleRenameWorktreeChange, handleRenameWorktreeConfirm, handleResize, handleRevealGeneralPrompts, handleRevealWorkspacePrompts, handleRevertAllGitChanges, handleRevertGitFile,
-    handleReviewPromptKeyDown, handleSelectAgent, handleSelectCommit, handleSelectDiff, handleSelectModel, handleSelectOpenAppId, handleSelectOpenCodeAgent, handleSelectOpenCodeVariant,
+    handleReviewPromptKeyDown, handleSelectAgent, handleSelectCommit, handleSelectDiff, handleSelectModel, handleSelectOpenAppId, handleSelectOpenCodeAgent, handleSelectOpenCodeVariant, handleSelectStatusPanelSubagent,
     handleSend, handleSendPrompt, handleSendPromptToNewAgent, handleSetAccessMode, handleSetGitRoot, handleStageGitAll, handleStageGitFile, handleSwitchAccount,
     handleSync, handleTestNotificationSound, handleToggleDictation, handleToggleRuntimeConsole, handleToggleTerminal, handleToggleTerminalPanel, handleUnlockPanel, handleUnstageGitFile,
     handleUpdatePrompt, handleUserInputSubmit, handleUserInputSubmitWithPlanApply, handleWorkspaceDragEnter, handleWorkspaceDragLeave, handleWorkspaceDragOver, handleWorkspaceDrop, handleWorktreeCreated,

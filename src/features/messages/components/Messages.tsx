@@ -21,6 +21,7 @@ import type {
   ConversationEngine,
   ConversationState,
 } from "../../threads/contracts/conversationCurtainContracts";
+import type { AgentTaskScrollRequest } from "../types";
 import { Markdown } from "./Markdown";
 import { CollapsibleUserTextBlock } from "./CollapsibleUserTextBlock";
 import { DiffBlock } from "../../git/components/DiffBlock";
@@ -66,6 +67,7 @@ import {
   isExplicitReasoningSegmentId,
   parseReasoning,
 } from "./messagesReasoning";
+import { parseAgentTaskNotification } from "../utils/agentTaskNotification";
 
 
 type MessagesProps = {
@@ -98,6 +100,7 @@ type MessagesProps = {
   conversationState?: ConversationState | null;
   presentationProfile?: PresentationProfile | null;
   onOpenWorkspaceFile?: (path: string) => void;
+  agentTaskScrollRequest?: AgentTaskScrollRequest | null;
 };
 
 type WorkingIndicatorProps = {
@@ -382,6 +385,50 @@ function normalizeSelectedAgentName(value: string | null | undefined): string | 
 
 function normalizeSelectedAgentIcon(value: string | null | undefined): string | null {
   return normalizeAgentIcon(value);
+}
+
+function normalizeAgentTaskStatus(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return { label: "agent", tone: "neutral" as const };
+  }
+  if (/(fail|error|cancel(?:led)?|abort|timeout|timed[_ -]?out)/.test(normalized)) {
+    return { label: value?.trim() ?? "error", tone: "error" as const };
+  }
+  if (/(complete|completed|success|done|finish(?:ed)?)/.test(normalized)) {
+    return { label: value?.trim() ?? "completed", tone: "completed" as const };
+  }
+  if (/(running|processing|started|in[_ -]?progress|queued|pending)/.test(normalized)) {
+    return { label: value?.trim() ?? "running", tone: "running" as const };
+  }
+  return { label: value?.trim() ?? normalized, tone: "neutral" as const };
+}
+
+function basenameFromPath(value: string | null | undefined) {
+  const normalized = (value ?? "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const segments = normalized.split(/[\\/]/).filter(Boolean);
+  return segments[segments.length - 1] ?? normalized;
+}
+
+function resolveAgentTaskDisplaySummary(summary: string | null | undefined) {
+  const normalized = (summary ?? "").trim();
+  if (!normalized) {
+    return {
+      title: "Agent result",
+      subtitle: null as string | null,
+    };
+  }
+  const match =
+    /Agent\s+["“]?([^"”]+)["”]?/i.exec(normalized)
+    ?? /智能体\s*["“]?([^"”]+)["”]?/i.exec(normalized);
+  const title = match?.[1]?.trim() || normalized;
+  return {
+    title,
+    subtitle: title === normalized ? null : normalized,
+  };
 }
 
 function isLikelyAgentDisplayName(value: string | null): boolean {
@@ -867,7 +914,19 @@ const MessageRow = memo(function MessageRow({
         : legacyUserMemory?.memorySummary ?? null,
     [item.role, item.text, legacyUserMemory],
   );
+  const agentTaskNotification = useMemo(
+    () => parseAgentTaskNotification(item.text),
+    [item.text],
+  );
   const userMessagePresentation = useMemo(() => {
+    if (agentTaskNotification) {
+      return {
+        displayText: agentTaskNotification.resultText,
+        selectedAgentName: null,
+        selectedAgentIcon: null,
+        hasInjectedAgentPromptBlock: false,
+      };
+    }
     const originalText = item.role === "user" ? legacyUserMemory?.remainingText ?? item.text : item.text;
     if (item.role !== "user") {
       return {
@@ -900,6 +959,7 @@ const MessageRow = memo(function MessageRow({
     };
   }, [
     enableCollaborationBadge,
+    agentTaskNotification,
     item.role,
     item.selectedAgentIcon,
     item.selectedAgentName,
@@ -912,7 +972,19 @@ const MessageRow = memo(function MessageRow({
   const selectedAgentIcon = userMessagePresentation.selectedAgentIcon;
   const hasInjectedAgentPromptBlock = userMessagePresentation.hasInjectedAgentPromptBlock;
   const hasExternalAgentBadge =
-    item.role === "user" && (Boolean(selectedAgentName) || hasInjectedAgentPromptBlock);
+    item.role === "user"
+    && !agentTaskNotification
+    && (Boolean(selectedAgentName) || hasInjectedAgentPromptBlock);
+  const agentTaskDisplay = useMemo(() => {
+    if (!agentTaskNotification) {
+      return null;
+    }
+    return {
+      ...resolveAgentTaskDisplaySummary(agentTaskNotification.summary),
+      status: normalizeAgentTaskStatus(agentTaskNotification.status),
+      outputFileName: basenameFromPath(agentTaskNotification.outputFile),
+    };
+  }, [agentTaskNotification]);
   useEffect(() => {
     setIsAgentBadgeExpanded(false);
   }, [item.id, selectedAgentIcon, selectedAgentName]);
@@ -947,7 +1019,42 @@ const MessageRow = memo(function MessageRow({
   }, [item.images]);
 
   const bubbleNode = (
-    <div className="bubble message-bubble">
+    <div className={`bubble message-bubble${agentTaskNotification ? " message-bubble-agent-task" : ""}`}>
+      {agentTaskNotification && agentTaskDisplay ? (
+        <div className="message-agent-task-card">
+          <div className="message-agent-task-header">
+            <div className="message-agent-task-avatar" aria-hidden>
+              <AgentIcon
+                seed={agentTaskDisplay.title || agentTaskNotification.taskId || item.id}
+                fallback="codicon-hubot"
+                className="message-agent-task-avatar-icon"
+                size={18}
+              />
+            </div>
+            <div className="message-agent-task-heading">
+              <span className="message-agent-task-eyebrow">Agent session</span>
+              <strong className="message-agent-task-title">{agentTaskDisplay.title}</strong>
+              {agentTaskDisplay.subtitle ? (
+                <span className="message-agent-task-subtitle">{agentTaskDisplay.subtitle}</span>
+              ) : null}
+            </div>
+            <span className={`message-agent-task-status is-${agentTaskDisplay.status.tone}`}>
+              {agentTaskDisplay.status.label}
+            </span>
+          </div>
+          <div className="message-agent-task-meta">
+            {agentTaskNotification.taskId ? (
+              <span className="message-agent-task-chip">task {agentTaskNotification.taskId}</span>
+            ) : null}
+            {agentTaskNotification.toolUseId ? (
+              <span className="message-agent-task-chip">tool {agentTaskNotification.toolUseId}</span>
+            ) : null}
+            {agentTaskDisplay.outputFileName ? (
+              <span className="message-agent-task-chip">{agentTaskDisplay.outputFileName}</span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {imageItems.length > 0 && (
         <MessageImageGrid
           images={imageItems}
@@ -987,7 +1094,7 @@ const MessageRow = memo(function MessageRow({
         </div>
       ) : null}
       {hasText && (
-        item.role === "user" ? (
+        item.role === "user" && !agentTaskNotification ? (
           <CollapsibleUserTextBlock content={displayText} />
         ) : (
           <Markdown
@@ -1053,7 +1160,7 @@ const MessageRow = memo(function MessageRow({
   ) : null;
 
   return (
-    <div className={`message ${item.role}`}>
+    <div className={`message ${item.role}${agentTaskNotification ? " message-agent-task" : ""}`}>
       {hasExternalAgentBadge ? (
         <div className="message-user-layout">
           {agentBadgeNode}
@@ -1267,6 +1374,7 @@ export const Messages = memo(function Messages({
   conversationState = null,
   presentationProfile = null,
   onOpenWorkspaceFile,
+  agentTaskScrollRequest = null,
 }: MessagesProps) {
   const { t } = useTranslation();
   const fallbackConversationState = useMemo<ConversationState>(
@@ -1321,6 +1429,8 @@ export const Messages = memo(function Messages({
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const messageNodeByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const agentTaskNodeByTaskIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const agentTaskNodeByToolUseIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const autoScrollRef = useRef(true);
   const anchorUpdateRafRef = useRef<number | null>(null);
   const lastRenderSnapshotRef = useRef<{
@@ -1436,12 +1546,41 @@ export const Messages = memo(function Messages({
     bottomRef.current.scrollIntoView({ behavior: "instant", block: "end" });
   }, [liveAutoFollowEnabled]);
 
+  const scrollToAgentTaskCard = useCallback((request: AgentTaskScrollRequest | null) => {
+    if (!request) {
+      return;
+    }
+    const container = containerRef.current;
+    const node =
+      (request.taskId
+        ? agentTaskNodeByTaskIdRef.current.get(request.taskId)
+        : null) ??
+      (request.toolUseId
+        ? agentTaskNodeByToolUseIdRef.current.get(request.toolUseId)
+        : null);
+    if (!node || !container) {
+      return;
+    }
+    const containerRect = container.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const targetTop =
+      container.scrollTop + (nodeRect.top - containerRect.top) - container.clientHeight * 0.22;
+    autoScrollRef.current = false;
+    container.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior: "smooth",
+    });
+  }, []);
+
   useEffect(() => {
     autoScrollRef.current = true;
     setExpandedItems(new Set());
     setIsSelectionFrozen(false);
     frozenItemsRef.current = null;
   }, [threadId]);
+  useEffect(() => {
+    scrollToAgentTaskCard(agentTaskScrollRequest);
+  }, [agentTaskScrollRequest, scrollToAgentTaskCard]);
   useEffect(() => {
     const handleSelectionChange = () => {
       const nextFrozen = isSelectionInsideNode(window.getSelection(), containerRef.current);
@@ -2255,6 +2394,7 @@ export const Messages = memo(function Messages({
     if (item.kind === "message") {
       const itemRenderKey = `message:${item.id}`;
       const isCopied = copiedMessageId === item.id;
+      const agentTaskNotification = parseAgentTaskNotification(item.text);
       const shouldRenderFinalBoundary =
         item.role === "assistant" &&
         item.isFinal === true &&
@@ -2270,9 +2410,19 @@ export const Messages = memo(function Messages({
       const bindMessageNode = (node: HTMLDivElement | null) => {
         if (item.role === "user" && node) {
           messageNodeByIdRef.current.set(item.id, node);
-          return;
+        } else {
+          messageNodeByIdRef.current.delete(item.id);
         }
-        messageNodeByIdRef.current.delete(item.id);
+        if (agentTaskNotification?.taskId && node) {
+          agentTaskNodeByTaskIdRef.current.set(agentTaskNotification.taskId, node);
+        } else if (agentTaskNotification?.taskId) {
+          agentTaskNodeByTaskIdRef.current.delete(agentTaskNotification.taskId);
+        }
+        if (agentTaskNotification?.toolUseId && node) {
+          agentTaskNodeByToolUseIdRef.current.set(agentTaskNotification.toolUseId, node);
+        } else if (agentTaskNotification?.toolUseId) {
+          agentTaskNodeByToolUseIdRef.current.delete(agentTaskNotification.toolUseId);
+        }
       };
       return (
         <Fragment key={itemRenderKey}>
@@ -2294,7 +2444,12 @@ export const Messages = memo(function Messages({
               )}
             </div>
           )}
-          <div ref={bindMessageNode} data-message-anchor-id={item.id}>
+          <div
+            ref={bindMessageNode}
+            data-message-anchor-id={item.id}
+            data-agent-task-id={agentTaskNotification?.taskId ?? undefined}
+            data-agent-tool-use-id={agentTaskNotification?.toolUseId ?? undefined}
+          >
             <MessageRow
               item={item}
               workspaceId={workspaceId}

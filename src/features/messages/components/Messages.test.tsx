@@ -19,6 +19,9 @@ describe("Messages", () => {
     if (!HTMLElement.prototype.scrollIntoView) {
       HTMLElement.prototype.scrollIntoView = vi.fn();
     }
+    if (!HTMLElement.prototype.scrollTo) {
+      HTMLElement.prototype.scrollTo = vi.fn();
+    }
   });
 
   it("renders image grid above message text and opens lightbox", () => {
@@ -110,6 +113,173 @@ describe("Messages", () => {
 
     const userText = container.querySelector(".user-collapsible-text-content");
     expect(userText?.textContent ?? "").toContain("Literal [image] token");
+  });
+
+  it("renders task-notification assistant output as an independent agent card", () => {
+    const items: ConversationItem[] = [
+      {
+        id: "agent-message-1",
+        kind: "message",
+        role: "assistant",
+        text: `<task-notification>
+<task-id>ae242051e14492047</task-id>
+<tool-use-id>call_991b9a3c32bb4603a36077d3</tool-use-id>
+<output-file>/private/tmp/tasks/ae242051e14492047.output</output-file>
+<status>completed</status>
+<summary>Agent "Spring生态治理与技术选型评估" completed</summary>
+<result>湘宁大兄弟你好！
+
+让我系统地读取项目的核心文件。`,
+      },
+    ];
+
+    const { container } = render(
+      <Messages
+        items={items}
+        threadId="thread-1"
+        workspaceId="ws-1"
+        isThinking={false}
+        openTargets={[]}
+        selectedOpenAppId=""
+      />,
+    );
+
+    expect(container.querySelector(".message-agent-task-card")).toBeTruthy();
+    expect(screen.getByText("Spring生态治理与技术选型评估")).toBeTruthy();
+    expect(screen.getByText("completed")).toBeTruthy();
+    expect(container.textContent ?? "").not.toContain("<task-notification>");
+    expect(container.textContent ?? "").toContain("让我系统地读取项目的核心文件。");
+  });
+
+  it("renders task-notification user payloads as an independent agent card", () => {
+    const items: ConversationItem[] = [
+      {
+        id: "agent-message-user-1",
+        kind: "message",
+        role: "user",
+        text: `<task-notification>
+<task-id>af452b1b615f93a9e</task-id>
+<tool-use-id>call_fa8bd06e774141c4a7f29a79</tool-use-id>
+<output-file>/private/tmp/tasks/af452b1b615f93a9e.output</output-file>
+<status>completed</status>
+<summary>Agent "Bug诊断与性能安全审查" completed</summary>
+<result>我先按照规范流程执行：读取项目规范文件，然后进行全面审查。`,
+      },
+    ];
+
+    const { container } = render(
+      <Messages
+        items={items}
+        threadId="thread-1"
+        workspaceId="ws-1"
+        isThinking={false}
+        openTargets={[]}
+        selectedOpenAppId=""
+      />,
+    );
+
+    const taskCard = container.querySelector(".message-agent-task-card");
+    expect(taskCard).toBeTruthy();
+    expect(screen.getByText("Bug诊断与性能安全审查")).toBeTruthy();
+    expect(container.querySelector(".user-collapsible-text-content")).toBeNull();
+    expect(container.textContent ?? "").not.toContain("<task-notification>");
+    expect(container.textContent ?? "").toContain("读取项目规范文件");
+  });
+
+  it("scrolls to the matching independent agent card when requested by tool use id", async () => {
+    const items: ConversationItem[] = [
+      {
+        id: "agent-message-scroll-1",
+        kind: "message",
+        role: "user",
+        text: `<task-notification>
+<task-id>af452b1b615f93a9e</task-id>
+<tool-use-id>call_fa8bd06e774141c4a7f29a79</tool-use-id>
+<output-file>/private/tmp/tasks/af452b1b615f93a9e.output</output-file>
+<status>completed</status>
+<summary>Agent "Bug诊断与性能安全审查" completed</summary>
+<result>我先按照规范流程执行：读取项目规范文件，然后进行全面审查。`,
+      },
+    ];
+
+    const { container, rerender } = render(
+      <Messages
+        items={items}
+        threadId="thread-1"
+        workspaceId="ws-1"
+        isThinking={false}
+        openTargets={[]}
+        selectedOpenAppId=""
+      />,
+    );
+
+    const messagesContainer = container.querySelector(".messages") as HTMLDivElement | null;
+    const targetNode = container.querySelector(
+      '[data-agent-tool-use-id="call_fa8bd06e774141c4a7f29a79"]',
+    ) as HTMLDivElement | null;
+    expect(messagesContainer).toBeTruthy();
+    expect(targetNode).toBeTruthy();
+    const scrollToSpy = vi.fn();
+    if (messagesContainer) {
+      messagesContainer.scrollTo = scrollToSpy;
+      Object.defineProperty(messagesContainer, "clientHeight", {
+        configurable: true,
+        value: 400,
+      });
+      Object.defineProperty(messagesContainer, "scrollTop", {
+        configurable: true,
+        value: 120,
+        writable: true,
+      });
+      messagesContainer.getBoundingClientRect = vi.fn(() => ({
+        top: 100,
+        left: 0,
+        width: 600,
+        height: 400,
+        bottom: 500,
+        right: 600,
+        x: 0,
+        y: 100,
+        toJSON: () => ({}),
+      }));
+    }
+    if (targetNode) {
+      targetNode.getBoundingClientRect = vi.fn(() => ({
+        top: 340,
+        left: 0,
+        width: 600,
+        height: 120,
+        bottom: 460,
+        right: 600,
+        x: 0,
+        y: 340,
+        toJSON: () => ({}),
+      }));
+    }
+
+    rerender(
+      <Messages
+        items={items}
+        threadId="thread-1"
+        workspaceId="ws-1"
+        isThinking={false}
+        openTargets={[]}
+        selectedOpenAppId=""
+        agentTaskScrollRequest={{
+          nonce: 1,
+          toolUseId: "call_fa8bd06e774141c4a7f29a79",
+        }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(scrollToSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          behavior: "smooth",
+          top: expect.any(Number),
+        }),
+      );
+    });
   });
 
   it("routes file-change row clicks to onOpenDiffPath", () => {

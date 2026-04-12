@@ -27,6 +27,16 @@ const taskToolItem: Extract<ConversationItem, { kind: "tool" }> = {
   output: "done",
 };
 
+const claudeAgentToolItem: Extract<ConversationItem, { kind: "tool" }> = {
+  id: "call_fa8bd06e774141c4a7f29a79",
+  kind: "tool",
+  toolType: "agent",
+  title: "Tool: Agent",
+  detail: '{"description":"Bug诊断与性能安全审查","subagent_type":"java-performance-engineer","taskId":"af452b1b615f93a9e"}',
+  status: "completed",
+  output: "done",
+};
+
 const collabSpawnToolItem: Extract<ConversationItem, { kind: "tool" }> = {
   id: "spawn-1",
   kind: "tool",
@@ -423,5 +433,63 @@ describe("StatusPanel", () => {
     expect(screen.getByText("step in progress")).toBeTruthy();
     expect(container.querySelector(".sp-todo-in_progress")).toBeNull();
     expect(container.querySelector(".sp-todo-pending")).toBeTruthy();
+  });
+
+  it("emits codex thread navigation targets when clicking subagents", () => {
+    const onSelectSubagent = vi.fn();
+
+    render(
+      <StatusPanel
+        items={[collabSpawnToolItem, collabWaitToolItem]}
+        isProcessing={false}
+        isCodexEngine
+        activeThreadId="thread-root"
+        itemsByThread={{
+          "thread-root": [collabSpawnToolItem, collabWaitToolItem],
+          "agent-7": [],
+        }}
+        threadParentById={{ "agent-7": "thread-root" }}
+        onSelectSubagent={onSelectSubagent}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("statusPanel.tabAgents"));
+    fireEvent.click(screen.getByText("Audit current panel"));
+
+    expect(onSelectSubagent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "agent-7",
+        navigationTarget: {
+          kind: "thread",
+          threadId: "agent-7",
+        },
+      }),
+    );
+  });
+
+  it("emits claude task navigation targets when clicking subagents", () => {
+    const onSelectSubagent = vi.fn();
+
+    render(
+      <StatusPanel
+        items={[claudeAgentToolItem]}
+        isProcessing={false}
+        onSelectSubagent={onSelectSubagent}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("statusPanel.tabSubagents"));
+    fireEvent.click(screen.getByText("Bug诊断与性能安全审查"));
+
+    expect(onSelectSubagent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "call_fa8bd06e774141c4a7f29a79",
+        navigationTarget: {
+          kind: "claude-task",
+          taskId: "af452b1b615f93a9e",
+          toolUseId: "call_fa8bd06e774141c4a7f29a79",
+        },
+      }),
+    );
   });
 });

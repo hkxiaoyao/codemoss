@@ -28,6 +28,8 @@ import { TerminalDock } from "../../terminal/components/TerminalDock";
 import { TerminalPanel } from "../../terminal/components/TerminalPanel";
 import { StatusPanel } from "../../status-panel/components/StatusPanel";
 import { useStatusPanelData } from "../../status-panel/hooks/useStatusPanelData";
+import type { AgentTaskScrollRequest } from "../../messages/types";
+import type { SubagentInfo } from "../../status-panel/types";
 import type {
   EditorHighlightTarget,
   EditorNavigationLocation,
@@ -560,6 +562,8 @@ type LayoutNodesOptions = {
   onOpenPlanPanel: () => void;
   onClosePlanPanel: () => void;
   bottomStatusPanelExpanded: boolean;
+  agentTaskScrollRequest?: AgentTaskScrollRequest | null;
+  onSelectSubagent?: (agent: SubagentInfo) => void;
   debugEntries: DebugEntry[];
   debugOpen: boolean;
   terminalOpen: boolean;
@@ -1011,6 +1015,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       onOpenDiffPath={handleOpenDiffPath}
       onOpenPlanPanel={options.onOpenPlanPanel}
       onOpenWorkspaceFile={options.onOpenFile}
+      agentTaskScrollRequest={options.agentTaskScrollRequest}
       isThinking={isThreadThinking}
       proxyEnabled={options.systemProxyEnabled}
       proxyUrl={options.systemProxyUrl}
@@ -1041,6 +1046,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
     handleOpenDiffPath,
     options.onOpenPlanPanel,
     options.onOpenFile,
+    options.agentTaskScrollRequest,
     isThreadThinking,
     activeThreadStatus?.processingStartedAt,
     activeThreadStatus?.lastDurationMs,
@@ -1597,6 +1603,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       threadParentById={options.threadParentById}
       threadStatusById={options.threadStatusById}
       onOpenDiffPath={handleOpenDiffPath}
+      onSelectSubagent={options.onSelectSubagent}
       variant="dock"
     />
   ) : null;

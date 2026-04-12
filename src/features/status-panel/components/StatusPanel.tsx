@@ -13,6 +13,7 @@ import { TodoList } from "./TodoList";
 import { SubagentList } from "./SubagentList";
 import { FileChangesList } from "./FileChangesList";
 import { PlanList } from "./PlanList";
+import type { SubagentInfo } from "../types";
 
 interface StatusPanelProps {
   items: ConversationItem[];
@@ -26,6 +27,7 @@ interface StatusPanelProps {
   threadParentById?: Record<string, string>;
   threadStatusById?: Record<string, { isProcessing?: boolean } | undefined>;
   onOpenDiffPath?: (path: string) => void;
+  onSelectSubagent?: (agent: SubagentInfo) => void;
   variant?: "popover" | "dock";
 }
 
@@ -51,6 +53,7 @@ export const StatusPanel = memo(function StatusPanel({
   threadParentById,
   threadStatusById,
   onOpenDiffPath,
+  onSelectSubagent,
   variant = "popover",
 }: StatusPanelProps) {
   const { t } = useTranslation();
@@ -163,7 +166,17 @@ export const StatusPanel = memo(function StatusPanel({
   const contentNode = (
     <>
       {activeTab === "todo" && <TodoList todos={isCodexEngine ? codexTaskItems : todos} />}
-      {activeTab === "subagent" && <SubagentList subagents={subagents} />}
+      {activeTab === "subagent" && (
+        <SubagentList
+          subagents={subagents}
+          onSelectSubagent={(agent) => {
+            onSelectSubagent?.(agent);
+            if (variant !== "dock") {
+              setOpenTab(null);
+            }
+          }}
+        />
+      )}
       {activeTab === "files" && (
         <FileChangesList
           fileChanges={fileChanges}
