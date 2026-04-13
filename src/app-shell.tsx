@@ -182,6 +182,7 @@ import {
 } from "./features/session-activity/utils/sessionRadarPersistence";
 
 const DEFAULT_CLAUDE_MODEL_ID = "claude-sonnet-4-6";
+const INVISIBLE_SEARCH_QUERY_CHARS_REGEX = /[\u200B-\u200D\uFEFF]/g;
 
 const SettingsView = lazy(() =>
   import("./features/settings/components/SettingsView").then((module) => ({
@@ -2314,7 +2315,7 @@ export function AppShell() {
     () => new Map(workspaces.map((w) => [w.path, w.name])),
     [workspaces],
   );
-  const searchResults = useUnifiedSearch({
+  const rawSearchResults = useUnifiedSearch({
     query: searchPaletteQuery,
     contentFilters: searchContentFilters,
     workspaceSources: workspaceSearchSources,
@@ -2326,6 +2327,13 @@ export function AppShell() {
     activeWorkspaceId,
     workspaceNameByPath,
   });
+  const normalizedSearchPaletteQuery = searchPaletteQuery
+    .replace(INVISIBLE_SEARCH_QUERY_CHARS_REGEX, "")
+    .trim();
+  const searchResults = useMemo(
+    () => (normalizedSearchPaletteQuery ? rawSearchResults : []),
+    [normalizedSearchPaletteQuery, rawSearchResults],
+  );
 
   const sessionRadarFeed = useSessionRadarFeed({
     workspaces,
