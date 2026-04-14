@@ -2456,7 +2456,8 @@ async fn handle_rpc_request(
         "fork_thread" => {
             let workspace_id = parse_string(&params, "workspaceId")?;
             let thread_id = parse_string(&params, "threadId")?;
-            state.fork_thread(workspace_id, thread_id).await
+            let message_id = parse_optional_string(&params, "messageId");
+            state.fork_thread(workspace_id, thread_id, message_id).await
         }
         "list_threads" => {
             let workspace_id = parse_string(&params, "workspaceId")?;

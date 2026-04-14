@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationItem } from "../../../types";
 import {
   createWorkspaceDirectory,
+  getGitStatus,
   readWorkspaceFile,
+  revertGitFile,
   trashWorkspaceItem,
   writeWorkspaceFile,
 } from "../../../services/tauri";
@@ -18,6 +20,8 @@ vi.mock("../../../services/tauri", () => ({
   writeWorkspaceFile: vi.fn(),
   createWorkspaceDirectory: vi.fn(),
   trashWorkspaceItem: vi.fn(),
+  getGitStatus: vi.fn(),
+  revertGitFile: vi.fn(),
 }));
 
 function fileToolItem(
@@ -42,6 +46,8 @@ describe("claudeRewindRestore", () => {
     vi.mocked(createWorkspaceDirectory).mockResolvedValue(undefined);
     vi.mocked(writeWorkspaceFile).mockResolvedValue(undefined);
     vi.mocked(trashWorkspaceItem).mockResolvedValue(undefined);
+    vi.mocked(getGitStatus).mockRejectedValue(new Error("git status unavailable"));
+    vi.mocked(revertGitFile).mockResolvedValue(undefined);
   });
 
   it("collects rename restore plan entries with Windows workspace paths", () => {
@@ -183,7 +189,7 @@ describe("claudeRewindRestore", () => {
     );
   });
 
-  it("restores deleted files without inline diff when rewind plan still marks delete", async () => {
+  it("falls back to git revert for deleted files without inline diff", async () => {
     vi.mocked(readWorkspaceFile).mockRejectedValue(
       new Error("Failed to open file: No such file or directory"),
     );
@@ -205,11 +211,138 @@ describe("claudeRewindRestore", () => {
       impactedItems,
     });
 
-    expect(writeWorkspaceFile).toHaveBeenCalledWith(
+    expect(revertGitFile).toHaveBeenCalledWith(
       "ws-1",
       "src/deleted-no-diff.ts",
-      "",
     );
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("falls back to git revert for deleted files with header-only diff", async () => {
+    vi.mocked(readWorkspaceFile).mockRejectedValue(
+      new Error("Failed to open file: No such file or directory"),
+    );
+
+    const impactedItems: ConversationItem[] = [
+      fileToolItem("tool-delete-header-only-diff", {
+        changes: [
+          {
+            path: "README.md",
+            kind: "deleted",
+            diff: "@@ -1,178 +0,0 @@",
+          },
+        ],
+      }),
+    ];
+
+    const result = await applyClaudeRewindWorkspaceRestore({
+      workspaceId: "ws-1",
+      workspacePath: "/repo",
+      impactedItems,
+    });
+
+    expect(result?.skippedPaths).toEqual([]);
+    expect(revertGitFile).toHaveBeenCalledWith("ws-1", "README.md");
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    expect(trashWorkspaceItem).not.toHaveBeenCalled();
+  });
+
+  it("treats apply_patch delete headers as delete and falls back to git revert", async () => {
+    vi.mocked(readWorkspaceFile).mockRejectedValue(
+      new Error("Failed to open file: No such file or directory"),
+    );
+
+    const impactedItems: ConversationItem[] = [
+      fileToolItem("tool-delete-apply-patch-header", {
+        changes: [
+          {
+            path: "SPEC_KIT_实战指南.md",
+            kind: "modified",
+            diff: [
+              "*** Begin Patch",
+              "*** Delete File: SPEC_KIT_实战指南.md",
+              "*** End Patch",
+            ].join("\n"),
+          },
+        ],
+      }),
+    ];
+
+    const result = await applyClaudeRewindWorkspaceRestore({
+      workspaceId: "ws-1",
+      workspacePath: "/repo",
+      impactedItems,
+    });
+
+    expect(result?.skippedPaths).toEqual([]);
+    expect(revertGitFile).toHaveBeenCalledWith("ws-1", "SPEC_KIT_实战指南.md");
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    expect(trashWorkspaceItem).not.toHaveBeenCalled();
+  });
+
+  it("falls back to git revert for skipped git commandExecution file restores", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: "const now = 'after';\n",
+      truncated: false,
+    });
+
+    const impactedItems: ConversationItem[] = [
+      fileToolItem("tool-git-status", {
+        toolType: "commandExecution",
+        title: "Command: git status --short",
+        detail: "{\"command\":\"git status --short\"}",
+        output: " M src/git-command-only.ts",
+        changes: [],
+      }),
+    ];
+
+    const result = await applyClaudeRewindWorkspaceRestore({
+      workspaceId: "ws-1",
+      workspacePath: "/repo",
+      impactedItems,
+    });
+
+    expect(result?.touchedPaths).toEqual(["src/git-command-only.ts"]);
+    expect(result?.skippedPaths).toEqual([]);
+    expect(revertGitFile).toHaveBeenCalledWith("ws-1", "src/git-command-only.ts");
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    expect(trashWorkspaceItem).not.toHaveBeenCalled();
+  });
+
+  it("falls back to git revert for @path delete intent when tool payload misses file path", async () => {
+    vi.mocked(readWorkspaceFile).mockRejectedValue(
+      new Error("Failed to open file: No such file or directory"),
+    );
+
+    const impactedItems: ConversationItem[] = [
+      {
+        id: "user-delete-mention",
+        kind: "message",
+        role: "user",
+        text: "@/repo/SPEC_KIT_实战指南.md 删除这个文件",
+      },
+      fileToolItem("tool-delete-path-missing", {
+        toolType: "mcpToolCall",
+        title: "Tool: Claude / Delete",
+        detail: "{}",
+        output: "File removed successfully",
+        changes: [],
+      }),
+    ];
+
+    const result = await applyClaudeRewindWorkspaceRestore({
+      workspaceId: "ws-1",
+      workspacePath: "/repo",
+      impactedItems,
+    });
+
+    expect(result?.skippedPaths).toEqual([]);
+    expect(revertGitFile).toHaveBeenCalledWith(
+      "ws-1",
+      "SPEC_KIT_实战指南.md",
+    );
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    expect(trashWorkspaceItem).not.toHaveBeenCalled();
   });
 
   it("prefers structured old/new replacement when diff context no longer matches", async () => {
@@ -264,7 +397,7 @@ describe("claudeRewindRestore", () => {
     );
   });
 
-  it("skips unrecoverable file entries without diff data instead of failing rewind", async () => {
+  it("falls back to git revert when file entries are unrecoverable from rewind diff", async () => {
     vi.mocked(readWorkspaceFile).mockResolvedValue({
       content: "public class ApiResponse {}\n",
       truncated: false,
@@ -287,11 +420,47 @@ describe("claudeRewindRestore", () => {
       impactedItems,
     });
 
+    expect(result?.skippedPaths).toEqual([]);
+    expect(revertGitFile).toHaveBeenCalledWith(
+      "ws-1",
+      "src/main/java/com/example/demo/dto/response/ApiResponse.java",
+    );
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    expect(trashWorkspaceItem).not.toHaveBeenCalled();
+  });
+
+  it("keeps skipped path when git revert fallback fails", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: "public class ApiResponse {}\n",
+      truncated: false,
+    });
+    vi.mocked(revertGitFile).mockRejectedValueOnce(new Error("git revert failed"));
+
+    const impactedItems: ConversationItem[] = [
+      fileToolItem("tool-missing-diff-with-fallback-error", {
+        changes: [
+          {
+            path: "src/main/java/com/example/demo/dto/response/ApiResponse.java",
+            kind: "modified",
+          },
+        ],
+      }),
+    ];
+
+    const result = await applyClaudeRewindWorkspaceRestore({
+      workspaceId: "ws-1",
+      workspacePath: "/repo",
+      impactedItems,
+    });
+
     expect(result?.skippedPaths).toEqual([
       "src/main/java/com/example/demo/dto/response/ApiResponse.java",
     ]);
+    expect(revertGitFile).toHaveBeenCalledWith(
+      "ws-1",
+      "src/main/java/com/example/demo/dto/response/ApiResponse.java",
+    );
     expect(writeWorkspaceFile).not.toHaveBeenCalled();
-    expect(trashWorkspaceItem).not.toHaveBeenCalled();
   });
 
   it("uses structured old/new fields to restore modified files even when diff is missing", async () => {
@@ -329,6 +498,113 @@ describe("claudeRewindRestore", () => {
       "src/no-diff-structured.ts",
       "const value = 'before';\n",
     );
+  });
+
+  it("ignores committed clean files during rewind restore", async () => {
+    vi.mocked(getGitStatus).mockResolvedValue({
+      branchName: "main",
+      files: [],
+      stagedFiles: [],
+      unstagedFiles: [],
+      totalAdditions: 0,
+      totalDeletions: 0,
+    });
+
+    const impactedItems: ConversationItem[] = [
+      fileToolItem("tool-committed-clean", {
+        changes: [
+          {
+            path: "src/already-committed.ts",
+            kind: "modified",
+            diff: "@@ -1,1 +1,1 @@\n-const value = 'before';\n+const value = 'after';",
+          },
+        ],
+      }),
+    ];
+
+    const result = await applyClaudeRewindWorkspaceRestore({
+      workspaceId: "ws-1",
+      workspacePath: "/repo",
+      impactedItems,
+    });
+
+    expect(result?.ignoredCommittedPaths).toEqual(["src/already-committed.ts"]);
+    expect(result?.touchedPaths).toEqual([]);
+    expect(readWorkspaceFile).not.toHaveBeenCalled();
+    expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    expect(trashWorkspaceItem).not.toHaveBeenCalled();
+  });
+
+  it("treats git dirty path with repo prefix as matching workspace-relative rewind path", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: "export const created = true;\n",
+      truncated: false,
+    });
+    vi.mocked(getGitStatus).mockResolvedValue({
+      branchName: "main",
+      files: [{ path: "springboot-demo/src/new.ts", status: "??", additions: 1, deletions: 0 }],
+      stagedFiles: [],
+      unstagedFiles: [],
+      totalAdditions: 1,
+      totalDeletions: 0,
+    });
+
+    const impactedItems: ConversationItem[] = [
+      fileToolItem("tool-prefixed-dirty-path", {
+        changes: [
+          {
+            path: "src/new.ts",
+            kind: "added",
+            diff: "@@ -0,0 +1,1 @@\n+export const created = true;",
+          },
+        ],
+      }),
+    ];
+
+    const result = await applyClaudeRewindWorkspaceRestore({
+      workspaceId: "ws-1",
+      workspacePath: "/Users/chenxiangning/code/AI/springboot-demo",
+      impactedItems,
+    });
+
+    expect(result?.ignoredCommittedPaths).toEqual([]);
+    expect(trashWorkspaceItem).toHaveBeenCalledWith("ws-1", "src/new.ts");
+  });
+
+  it("matches git dirty paths case-insensitively for Windows/macOS default file systems", async () => {
+    vi.mocked(readWorkspaceFile).mockResolvedValue({
+      content: "export const created = true;\n",
+      truncated: false,
+    });
+    vi.mocked(getGitStatus).mockResolvedValue({
+      branchName: "main",
+      files: [{ path: "SRC/New.ts", status: "??", additions: 1, deletions: 0 }],
+      stagedFiles: [],
+      unstagedFiles: [],
+      totalAdditions: 1,
+      totalDeletions: 0,
+    });
+
+    const impactedItems: ConversationItem[] = [
+      fileToolItem("tool-case-insensitive-dirty-path", {
+        changes: [
+          {
+            path: "src/new.ts",
+            kind: "added",
+            diff: "@@ -0,0 +1,1 @@\n+export const created = true;",
+          },
+        ],
+      }),
+    ];
+
+    const result = await applyClaudeRewindWorkspaceRestore({
+      workspaceId: "ws-1",
+      workspacePath: "/repo",
+      impactedItems,
+    });
+
+    expect(result?.ignoredCommittedPaths).toEqual([]);
+    expect(trashWorkspaceItem).toHaveBeenCalledWith("ws-1", "src/new.ts");
   });
 
   it("treats modified entries with empty old text as add changes and deletes the file on rewind", async () => {

@@ -423,10 +423,15 @@ export async function startThread(workspaceId: string) {
   });
 }
 
-export async function forkThread(workspaceId: string, threadId: string) {
+export async function forkThread(
+  workspaceId: string,
+  threadId: string,
+  messageId?: string | null,
+) {
   return invoke<Record<string, unknown> | null | undefined>("fork_thread", {
     workspaceId,
     threadId,
+    messageId: messageId ?? null,
   });
 }
 

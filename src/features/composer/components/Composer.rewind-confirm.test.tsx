@@ -122,11 +122,36 @@ const REWIND_ITEMS: ConversationItem[] = [
   },
 ];
 
+const REWIND_ITEMS_WITH_USER_MENTION_FALLBACK: ConversationItem[] = [
+  {
+    id: "user-mention-1",
+    kind: "message",
+    role: "user",
+    text: "@/Users/demo/repo/SPEC_KIT_实战指南.md 删除这个文件",
+  },
+  {
+    id: "assistant-mention-1",
+    kind: "message",
+    role: "assistant",
+    text: "正在处理",
+  },
+  {
+    id: "tool-mention-1",
+    kind: "tool",
+    toolType: "mcpToolCall",
+    title: "Tool: Claude / Delete",
+    detail: "{}",
+    status: "completed",
+    output: "File removed successfully",
+  },
+];
+
 type ComposerHarnessProps = {
   items?: ConversationItem[];
   onRewind?: (userMessageId: string) => void | Promise<void>;
   onOpenDiffPath?: (path: string) => void;
   activeThreadId?: string | null;
+  selectedEngine?: "claude" | "codex" | "gemini";
 };
 
 function ComposerHarness({
@@ -134,6 +159,7 @@ function ComposerHarness({
   onRewind = async () => {},
   onOpenDiffPath,
   activeThreadId = "claude:session-1",
+  selectedEngine = "claude",
 }: ComposerHarnessProps) {
   const [draftText, setDraftText] = useState("");
 
@@ -150,7 +176,7 @@ function ComposerHarness({
       collaborationModesEnabled={true}
       selectedCollaborationModeId={null}
       onSelectCollaborationMode={() => {}}
-      selectedEngine="claude"
+      selectedEngine={selectedEngine}
       models={[]}
       selectedModelId={null}
       onSelectModel={() => {}}
@@ -241,6 +267,20 @@ describe("Composer Claude rewind confirmation", () => {
     expect(
       screen.getByTestId("claude-rewind-full-diff-dialog").textContent,
     ).toContain("after");
+  });
+
+  it("falls back to @path mention when tool payload lacks file path", () => {
+    render(<ComposerHarness items={REWIND_ITEMS_WITH_USER_MENTION_FALLBACK} />);
+
+    fireEvent.click(screen.getByTestId("rewind-trigger"));
+
+    expect(screen.getByTestId("claude-rewind-dialog")).not.toBeNull();
+    expect(
+      screen.getByTestId("claude-rewind-file-SPEC_KIT_实战指南.md"),
+    ).not.toBeNull();
+    expect(
+      screen.getByTestId("claude-rewind-file-SPEC_KIT_实战指南.md").textContent,
+    ).toContain("git.fileDeleted");
   });
 
   it("exports rewind files into default chat diff directory", async () => {
@@ -374,8 +414,136 @@ describe("Composer Claude rewind confirmation", () => {
     ).toContain("2026-04-13/session-1/user-1");
   });
 
-  it("hides rewind entry for non-Claude threads", () => {
-    render(<ComposerHarness activeThreadId="thread-codex-1" />);
+  it("shows rewind entry for Codex threads without engine prefix", () => {
+    render(
+      <ComposerHarness
+        selectedEngine="codex"
+        activeThreadId="thread-codex-1"
+      />,
+    );
+
+    expect(screen.queryByTestId("rewind-trigger")).not.toBeNull();
+  });
+
+  it("keeps codex rewind dialog open when onRewind callback identity changes", () => {
+    const { rerender } = render(
+      <ComposerHarness
+        selectedEngine="codex"
+        activeThreadId="thread-codex-1"
+        onRewind={vi.fn(async () => {})}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("rewind-trigger"));
+    expect(screen.queryByTestId("claude-rewind-dialog")).not.toBeNull();
+
+    rerender(
+      <ComposerHarness
+        selectedEngine="codex"
+        activeThreadId="thread-codex-1"
+        onRewind={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(screen.queryByTestId("claude-rewind-dialog")).not.toBeNull();
+  });
+
+  it("stores rewind files under codex engine using unprefixed thread id as session id", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      outputPath:
+        "/Users/demo/.ccgui/chat-diff/codex/2026-04-13/thread-codex-1/user-1",
+      filesPath:
+        "/Users/demo/.ccgui/chat-diff/codex/2026-04-13/thread-codex-1/user-1/files",
+      manifestPath:
+        "/Users/demo/.ccgui/chat-diff/codex/2026-04-13/thread-codex-1/user-1/manifest.json",
+      exportId: "user-1",
+      fileCount: 2,
+    });
+
+    render(
+      <ComposerHarness
+        selectedEngine="codex"
+        activeThreadId="thread-codex-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("rewind-trigger"));
+    fireEvent.click(screen.getByTestId("claude-rewind-store-button"));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("export_rewind_files", {
+        workspaceId: "ws-1",
+        engine: "codex",
+        sessionId: "thread-codex-1",
+        targetMessageId: "user-1",
+        conversationLabel:
+          "请把主按钮文案改成提交并发布，同时保留原来的颜色方案。",
+        files: [
+          { path: "src/components/Button.tsx" },
+          { path: "src/components/Card.tsx" },
+        ],
+      });
+    });
+  });
+
+  it("keeps codex rewind export engine when selected engine is gemini but thread id is unprefixed codex", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      outputPath:
+        "/Users/demo/.ccgui/chat-diff/codex/2026-04-13/thread-codex-1/user-1",
+      filesPath:
+        "/Users/demo/.ccgui/chat-diff/codex/2026-04-13/thread-codex-1/user-1/files",
+      manifestPath:
+        "/Users/demo/.ccgui/chat-diff/codex/2026-04-13/thread-codex-1/user-1/manifest.json",
+      exportId: "user-1",
+      fileCount: 2,
+    });
+
+    render(
+      <ComposerHarness
+        selectedEngine="gemini"
+        activeThreadId="thread-codex-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("rewind-trigger"));
+    fireEvent.click(screen.getByTestId("claude-rewind-store-button"));
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("export_rewind_files", {
+        workspaceId: "ws-1",
+        engine: "codex",
+        sessionId: "thread-codex-1",
+        targetMessageId: "user-1",
+        conversationLabel:
+          "请把主按钮文案改成提交并发布，同时保留原来的颜色方案。",
+        files: [
+          { path: "src/components/Button.tsx" },
+          { path: "src/components/Card.tsx" },
+        ],
+      });
+    });
+  });
+
+  it("hides rewind entry for unknown prefixed thread ids", () => {
+    render(
+      <ComposerHarness
+        selectedEngine="codex"
+        activeThreadId="custom:session-1"
+      />,
+    );
+
+    expect(screen.queryByTestId("rewind-trigger")).toBeNull();
+  });
+
+  it("hides rewind entry for unsupported engine threads", () => {
+    render(
+      <ComposerHarness
+        selectedEngine="gemini"
+        activeThreadId="gemini:session-1"
+      />,
+    );
 
     expect(screen.queryByTestId("rewind-trigger")).toBeNull();
   });

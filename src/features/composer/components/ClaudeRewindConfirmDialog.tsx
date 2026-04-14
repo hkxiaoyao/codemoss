@@ -8,7 +8,7 @@ import FileIcon from "../../../components/FileIcon";
 import type { OperationFileChangeSummary } from "../../operation-facts/operationFacts";
 import { DiffBlock } from "../../git/components/DiffBlock";
 
-export type ClaudeRewindPreviewState = {
+export type RewindPreviewState = {
   targetMessageId: string;
   preview: string;
   engine: "claude" | "codex" | "gemini";
@@ -20,16 +20,20 @@ export type ClaudeRewindPreviewState = {
   affectedFiles: OperationFileChangeSummary[];
 };
 
-type ClaudeRewindConfirmDialogProps = {
-  preview: ClaudeRewindPreviewState | null;
+export type ClaudeRewindPreviewState = RewindPreviewState;
+
+type RewindConfirmDialogProps = {
+  preview: RewindPreviewState | null;
   isBusy?: boolean;
   onOpenDiffPath?: (path: string) => void;
   onStoreChanges?: (
-    preview: ClaudeRewindPreviewState,
+    preview: RewindPreviewState,
   ) => Promise<ExportRewindFilesResult>;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 };
+
+type ClaudeRewindConfirmDialogProps = RewindConfirmDialogProps;
 
 function formatFileStatusLabel(
   t: ReturnType<typeof useTranslation>["t"],
@@ -48,6 +52,16 @@ function formatFileStatusLabel(
 }
 
 const PREVIEW_CONTEXT_RADIUS = 1;
+
+function resolveRewindEngineLabel(engine: RewindPreviewState["engine"]): string {
+  if (engine === "codex") {
+    return "Codex CLI";
+  }
+  if (engine === "gemini") {
+    return "Gemini CLI";
+  }
+  return "Claude Code";
+}
 
 function buildCompactPreviewLines(diff?: string): ParsedDiffLine[] | null {
   if (!diff?.trim()) {
@@ -253,9 +267,15 @@ export function ClaudeRewindConfirmDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="claude-rewind-modal-header">
-          <div className="claude-rewind-modal-kicker">Claude Code</div>
+          <div className="claude-rewind-modal-kicker">
+            {resolveRewindEngineLabel(preview.engine)}
+          </div>
           <div className="claude-rewind-modal-heading">
-            <h3 id="claude-rewind-dialog-title">{t("rewind.dialogTitle")}</h3>
+            <h3 id="claude-rewind-dialog-title">
+              {t("rewind.dialogTitle", {
+                engine: resolveRewindEngineLabel(preview.engine),
+              })}
+            </h3>
             <p id="claude-rewind-dialog-description">
               {t("rewind.dialogDescription")}
             </p>

@@ -208,6 +208,20 @@ describe("tauri invoke wrappers", () => {
     expect(invokeMock).toHaveBeenCalledWith("fork_thread", {
       workspaceId: "ws-9",
       threadId: "thread-9",
+      messageId: null,
+    });
+  });
+
+  it("maps optional messageId for fork_thread", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({});
+
+    await forkThread("ws-9", "thread-9", "msg-9");
+
+    expect(invokeMock).toHaveBeenCalledWith("fork_thread", {
+      workspaceId: "ws-9",
+      threadId: "thread-9",
+      messageId: "msg-9",
     });
   });
 

@@ -1,7 +1,9 @@
 import type { ConversationItem } from "../../../types";
 import {
   createWorkspaceDirectory,
+  getGitStatus,
   readWorkspaceFile,
+  revertGitFile,
   trashWorkspaceItem,
   writeWorkspaceFile,
 } from "../../../services/tauri";
@@ -34,6 +36,18 @@ type ClaudeRewindRestorePlanEntry = {
   sourceItemId: string;
 };
 
+const USER_MESSAGE_AT_PATH_REGEX =
+  /@(?:"([^"\n]+)"|'([^'\n]+)'|`([^`\n]+)`|([^\s@]+))/gu;
+const USER_MESSAGE_INLINE_REFERENCE_REGEX =
+  /(📁|📄)\s+[^\n`📁📄]+?\s+`([^`\n]+)`/gu;
+const DELETE_INTENT_REGEX = /(删除|删掉|移除|remove|delete|unlink)/i;
+
+type GitStatusLike = {
+  files?: Array<{ path?: string }>;
+  stagedFiles?: Array<{ path?: string }>;
+  unstagedFiles?: Array<{ path?: string }>;
+};
+
 export type ClaudeRewindWorkspaceSnapshot = {
   path: string;
   exists: boolean;
@@ -58,6 +72,101 @@ function normalizeWorkspaceRestorePath(
     return null;
   }
   return segments.join("/");
+}
+
+function normalizeGitStatusPath(rawPath: string): string | null {
+  const normalized = normalizeRelativeWorkspacePath(rawPath);
+  if (!normalized) {
+    return null;
+  }
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length === 0 || segments.some((segment) => segment === "." || segment === "..")) {
+    return null;
+  }
+  return segments.join("/");
+}
+
+function extractGitStatusPathVariants(rawPath: string): string[] {
+  const trimmed = rawPath.trim();
+  if (!trimmed) {
+    return [];
+  }
+  const arrowMatch = trimmed.match(/^(.*?)\s+->\s+(.*)$/);
+  if (!arrowMatch) {
+    return [trimmed];
+  }
+  const left = arrowMatch[1]?.trim() ?? "";
+  const right = arrowMatch[2]?.trim() ?? "";
+  return [left, right].filter(Boolean);
+}
+
+function collectGitDirtyPaths(status: GitStatusLike | null | undefined) {
+  if (!status || typeof status !== "object") {
+    return null;
+  }
+  const candidates: Array<{ path?: string }> = [
+    ...(Array.isArray(status.files) ? status.files : []),
+    ...(Array.isArray(status.stagedFiles) ? status.stagedFiles : []),
+    ...(Array.isArray(status.unstagedFiles) ? status.unstagedFiles : []),
+  ];
+  const dirtyPaths = new Set<string>();
+  for (const candidate of candidates) {
+    const rawPath = typeof candidate?.path === "string" ? candidate.path : "";
+    if (!rawPath) {
+      continue;
+    }
+    for (const variant of extractGitStatusPathVariants(rawPath)) {
+      const normalized = normalizeGitStatusPath(variant);
+      if (normalized) {
+        dirtyPaths.add(normalized);
+      }
+    }
+  }
+  return dirtyPaths;
+}
+
+function shouldIgnoreCommittedRestoreEntry(
+  entry: ClaudeRewindRestorePlanEntry,
+  dirtyPaths: Set<string>,
+) {
+  if (dirtyPaths.size === 0) {
+    return true;
+  }
+  const normalizedDirtyPaths = Array.from(dirtyPaths).map((path) =>
+    path.toLowerCase(),
+  );
+  const normalizedDirtyPathSet = new Set(normalizedDirtyPaths);
+  const isDirtyMatch = (candidatePath: string | undefined) => {
+    if (!candidatePath) {
+      return false;
+    }
+    const normalizedCandidatePath = candidatePath.toLowerCase();
+    if (
+      dirtyPaths.has(candidatePath) ||
+      dirtyPaths.has(normalizedCandidatePath) ||
+      normalizedDirtyPathSet.has(normalizedCandidatePath)
+    ) {
+      return true;
+    }
+    for (const dirtyPath of normalizedDirtyPaths) {
+      if (dirtyPath.endsWith(`/${normalizedCandidatePath}`)) {
+        return true;
+      }
+      if (normalizedCandidatePath.endsWith(`/${dirtyPath}`)) {
+        return true;
+      }
+    }
+    return false;
+  };
+  return !(isDirtyMatch(entry.path) || isDirtyMatch(entry.previousPath));
+}
+
+function collectSkippedEntryCandidatePaths(entry: ClaudeRewindRestorePlanEntry) {
+  const candidates = [entry.path];
+  if (entry.previousPath) {
+    candidates.push(entry.previousPath);
+  }
+  return Array.from(new Set(candidates.filter(Boolean)));
 }
 
 function detectNewlineStyle(content: string): "\n" | "\r\n" {
@@ -117,6 +226,12 @@ function inferKindFromDiff(diff?: string): "add" | "delete" | "rename" | "modifi
   const normalizedDiff = diff?.trim();
   if (!normalizedDiff) {
     return undefined;
+  }
+  if (normalizedDiff.includes("*** Delete File: ")) {
+    return "delete";
+  }
+  if (normalizedDiff.includes("*** Add File: ")) {
+    return "add";
   }
   const patchPaths = extractPatchPaths(normalizedDiff);
   if (patchPaths.previousPath && patchPaths.nextPath && patchPaths.previousPath !== patchPaths.nextPath) {
@@ -439,6 +554,30 @@ export function collectClaudeRewindRestorePlan(
       });
     }
   }
+
+  const coveredPaths = new Set<string>();
+  plan.forEach((entry) => {
+    coveredPaths.add(entry.path);
+    if (entry.previousPath) {
+      coveredPaths.add(entry.previousPath);
+    }
+  });
+  const fallbackMentionedPaths = collectMessageMentionedPaths(
+    workspacePath,
+    impactedItems,
+  );
+  fallbackMentionedPaths.forEach((path, index) => {
+    if (coveredPaths.has(path)) {
+      return;
+    }
+    coveredPaths.add(path);
+    plan.push({
+      path,
+      kind: "delete",
+      sourceItemId: `message-fallback-delete-${index + 1}`,
+    });
+  });
+
   return plan;
 }
 
@@ -501,6 +640,20 @@ function parseUnifiedDiffHunks(diff: string): ParsedHunk[] {
     hunks.push(current);
   }
   return hunks;
+}
+
+function hasMeaningfulUnifiedDiffChanges(diff?: string) {
+  const normalized = diff?.trim();
+  if (!normalized) {
+    return false;
+  }
+  const lines = normalized.split(/\r?\n/);
+  return lines.some((line) => {
+    if (line.startsWith("+++ ") || line.startsWith("--- ")) {
+      return false;
+    }
+    return line.startsWith("+") || line.startsWith("-");
+  });
 }
 
 export function reverseApplyUnifiedDiff(
@@ -681,6 +834,84 @@ function collectTouchedPaths(plan: ClaudeRewindRestorePlanEntry[]) {
   return Array.from(touched);
 }
 
+function isLikelyMessagePathToken(token: string): boolean {
+  const normalized = token.trim();
+  if (!normalized) {
+    return false;
+  }
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(normalized)) {
+    return false;
+  }
+  if (
+    normalized.startsWith("/") ||
+    normalized.startsWith("./") ||
+    normalized.startsWith("../") ||
+    /^[A-Za-z]:[\\/]/.test(normalized) ||
+    normalized.includes("/") ||
+    normalized.includes("\\")
+  ) {
+    return true;
+  }
+  return /\.[A-Za-z0-9]{1,16}$/.test(normalized);
+}
+
+function normalizeMessagePathToken(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^[("'`]+/, "")
+    .replace(/[)"'`,;:.!?]+$/, "")
+    .trim();
+}
+
+function collectMessageMentionedPaths(
+  workspacePath: string,
+  impactedItems: ConversationItem[],
+) {
+  const paths = new Set<string>();
+  for (const item of impactedItems) {
+    if (item.kind !== "message" || item.role !== "user") {
+      continue;
+    }
+    if (!DELETE_INTENT_REGEX.test(item.text)) {
+      continue;
+    }
+
+    item.text.replace(
+      USER_MESSAGE_INLINE_REFERENCE_REGEX,
+      (_full, _icon: string, rawPath: string) => {
+        const normalizedRawPath = normalizeMessagePathToken(rawPath);
+        if (!isLikelyMessagePathToken(normalizedRawPath)) {
+          return _full;
+        }
+        const normalizedPath = normalizeWorkspaceRestorePath(
+          workspacePath,
+          normalizedRawPath,
+        );
+        if (normalizedPath) {
+          paths.add(normalizedPath);
+        }
+        return _full;
+      },
+    );
+
+    for (const match of item.text.matchAll(USER_MESSAGE_AT_PATH_REGEX)) {
+      const rawToken = match[1] ?? match[2] ?? match[3] ?? match[4] ?? "";
+      const normalizedRawPath = normalizeMessagePathToken(rawToken);
+      if (!isLikelyMessagePathToken(normalizedRawPath)) {
+        continue;
+      }
+      const normalizedPath = normalizeWorkspaceRestorePath(
+        workspacePath,
+        normalizedRawPath,
+      );
+      if (normalizedPath) {
+        paths.add(normalizedPath);
+      }
+    }
+  }
+  return Array.from(paths);
+}
+
 function computeRewoundSnapshots(
   originalSnapshots: Map<string, ClaudeRewindWorkspaceSnapshot>,
   plan: ClaudeRewindRestorePlanEntry[],
@@ -710,7 +941,10 @@ function computeRewoundSnapshots(
       continue;
     }
 
-    if (entry.kind === "delete" && !entry.diff) {
+    const hasMeaningfulDeleteDiff =
+      entry.kind === "delete" &&
+      hasMeaningfulUnifiedDiffChanges(entry.diff);
+    if (entry.kind === "delete" && !hasMeaningfulDeleteDiff) {
       const currentSnapshot =
         nextSnapshots.get(entry.path) ??
         originalSnapshots.get(entry.path) ?? {
@@ -723,13 +957,14 @@ function computeRewoundSnapshots(
         "",
         entry,
       );
+      if (structuredRevertedContent === null) {
+        skippedEntries.push(entry);
+        continue;
+      }
       nextSnapshots.set(entry.path, {
         path: entry.path,
         exists: true,
-        content:
-          structuredRevertedContent === null
-            ? currentSnapshot.content
-            : structuredRevertedContent,
+        content: structuredRevertedContent,
         newline: currentSnapshot.newline,
       });
       changedPaths.add(entry.path);
@@ -851,12 +1086,41 @@ export async function applyClaudeRewindWorkspaceRestore(params: {
   workspacePath: string;
   impactedItems: ConversationItem[];
 }) {
-  const plan = collectClaudeRewindRestorePlan(
+  const rewindPlan = collectClaudeRewindRestorePlan(
     params.workspacePath,
     params.impactedItems,
   );
-  if (plan.length === 0) {
+  if (rewindPlan.length === 0) {
     return null;
+  }
+  let plan = rewindPlan;
+  const ignoredCommittedPaths = new Set<string>();
+  try {
+    const gitStatus = await getGitStatus(params.workspaceId);
+    const dirtyPaths = collectGitDirtyPaths(gitStatus);
+    if (dirtyPaths) {
+      plan = rewindPlan.filter((entry) => {
+        const shouldIgnore = shouldIgnoreCommittedRestoreEntry(entry, dirtyPaths);
+        if (shouldIgnore) {
+          ignoredCommittedPaths.add(entry.path);
+          if (entry.previousPath) {
+            ignoredCommittedPaths.add(entry.previousPath);
+          }
+          return false;
+        }
+        return true;
+      });
+    }
+  } catch {
+    // Ignore git status lookup errors; fallback to restore behavior based on rewind plan.
+  }
+  if (plan.length === 0) {
+    return {
+      touchedPaths: [],
+      originalSnapshots: [],
+      skippedPaths: [],
+      ignoredCommittedPaths: Array.from(ignoredCommittedPaths).sort(),
+    };
   }
 
   const touchedPaths = collectTouchedPaths(plan);
@@ -885,10 +1149,33 @@ export async function applyClaudeRewindWorkspaceRestore(params: {
   });
   await writeSnapshotCollection(params.workspaceId, changedSnapshotMap);
 
+  const gitFallbackSucceededPaths = new Set<string>();
+  for (const skippedEntry of skippedEntries) {
+    for (const candidatePath of collectSkippedEntryCandidatePaths(skippedEntry)) {
+      if (gitFallbackSucceededPaths.has(candidatePath)) {
+        continue;
+      }
+      try {
+        await revertGitFile(params.workspaceId, candidatePath);
+        gitFallbackSucceededPaths.add(candidatePath);
+      } catch {
+        // Keep skipped result for unresolved paths.
+      }
+    }
+  }
+
+  const skippedPaths = skippedEntries
+    .filter((entry) => {
+      const candidatePaths = collectSkippedEntryCandidatePaths(entry);
+      return candidatePaths.some((path) => !gitFallbackSucceededPaths.has(path));
+    })
+    .map((entry) => entry.path);
+
   return {
     touchedPaths,
     originalSnapshots: Array.from(originalSnapshots.values()).map(cloneSnapshot),
-    skippedPaths: skippedEntries.map((entry) => entry.path),
+    skippedPaths,
+    ignoredCommittedPaths: Array.from(ignoredCommittedPaths).sort(),
   };
 }
 

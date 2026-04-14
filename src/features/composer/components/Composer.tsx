@@ -65,7 +65,10 @@ import {
   compactThreadContext,
   exportRewindFiles,
 } from "../../../services/tauri";
-import { extractFileChangeSummaries } from "../../operation-facts/operationFacts";
+import {
+  extractFileChangeSummaries,
+  type OperationFileChangeSummary,
+} from "../../operation-facts/operationFacts";
 import { pushErrorToast } from "../../../services/toasts";
 import { getManualMemoryInjectionMode } from "../../project-memory/utils/manualInjectionMode";
 
@@ -245,6 +248,14 @@ const MANUAL_MEMORY_ASSISTANT_SUMMARY_REGEX =
   /(?:^|\n)\s*助手输出摘要[:：]\s*([\s\S]*?)(?=\n+\s*(?:助手输出|用户输入)[:：]|$)/;
 const INLINE_FILE_REFERENCE_TOKEN_REGEX =
   /(📁|📄)\s+([^\n`📁📄]+?)\s+`([^`\n]+)`/gu;
+const INLINE_AT_FILE_REFERENCE_REGEX =
+  /@(?:"([^"\n]+)"|'([^'\n]+)'|`([^`\n]+)`|([^\s@]+))/gu;
+const DELETE_FILE_INTENT_REGEX =
+  /(删除|删掉|移除|remove|delete|unlink)/i;
+const CREATE_FILE_INTENT_REGEX =
+  /(创建|新建|新增|create|add)/i;
+const RENAME_FILE_INTENT_REGEX =
+  /(重命名|rename|move)/i;
 const REWIND_PREVIEW_MAX_CHARS = 72;
 
 type RewindCandidate = {
@@ -258,6 +269,35 @@ type RewindThreadContext = {
   sessionId: string | null;
   conversationLabel: string;
 };
+
+function resolveRewindSupportedEngineFromThreadId(
+  activeThreadId: string | null | undefined,
+): "claude" | "codex" | null {
+  const normalized = activeThreadId?.trim().toLowerCase() ?? "";
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.startsWith("claude:")) {
+    return "claude";
+  }
+  if (normalized.startsWith("codex:")) {
+    return "codex";
+  }
+  if (
+    normalized.startsWith("claude-pending-") ||
+    normalized.startsWith("codex-pending-") ||
+    normalized.startsWith("gemini:") ||
+    normalized.startsWith("gemini-pending-") ||
+    normalized.startsWith("opencode:") ||
+    normalized.startsWith("opencode-pending-")
+  ) {
+    return null;
+  }
+  if (normalized.includes(":")) {
+    return null;
+  }
+  return "codex";
+}
 
 function truncateRewindPreview(text: string) {
   if (text.length <= REWIND_PREVIEW_MAX_CHARS) {
@@ -291,17 +331,174 @@ function collectRewindCandidates(items: ConversationItem[]): RewindCandidate[] {
   return candidates;
 }
 
+function getFileNameFromPath(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? filePath;
+}
+
+function isLikelyFilePathToken(value: string): boolean {
+  const normalized = value.trim();
+  if (!normalized) {
+    return false;
+  }
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(normalized)) {
+    return false;
+  }
+  if (
+    normalized.startsWith("/") ||
+    normalized.startsWith("./") ||
+    normalized.startsWith("../") ||
+    /^[A-Za-z]:[\\/]/.test(normalized)
+  ) {
+    return true;
+  }
+  if (normalized.includes("/") || normalized.includes("\\")) {
+    return true;
+  }
+  return /\.[A-Za-z0-9]{1,16}$/.test(normalized);
+}
+
+function normalizeMentionPath(rawPath: string): string {
+  const trimmed = rawPath.trim();
+  if (!trimmed) {
+    return "";
+  }
+  return trimmed
+    .replace(/^[("'`]+/, "")
+    .replace(/[)"'`,;:.!?]+$/, "")
+    .trim();
+}
+
+function inferMessageFileStatus(text: string): OperationFileChangeSummary["status"] {
+  if (DELETE_FILE_INTENT_REGEX.test(text)) {
+    return "D";
+  }
+  if (RENAME_FILE_INTENT_REGEX.test(text)) {
+    return "R";
+  }
+  if (CREATE_FILE_INTENT_REGEX.test(text)) {
+    return "A";
+  }
+  return "M";
+}
+
+function resolvePreferredStatus(
+  current: OperationFileChangeSummary["status"],
+  incoming: OperationFileChangeSummary["status"],
+): OperationFileChangeSummary["status"] {
+  const priority: Record<OperationFileChangeSummary["status"], number> = {
+    D: 4,
+    R: 3,
+    A: 2,
+    M: 1,
+  };
+  return priority[incoming] > priority[current] ? incoming : current;
+}
+
+function extractMentionedPathsFromMessage(text: string): string[] {
+  if (!text.trim()) {
+    return [];
+  }
+  const paths: string[] = [];
+  const seen = new Set<string>();
+
+  text.replace(
+    INLINE_FILE_REFERENCE_TOKEN_REGEX,
+    (_full, _icon: string, _name: string, fullPathRaw: string) => {
+      const normalized = normalizeMentionPath(fullPathRaw);
+      if (!normalized || !isLikelyFilePathToken(normalized)) {
+        return _full;
+      }
+      const dedupeKey = normalized.toLowerCase();
+      if (!seen.has(dedupeKey)) {
+        seen.add(dedupeKey);
+        paths.push(normalized);
+      }
+      return _full;
+    },
+  );
+
+  const matches = text.matchAll(INLINE_AT_FILE_REFERENCE_REGEX);
+  for (const match of matches) {
+    const rawToken = match[1] ?? match[2] ?? match[3] ?? match[4] ?? "";
+    const normalized = normalizeMentionPath(rawToken);
+    if (!normalized || !isLikelyFilePathToken(normalized)) {
+      continue;
+    }
+    const dedupeKey = normalized.toLowerCase();
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+    seen.add(dedupeKey);
+    paths.push(normalized);
+  }
+
+  return paths;
+}
+
+function extractFallbackAffectedFilesFromImpactedMessages(
+  items: ConversationItem[],
+): OperationFileChangeSummary[] {
+  const byPath = new Map<string, OperationFileChangeSummary>();
+  for (const item of items) {
+    if (item.kind !== "message" || item.role !== "user") {
+      continue;
+    }
+    const paths = extractMentionedPathsFromMessage(item.text);
+    if (paths.length === 0) {
+      continue;
+    }
+    const status = inferMessageFileStatus(item.text);
+    for (const filePath of paths) {
+      const existing = byPath.get(filePath);
+      if (!existing) {
+        byPath.set(filePath, {
+          filePath,
+          fileName: getFileNameFromPath(filePath),
+          status,
+          additions: 0,
+          deletions: 0,
+        });
+        continue;
+      }
+      existing.status = resolvePreferredStatus(existing.status, status);
+    }
+  }
+  return Array.from(byPath.values());
+}
+
 function resolveRewindThreadContext(
   activeThreadId: string | null | undefined,
+  fallbackEngine: EngineType | null | undefined,
   fallbackLabel: string,
 ): RewindThreadContext {
   const normalizedThreadId = activeThreadId?.trim() ?? "";
+  const rewindEngineFromThreadId =
+    resolveRewindSupportedEngineFromThreadId(normalizedThreadId);
   const [rawEngine = "", ...sessionParts] = normalizedThreadId.split(":");
-  const normalizedEngine =
-    rawEngine === "claude" || rawEngine === "codex" || rawEngine === "gemini"
-      ? rawEngine
-      : "claude";
-  const sessionId = sessionParts.join(":").trim() || null;
+  const hasKnownEnginePrefix =
+    rawEngine === "claude" || rawEngine === "codex" || rawEngine === "gemini";
+  const normalizedEngine = (() => {
+    if (rewindEngineFromThreadId) {
+      return rewindEngineFromThreadId;
+    }
+    if (rawEngine === "gemini") {
+      return "gemini";
+    }
+    if (
+      !normalizedThreadId &&
+      (fallbackEngine === "claude" ||
+        fallbackEngine === "codex" ||
+        fallbackEngine === "gemini")
+    ) {
+      return fallbackEngine;
+    }
+    return "codex";
+  })();
+  const sessionId = hasKnownEnginePrefix
+    ? sessionParts.join(":").trim() || null
+    : normalizedThreadId || null;
   return {
     engine: normalizedEngine,
     sessionId,
@@ -309,9 +506,10 @@ function resolveRewindThreadContext(
   };
 }
 
-function buildLatestClaudeRewindPreview(
+function buildLatestRewindPreview(
   items: ConversationItem[],
   activeThreadId?: string | null,
+  fallbackEngine?: EngineType | null,
 ): ClaudeRewindPreviewState | null {
   const latestCandidate = collectRewindCandidates(items)[0];
   if (!latestCandidate) {
@@ -319,8 +517,14 @@ function buildLatestClaudeRewindPreview(
   }
 
   const impactedItems = items.slice(latestCandidate.index);
+  const affectedFilesFromTools = extractFileChangeSummaries(impactedItems);
+  const fallbackAffectedFiles =
+    affectedFilesFromTools.length === 0
+      ? extractFallbackAffectedFilesFromImpactedMessages(impactedItems)
+      : [];
   const threadContext = resolveRewindThreadContext(
     activeThreadId,
+    fallbackEngine,
     latestCandidate.preview,
   );
   return {
@@ -337,7 +541,10 @@ function buildLatestClaudeRewindPreview(
     ).length,
     removedToolCallCount: impactedItems.filter((item) => item.kind === "tool")
       .length,
-    affectedFiles: extractFileChangeSummaries(impactedItems),
+    affectedFiles:
+      affectedFilesFromTools.length > 0
+        ? affectedFilesFromTools
+        : fallbackAffectedFiles,
   };
 }
 
@@ -765,6 +972,9 @@ export const Composer = memo(function Composer({
       ? `${activeFilePath}:${activeFileLineRange.startLine}-${activeFileLineRange.endLine}`
       : `${activeFilePath}:all`
     : null;
+  const rewindSupportedEngine = resolveRewindSupportedEngineFromThreadId(
+    activeThreadId,
+  );
   const hasActiveFileReference = Boolean(
     activeFileReferenceSignature &&
     fileReferenceMode === "path" &&
@@ -880,11 +1090,11 @@ export const Composer = memo(function Composer({
   }, [activeThreadId]);
 
   useEffect(() => {
-    if (selectedEngine === "claude" && onRewind) {
+    if (rewindSupportedEngine && onRewind) {
       return;
     }
     setRewindPreviewState(null);
-  }, [onRewind, selectedEngine]);
+  }, [onRewind, rewindSupportedEngine]);
 
   const handleExpandComposer = useCallback(() => {
     setIsComposerCollapsed(false);
@@ -1102,11 +1312,7 @@ export const Composer = memo(function Composer({
     statusPanelExpandedOverride ?? statusPanelExpanded;
   const resolvedToggleStatusPanel =
     onToggleStatusPanelOverride ?? handleToggleStatusPanel;
-  const canRewindClaudeSession = Boolean(
-    onRewind &&
-      activeThreadId &&
-      activeThreadId.trim().startsWith("claude:"),
-  );
+  const canRewindSession = Boolean(onRewind && rewindSupportedEngine);
 
   const handleCancelRewind = useCallback(() => {
     if (rewindInFlight) {
@@ -1119,8 +1325,12 @@ export const Composer = memo(function Composer({
     if (rewindInFlightRef.current || rewindInFlight) {
       return;
     }
-    if (canRewindClaudeSession && onRewind) {
-      const preview = buildLatestClaudeRewindPreview(items, activeThreadId);
+    if (canRewindSession && onRewind) {
+      const preview = buildLatestRewindPreview(
+        items,
+        activeThreadId,
+        selectedEngine,
+      );
       if (!preview) {
         pushErrorToast({
           title: t("rewind.title"),
@@ -1135,7 +1345,15 @@ export const Composer = memo(function Composer({
       title: t("rewind.title"),
       message: t("rewind.notAvailable"),
     });
-  }, [activeThreadId, canRewindClaudeSession, items, onRewind, rewindInFlight, t]);
+  }, [
+    activeThreadId,
+    canRewindSession,
+    items,
+    onRewind,
+    rewindInFlight,
+    selectedEngine,
+    t,
+  ]);
 
   const handleConfirmRewind = useCallback(async () => {
     const preview = rewindPreviewState;
@@ -1665,7 +1883,7 @@ export const Composer = memo(function Composer({
               onCodexQuickCommand={handleCodexQuickCommand}
               hasMessages={items.length > 0}
               onRewind={handleRewind}
-          showRewindEntry={canRewindClaudeSession}
+              showRewindEntry={canRewindSession}
               statusPanelExpanded={resolvedStatusPanelExpanded}
               showStatusPanelToggle={showStatusPanel}
               onToggleStatusPanel={resolvedToggleStatusPanel}

@@ -59,4 +59,19 @@ describe("ContextBar live canvas controls visibility", () => {
     rewindButton?.click();
     expect(onRewind).not.toHaveBeenCalled();
   });
+
+  it("shows rewind for codex provider when enabled", () => {
+    const { container } = render(
+      <ContextBar
+        isLoading={false}
+        hasMessages
+        currentProvider="codex"
+        onRewind={vi.fn()}
+        showRewindEntry
+      />,
+    );
+
+    const rewindButton = container.querySelector(".context-rewind-btn");
+    expect(rewindButton).toBeTruthy();
+  });
 });

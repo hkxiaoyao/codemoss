@@ -567,7 +567,9 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
         )}
 
         {/* Rewind button */}
-        {showRewindEntry && currentProvider === 'claude' && onRewind && (
+        {showRewindEntry &&
+          (currentProvider === 'claude' || currentProvider === 'codex') &&
+          onRewind && (
           <button
             className="context-tool-btn context-tool-btn--labeled context-rewind-btn has-tooltip"
             onClick={onRewind}

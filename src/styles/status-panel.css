@@ -47,10 +47,17 @@
   background: transparent;
   overflow-x: auto;
   overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   order: 1;
   margin: 0 12px 8px;
   flex: 0 0 auto;
   gap: 8px;
+}
+
+.sp-tabs--dock::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .sp-tabs--dock .sp-tab {

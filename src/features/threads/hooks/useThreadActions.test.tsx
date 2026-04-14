@@ -36,7 +36,10 @@ import {
   mergeThreadItems,
   previewThreadName,
 } from "../../../utils/threadItems";
-import { saveThreadActivity } from "../utils/threadStorage";
+import {
+  loadCodexRewindHiddenItemIds,
+  saveThreadActivity,
+} from "../utils/threadStorage";
 import { useThreadActions } from "./useThreadActions";
 
 vi.mock("../../../services/tauri", () => ({
@@ -76,6 +79,10 @@ vi.mock("../../../utils/threadItems", () => ({
 }));
 
 vi.mock("../utils/threadStorage", () => ({
+  loadCodexRewindHiddenItemIds: vi.fn(() => ({})),
+  makeCustomNameKey: (workspaceId: string, threadId: string) =>
+    `${workspaceId}:${threadId}`,
+  saveCodexRewindHiddenItemIds: vi.fn(),
   saveThreadActivity: vi.fn(),
 }));
 
@@ -90,6 +97,7 @@ describe("useThreadActions", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(loadCodexRewindHiddenItemIds).mockReturnValue({});
     vi.mocked(listThreadTitles).mockResolvedValue({});
     vi.mocked(listGeminiSessions).mockResolvedValue([]);
     vi.mocked(getOpenCodeSessionList).mockResolvedValue([]);

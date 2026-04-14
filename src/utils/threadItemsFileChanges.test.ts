@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationItem } from "../types";
 import {
+  inferFileChangesFromCommandExecutionArtifacts,
   inferFileChangesFromPayload,
   mergeToolChanges,
   normalizeFileChangeKind,
@@ -65,6 +66,32 @@ describe("threadItemsFileChanges.mergeToolChanges", () => {
       { path: "src/new-file.ts", kind: "add", diff: undefined },
       { path: "src/existing-file.ts", kind: "modified", diff: undefined },
       { path: "src/removed-file.ts", kind: "delete", diff: undefined },
+    ]);
+  });
+
+  it("parses git porcelain two-letter statuses from command output", () => {
+    const inferred = inferFileChangesFromCommandExecutionArtifacts(
+      "git status --short",
+      [
+        "MM src/App.tsx",
+        "?? src/new-file.ts",
+        "R  src/old-name.ts -> src/new-name.ts",
+      ].join("\n"),
+    );
+
+    expect(inferred).toEqual([
+      { path: "src/App.tsx", kind: "modified", diff: undefined },
+      { path: "src/new-file.ts", kind: "add", diff: undefined },
+      {
+        path: "src/new-name.ts",
+        kind: "rename",
+        diff: [
+          "*** Begin Patch",
+          "*** Update File: src/old-name.ts",
+          "*** Move to: src/new-name.ts",
+          "*** End Patch",
+        ].join("\n"),
+      },
     ]);
   });
 });

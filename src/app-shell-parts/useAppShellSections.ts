@@ -129,6 +129,30 @@ export async function syncKanbanExecutionEngineAndModel(params: {
   return { shouldSyncComposerSelection, outboundModel };
 }
 
+function isRewindSupportedThreadId(threadId: string): boolean {
+  const normalized = threadId.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (normalized.startsWith("claude:") || normalized.startsWith("codex:")) {
+    return true;
+  }
+  if (
+    normalized.startsWith("claude-pending-") ||
+    normalized.startsWith("codex-pending-") ||
+    normalized.startsWith("gemini:") ||
+    normalized.startsWith("gemini-pending-") ||
+    normalized.startsWith("opencode:") ||
+    normalized.startsWith("opencode-pending-")
+  ) {
+    return false;
+  }
+  if (normalized.includes(":")) {
+    return false;
+  }
+  return true;
+}
+
 export function useAppShellSections(ctx: any) {
   const {
     activeWorkspace,
@@ -161,6 +185,7 @@ export function useAppShellSections(ctx: any) {
     kanbanCreateTask,
     kanbanUpdateTask,
     forkThreadForWorkspace,
+    forkSessionFromMessageForWorkspace,
     forkClaudeSessionFromMessageForWorkspace,
     isCompact,
     centerMode,
@@ -648,31 +673,28 @@ export function useAppShellSections(ctx: any) {
     async (messageId: string) => {
       const normalizedMessageId = messageId.trim();
       if (!activeWorkspaceId || !activeThreadId || !normalizedMessageId) {
-        return;
+        throw new Error(t("rewind.notAvailable"));
       }
-      if (!activeThreadId.startsWith("claude:")) {
-        pushErrorToast({
-          title: t("rewind.title"),
-          message: t("rewind.notAvailable"),
-        });
-        return;
+      if (!isRewindSupportedThreadId(activeThreadId)) {
+        throw new Error(t("rewind.notAvailable"));
       }
-      const forkedThreadId = await forkClaudeSessionFromMessageForWorkspace(
+      const rewindFromMessage =
+        forkSessionFromMessageForWorkspace ??
+        forkClaudeSessionFromMessageForWorkspace;
+      const forkedThreadId = await rewindFromMessage(
         activeWorkspaceId,
         activeThreadId,
         normalizedMessageId,
         { activate: true },
       );
       if (!forkedThreadId) {
-        pushErrorToast({
-          title: t("rewind.title"),
-          message: t("rewind.failed"),
-        });
+        throw new Error(t("rewind.failed"));
       }
     },
     [
       activeThreadId,
       activeWorkspaceId,
+      forkSessionFromMessageForWorkspace,
       forkClaudeSessionFromMessageForWorkspace,
       t,
     ],

@@ -1613,8 +1613,9 @@ impl DaemonState {
         &self,
         workspace_id: String,
         thread_id: String,
+        message_id: Option<String>,
     ) -> Result<Value, String> {
-        codex_core::fork_thread_core(&self.sessions, workspace_id, thread_id).await
+        codex_core::fork_thread_core(&self.sessions, workspace_id, thread_id, message_id).await
     }
 
     pub(super) async fn list_threads(

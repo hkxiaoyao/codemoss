@@ -98,6 +98,73 @@ function looksLikeFilePathToken(path: string) {
   return false;
 }
 
+function resolveStatusTokenKind(rawStatusToken: string): string | undefined {
+  const token = rawStatusToken.trim().toUpperCase();
+  if (!token) {
+    return undefined;
+  }
+  if (!/^(?:[A-Z?]{1,2}|[RC][0-9]{1,3})$/.test(token)) {
+    return undefined;
+  }
+  if (token.includes("?")) {
+    return "add";
+  }
+  if (token.includes("R")) {
+    return "rename";
+  }
+  if (token.includes("D")) {
+    return "delete";
+  }
+  if (token.includes("A")) {
+    return "add";
+  }
+  if (token.includes("M")) {
+    return "modified";
+  }
+  if (token.includes("U")) {
+    return "modified";
+  }
+  if (token.includes("C")) {
+    return "rename";
+  }
+  const normalized = normalizeFileChangeKind(token);
+  if (
+    normalized === "add" ||
+    normalized === "delete" ||
+    normalized === "rename" ||
+    normalized === "modified"
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
+
+function parseRenamePath(rawPath: string): { previousPath?: string; nextPath?: string } {
+  const trimmed = rawPath.trim();
+  if (!trimmed) {
+    return {};
+  }
+  const arrowMatch = trimmed.match(/^(.*?)\s+->\s+(.*)$/);
+  if (!arrowMatch) {
+    return {};
+  }
+  const previousPath = arrowMatch[1]?.trim();
+  const nextPath = arrowMatch[2]?.trim();
+  if (!previousPath || !nextPath) {
+    return {};
+  }
+  return { previousPath, nextPath };
+}
+
+function buildSyntheticRenameDiff(previousPath: string, nextPath: string) {
+  return [
+    "*** Begin Patch",
+    `*** Update File: ${previousPath}`,
+    `*** Move to: ${nextPath}`,
+    "*** End Patch",
+  ].join("\n");
+}
+
 function parseStatusPathEntries(text: string): FileChangeEntry[] {
   if (!text.trim()) {
     return [];
@@ -109,13 +176,33 @@ function parseStatusPathEntries(text: string): FileChangeEntry[] {
     if (!normalizedLine) {
       continue;
     }
-    const match = normalizedLine.match(/^\(?([A-Z])\)?\s+(.+)$/);
+    const match = normalizedLine.match(/^\(?([A-Z?]{1,2}|[RC][0-9]{1,3})\)?\s+(.+)$/);
     if (!match) {
       continue;
     }
-    const kind = normalizeFileChangeKind(match[1] ?? "");
+    const statusToken = (match[1] ?? "").trim();
+    const kind = resolveStatusTokenKind(statusToken);
     const rawPath = (match[2] ?? "").trim();
-    if (!kind || !looksLikeFilePathToken(rawPath)) {
+    if (!kind) {
+      continue;
+    }
+    if (kind === "rename") {
+      const { previousPath, nextPath } = parseRenamePath(rawPath);
+      if (
+        previousPath &&
+        nextPath &&
+        looksLikeFilePathToken(previousPath) &&
+        looksLikeFilePathToken(nextPath)
+      ) {
+        entries.push({
+          path: nextPath,
+          kind: "rename",
+          diff: buildSyntheticRenameDiff(previousPath, nextPath),
+        });
+        continue;
+      }
+    }
+    if (!looksLikeFilePathToken(rawPath)) {
       continue;
     }
     entries.push({
@@ -326,6 +413,22 @@ export function inferFileChangesFromCommandExecutionArtifacts(
   }
   if (!normalizedOutput) {
     return Array.from(byPath.values()).filter((entry) => entry.path);
+  }
+
+  for (const entry of parseStatusPathEntries(normalizedOutput)) {
+    const normalizedPath = entry.path.trim();
+    if (!normalizedPath) {
+      continue;
+    }
+    const existing = byPath.get(normalizedPath);
+    if (!existing) {
+      byPath.set(normalizedPath, { ...entry, path: normalizedPath });
+      continue;
+    }
+    if (!existing.kind && entry.kind) {
+      existing.kind = entry.kind;
+    }
+    existing.diff = pickRicherDiff(existing.diff, entry.diff);
   }
 
   const marker = normalizedOutput.match(/updated the following files:\s*([\s\S]*)/i);
