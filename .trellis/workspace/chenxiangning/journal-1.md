@@ -361,3 +361,59 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 8: 补录：回溯模式与文件选择策略改造
+
+**Date**: 2026-04-17
+**Task**: 补录：回溯模式与文件选择策略改造
+**Branch**: `feature/vvvv0.4.3`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标
+- 完成 rewind review surface 的策略改造与 mutation-only 文件选择收口。
+
+主要改动
+- 将回溯确认从旧的文件 toggle 改为 messages-and-files / messages-only / files-only 三态模式。
+- 将回溯文件候选限制为最后一条目标用户消息及其后续 AI 消息范围内的 mutation 文件，排除 read / batch read 等只读操作。
+- 增加 Git clean 隐藏文件区、非 Git 保持现状、展示层去重、异常 git 状态不误判 clean 等边界处理。
+- 同步更新中英文文案、样式与 Claude/Codex 相关测试。
+
+涉及模块
+- src/features/composer/components
+- src/features/threads/hooks
+- src/features/layout/hooks
+- src/i18n/locales
+- src/styles/composer.part1.css
+- openspec/changes/rewind-mutation-only-file-selection
+
+验证结果
+- 用户已手测成功。
+- 已执行 rewind 相关 vitest、typecheck、eslint、large-files near-threshold 检查。
+
+后续事项
+- 将本次 change 的 delta specs 同步到主 specs 并完成 archive。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b33862c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 7
+- **Total Sessions**: 8
 - **Last Active**: 2026-04-17
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~363 | Active |
+| `journal-1.md` | ~419 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 8 | 2026-04-17 | 补录：回溯模式与文件选择策略改造 | `b33862c` | `feature/vvvv0.4.3` |
 | 7 | 2026-04-17 | Claude rollout plan-card fallback and approval detail cleanup | `7999a1f` | `feature/vvvv0.4.2-1` |
 | 6 | 2026-04-17 | 兼容 Claude plan 卡片标题变种 | `eb88587` | `feature/vvvv0.4.2-1` |
 | 5 | 2026-04-17 | 补充 v0.4.2 changelog 发布说明 | `a85197c` | `feature/vvvv0.4.2-1` |
