@@ -776,3 +776,66 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: runtime orchestrator pool console
+
+**Date**: 2026-04-18
+**Task**: runtime orchestrator pool console
+**Branch**: `feature/vvvv0.4.3`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 落地 runtime-orchestrator-pool-console 提案，解决 Codex/Claude 工作区数量驱动的后台进程膨胀问题。
+- 将 Codex runtime 从 workspace 常驻模式改为受预算控制的 Hot/Warm/Cold pool，并提供 Settings Runtime Pool Console。
+
+主要改动:
+- backend 新增 runtime manager / ledger / snapshot / mutate command，统一 runtime 生命周期、orphan sweep、预算回收与退出 drain。
+- 统一 Codex session replacement / termination path，connect/reload/disconnect 改为走 managed runtime stop helper。
+- frontend 新增 runtime pool snapshot/mutate service、启动仅恢复线程元数据、Settings 中新增 Runtime Pool Console 与预算/TTL/清理设置。
+- 前端 workspace acquire 统一通过 ensureRuntimeReady 入口，补齐对应 hook 测试。
+- OpenSpec tasks 全量收口，并新增 release checklist。
+
+涉及模块:
+- src-tauri/src/runtime/mod.rs
+- src-tauri/src/codex/mod.rs
+- src-tauri/src/shared/workspaces_core.rs
+- src-tauri/src/settings/mod.rs
+- src/features/settings/components/settings-view/sections/CodexSection.tsx
+- src/features/workspaces/hooks/useWorkspaceRestore.ts
+- src/features/workspaces/hooks/useWorkspaces.ts
+- openspec/changes/runtime-orchestrator-pool-console/*
+
+验证结果:
+- npx vitest run src/features/workspaces/hooks/useWorkspaces.test.tsx src/features/workspaces/hooks/useWorkspaceRestore.test.tsx src/features/settings/components/SettingsView.test.tsx 通过。
+- cargo test --manifest-path src-tauri/Cargo.toml runtime_entry_from_workspace_sets_initial_lease_source -- --nocapture 通过。
+- cargo test --manifest-path src-tauri/Cargo.toml snapshot_applies_hot_and_warm_budget -- --nocapture 通过。
+- git diff --check 通过。
+- npm run typecheck 仍有仓库基线问题，仅剩 src/features/composer/components/ChatInputBox/selectors/ModeSelect.tsx 与 src/features/messages/components/Messages.tsx 两处历史报错，本次未新增。
+
+后续事项:
+- 建议后续补一轮真实多工作区手测，重点验证 exit drain / orphan sweep / budget 驱逐在老机器上的体感改善。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cb2db54934ba419a7220b746ab1d18f68b455e8c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
