@@ -2,6 +2,10 @@ import { useCallback, useRef } from "react";
 import type { Dispatch } from "react";
 import type { ApprovalRequest, DebugEntry } from "../../../types";
 import i18n from "../../../i18n";
+import {
+  getApprovalThreadId,
+  getApprovalTurnId,
+} from "../../../utils/approvalBatching";
 import { normalizeCommandTokens } from "../../../utils/approvalRules";
 import {
   rememberApprovalRule,
@@ -10,15 +14,9 @@ import {
 import type { ThreadAction } from "./useThreadsReducer";
 
 type UseThreadApprovalsOptions = {
-  approvals: ApprovalRequest[];
   dispatch: Dispatch<ThreadAction>;
   onDebug?: (entry: DebugEntry) => void;
 };
-
-function getApprovalTurnId(request: ApprovalRequest): string | null {
-  const turnId = request.params?.turnId ?? request.params?.turn_id;
-  return typeof turnId === "string" && turnId.trim() ? turnId.trim() : null;
-}
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -31,11 +29,6 @@ function getApprovalInputRecord(
 ): Record<string, unknown> {
   const nestedInput = asRecord(params.input);
   return Object.keys(nestedInput).length > 0 ? nestedInput : params;
-}
-
-function getApprovalThreadId(request: ApprovalRequest): string | null {
-  const threadId = request.params?.threadId ?? request.params?.thread_id;
-  return typeof threadId === "string" && threadId.trim() ? threadId.trim() : null;
 }
 
 function getApprovalPath(params: Record<string, unknown>): string | null {
@@ -59,8 +52,15 @@ function getApprovalPath(params: Record<string, unknown>): string | null {
   return null;
 }
 
+function isFileChangeApprovalRequest(request: ApprovalRequest): boolean {
+  return request.method.includes("fileChange");
+}
+
+function buildApprovalRequestKey(request: ApprovalRequest): string {
+  return `${request.workspace_id}:${String(request.request_id)}`;
+}
+
 export function useThreadApprovals({
-  approvals,
   dispatch,
   onDebug,
 }: UseThreadApprovalsOptions) {
@@ -145,25 +145,21 @@ export function useThreadApprovals({
   );
 
   const handleApprovalBatchAccept = useCallback(
-    async (request: ApprovalRequest) => {
-      const turnId = getApprovalTurnId(request);
-      if (!turnId) {
-        await handleApprovalDecision(request, "accept");
-        return;
-      }
+    async (batch: ApprovalRequest[]) => {
+      const seenRequestKeys = new Set<string>();
+      const uniqueFileBatch = batch.filter((approval) => {
+        if (!isFileChangeApprovalRequest(approval)) {
+          return false;
+        }
+        const requestKey = buildApprovalRequestKey(approval);
+        if (seenRequestKeys.has(requestKey)) {
+          return false;
+        }
+        seenRequestKeys.add(requestKey);
+        return true;
+      });
 
-      const batch = approvals.filter(
-        (entry) =>
-          entry.workspace_id === request.workspace_id &&
-          getApprovalTurnId(entry) === turnId,
-      );
-
-      if (!batch.length) {
-        await handleApprovalDecision(request, "accept");
-        return;
-      }
-
-      for (const approval of batch) {
+      for (const approval of uniqueFileBatch) {
         markApprovalAsApplying(approval);
         await respondToServerRequest(
           approval.workspace_id,
@@ -178,7 +174,7 @@ export function useThreadApprovals({
         });
       }
     },
-    [approvals, dispatch, handleApprovalDecision, markApprovalAsApplying],
+    [dispatch, markApprovalAsApplying],
   );
 
   const handleApprovalRemember = useCallback(

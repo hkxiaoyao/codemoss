@@ -32,7 +32,8 @@ mod manager;
 mod stream_helpers;
 mod user_input;
 use approval::{
-    classify_claude_mode_blocked_tool, ClaudeModeBlockedKind, SyntheticApprovalSummaryEntry,
+    classify_claude_mode_blocked_tool, looks_like_claude_permission_denial_message,
+    ClaudeModeBlockedKind, SyntheticApprovalSummaryEntry,
 };
 #[cfg(test)]
 use approval::{
@@ -1220,14 +1221,7 @@ impl ClaudeSession {
         turn_id: &str,
         error_message: &str,
     ) -> Option<EngineEvent> {
-        let normalized_error = error_message.trim().to_ascii_lowercase();
-        let looks_blocked = normalized_error.contains("permission denied")
-            || normalized_error.contains("requires approval")
-            || normalized_error.contains("requested permissions")
-            || normalized_error.contains("haven't granted it yet")
-            || normalized_error.contains("have not granted it yet")
-            || (normalized_error.contains("blocked") && normalized_error.contains("for security"));
-        if !looks_blocked {
+        if !looks_like_claude_permission_denial_message(error_message) {
             return None;
         }
 

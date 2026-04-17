@@ -33,6 +33,7 @@ type MarkdownProps = {
   codeBlockCopyUseModifier?: boolean;
   streamingThrottleMs?: number;
   softBreaks?: boolean;
+  preserveFormatting?: boolean;
   codexLeadMarkerConfig?: CodexLeadMarkerConfig;
   onOpenFileLink?: (path: string) => void;
   onOpenFileLinkMenu?: (event: React.MouseEvent, path: string) => void;
@@ -84,6 +85,7 @@ function areMarkdownPropsEqual(prev: MarkdownProps, next: MarkdownProps) {
     prev.codeBlockCopyUseModifier === next.codeBlockCopyUseModifier &&
     prev.streamingThrottleMs === next.streamingThrottleMs &&
     prev.softBreaks === next.softBreaks &&
+    prev.preserveFormatting === next.preserveFormatting &&
     prev.codexLeadMarkerConfig === next.codexLeadMarkerConfig &&
     prev.onOpenFileLink === next.onOpenFileLink &&
     prev.onOpenFileLinkMenu === next.onOpenFileLinkMenu
@@ -1644,6 +1646,7 @@ export const Markdown = memo(function Markdown({
   codeBlockCopyUseModifier = false,
   streamingThrottleMs = 80,
   softBreaks = false,
+  preserveFormatting = false,
   codexLeadMarkerConfig,
   onOpenFileLink,
   onOpenFileLinkMenu,
@@ -1716,6 +1719,9 @@ export const Markdown = memo(function Markdown({
     if (codeBlock) {
       return `\`\`\`\n${renderValue}\n\`\`\``;
     }
+    if (preserveFormatting) {
+      return renderValue;
+    }
     const normalizeDisplayText = (text: string) =>
       normalizeImageTags(
         normalizeStandaloneMathDisplayLines(
@@ -1737,7 +1743,7 @@ export const Markdown = memo(function Markdown({
         ),
       );
     return normalizeOutsideCodeFences(renderValue, normalizeDisplayText);
-  }, [renderValue, codeBlock]);
+  }, [renderValue, codeBlock, preserveFormatting]);
 
   // Stable callback refs for file link handlers
   const onOpenFileLinkRef = useRef(onOpenFileLink);

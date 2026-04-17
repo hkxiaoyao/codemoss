@@ -7,8 +7,9 @@ type ApprovalToastsProps = {
   approvals: ApprovalRequest[];
   workspaces: WorkspaceInfo[];
   onDecision: (request: ApprovalRequest, decision: "accept" | "decline") => void;
-  onApproveBatch?: (request: ApprovalRequest) => void;
+  onApproveBatch?: (requests: ApprovalRequest[]) => void;
   onRemember?: (request: ApprovalRequest, command: string[]) => void;
+  variant?: "overlay" | "inline";
 };
 
 const HIDDEN_APPROVAL_PARAM_KEYS = new Set([
@@ -16,6 +17,8 @@ const HIDDEN_APPROVAL_PARAM_KEYS = new Set([
   "thread_id",
   "turnId",
   "turn_id",
+  "toolName",
+  "tool_name",
   "itemId",
   "item_id",
   "input",
@@ -64,9 +67,14 @@ function getApprovalMessage(params: Record<string, unknown>): string | null {
   return raw;
 }
 
-function getApprovalTurnId(request: ApprovalRequest): string | null {
-  const turnId = request.params?.turnId ?? request.params?.turn_id;
-  return typeof turnId === "string" && turnId.trim() ? turnId.trim() : null;
+function getApprovalToolName(params: Record<string, unknown>): string | null {
+  for (const key of ["toolName", "tool_name"]) {
+    const value = params[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
 }
 
 export function ApprovalToasts({
@@ -75,6 +83,7 @@ export function ApprovalToasts({
   onDecision,
   onApproveBatch,
   onRemember,
+  variant = "overlay",
 }: ApprovalToastsProps) {
   const { t } = useTranslation();
   const workspaceLabels = useMemo(
@@ -83,15 +92,14 @@ export function ApprovalToasts({
   );
 
   const primaryRequest = approvals[approvals.length - 1];
-  const primaryTurnId = primaryRequest ? getApprovalTurnId(primaryRequest) : null;
-  const turnBatch = primaryRequest
-    ? approvals.filter(
-        (request) =>
-          request.workspace_id === primaryRequest.workspace_id &&
-          getApprovalTurnId(request) === primaryTurnId,
-      )
-    : [];
-  const batchCount = turnBatch.length;
+  const batchEligibleApprovals = useMemo(
+    () =>
+      primaryRequest?.method.includes("fileChange")
+        ? approvals.filter((approval) => approval.method.includes("fileChange"))
+        : [],
+    [approvals, primaryRequest],
+  );
+  const batchCount = batchEligibleApprovals.length;
 
   useEffect(() => {
     if (!primaryRequest) {
@@ -149,13 +157,18 @@ export function ApprovalToasts({
   };
 
   return (
-    <div className="approval-toasts" role="region" aria-live="assertive">
+    <div
+      className={`approval-toasts${variant === "inline" ? " approval-toasts-inline" : ""}`}
+      role="region"
+      aria-live="assertive"
+    >
       {[primaryRequest].map((request) => {
         const workspaceName = workspaceLabels.get(request.workspace_id);
         const params = request.params ?? {};
         const commandInfo = getApprovalCommandInfo(params);
         const approvalPath = getApprovalPath(params);
         const approvalMessage = getApprovalMessage(params);
+        const approvalToolName = getApprovalToolName(params);
         const entries = Object.entries(params).filter(([key, value]) => {
           if (HIDDEN_APPROVAL_PARAM_KEYS.has(key)) {
             return false;
@@ -199,10 +212,10 @@ export function ApprovalToasts({
                   <div className="approval-toast-detail-value">{commandInfo.preview}</div>
                 </div>
               ) : null}
-              {typeof params.toolName === "string" && params.toolName.trim() ? (
+              {approvalToolName ? (
                 <div className="approval-toast-detail">
                   <div className="approval-toast-detail-label">Tool</div>
-                  <div className="approval-toast-detail-value">{params.toolName.trim()}</div>
+                  <div className="approval-toast-detail-value">{approvalToolName}</div>
                 </div>
               ) : null}
               {approvalMessage ? (
@@ -247,7 +260,7 @@ export function ApprovalToasts({
               {batchCount > 1 && onApproveBatch ? (
                 <button
                   className="secondary"
-                  onClick={() => onApproveBatch(request)}
+                  onClick={() => onApproveBatch(batchEligibleApprovals)}
                 >
                   {t("approval.approveTurnBatch", { count: batchCount })}
                 </button>

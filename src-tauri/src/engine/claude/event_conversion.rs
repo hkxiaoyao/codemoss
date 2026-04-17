@@ -1,9 +1,14 @@
 use serde_json::Value;
 
+use super::approval::{
+    classify_claude_mode_blocked_tool, looks_like_claude_permission_denial_message,
+    ClaudeModeBlockedKind,
+};
 use super::stream_helpers::{
     concat_reasoning_blocks, concat_text_blocks, extract_claude_tool_input,
     extract_claude_tool_name, extract_delta_text_from_event, extract_reasoning_fragment,
     extract_result_text, extract_tool_result_output, extract_tool_result_text,
+    tool_result_is_error,
 };
 use super::ClaudeSession;
 use crate::engine::events::EngineEvent;
@@ -30,24 +35,14 @@ fn is_claude_file_change_tool(tool_name: &str) -> bool {
 }
 
 fn is_claude_command_tool(tool_name: &str) -> bool {
-    let normalized_tool = tool_name.trim().to_ascii_lowercase();
-    normalized_tool.contains("bash")
-        || normalized_tool.contains("exec")
-        || normalized_tool.contains("command")
+    matches!(
+        classify_claude_mode_blocked_tool(tool_name),
+        Some(ClaudeModeBlockedKind::CommandExecution)
+    )
 }
 
 fn has_claude_permission_signal(message: &str) -> bool {
-    let normalized_message = message.trim().to_ascii_lowercase();
-    if normalized_message.is_empty() {
-        return false;
-    }
-
-    normalized_message.contains("requires approval")
-        || normalized_message.contains("requested permissions")
-        || normalized_message.contains("haven't granted it yet")
-        || normalized_message.contains("have not granted it yet")
-        || normalized_message.contains("permission denied")
-        || normalized_message.contains("requires permission")
+    looks_like_claude_permission_denial_message(message)
 }
 
 fn detect_claude_synthetic_approval_kind(
@@ -140,9 +135,9 @@ impl ClaudeSession {
                 );
                 None
             }
-            ClaudeSyntheticApprovalKind::CommandExecution => Some(
-                self.build_command_mode_blocked_signal(turn_id, tool_id, &tool_name, output),
-            ),
+            ClaudeSyntheticApprovalKind::CommandExecution => {
+                Some(self.build_command_mode_blocked_signal(turn_id, tool_id, &tool_name, output))
+            }
         }
     }
 
@@ -299,8 +294,8 @@ impl ClaudeSession {
                                     let output = content.and_then(extract_tool_result_text);
                                     if is_error {
                                         if let Some(text) = output.as_deref() {
-                                            if let Some(mode_blocked_event) =
-                                                self.maybe_handle_claude_permission_block(
+                                            if let Some(mode_blocked_event) = self
+                                                .maybe_handle_claude_permission_block(
                                                     turn_id, &tool_id, text,
                                                 )
                                             {
@@ -393,18 +388,12 @@ impl ClaudeSession {
                                 continue;
                             }
 
-                            let is_error = block
-                                .get("is_error")
-                                .or_else(|| block.get("isError"))
-                                .or_else(|| event.get("is_error"))
-                                .or_else(|| event.get("isError"))
-                                .and_then(|v| v.as_bool())
-                                .unwrap_or(false);
+                            let is_error = tool_result_is_error(block, event);
                             let output = extract_tool_result_output(block, event);
                             if is_error {
                                 if let Some(text) = output.as_deref() {
-                                    if let Some(mode_blocked_event) =
-                                        self.maybe_handle_claude_permission_block(
+                                    if let Some(mode_blocked_event) = self
+                                        .maybe_handle_claude_permission_block(
                                             turn_id, &tool_id, text,
                                         )
                                     {
@@ -461,9 +450,15 @@ impl ClaudeSession {
                 let message = event
                     .get("error")
                     .and_then(|e| e.get("message"))
+                    .or_else(|| event.get("error"))
                     .and_then(|m| m.as_str())
                     .or_else(|| event.get("message").and_then(|m| m.as_str()))
                     .unwrap_or("Unknown error");
+                if let Some(mode_blocked_event) =
+                    self.build_mode_blocked_signal_from_error(turn_id, message)
+                {
+                    return Some(mode_blocked_event);
+                }
                 Some(EngineEvent::TurnError {
                     workspace_id: self.workspace_id.clone(),
                     error: message.to_string(),
@@ -607,15 +602,14 @@ impl ClaudeSession {
                         let output = content.and_then(extract_tool_result_text);
                         if is_error {
                             if let Some(text) = output.as_deref() {
-                                if let Some(mode_blocked_event) =
-                                    self.maybe_handle_claude_permission_block(
-                                        turn_id, &tool_id, text,
-                                    )
+                                if let Some(mode_blocked_event) = self
+                                    .maybe_handle_claude_permission_block(turn_id, &tool_id, text)
                                 {
                                     self.clear_tool_block_index(turn_id, index);
                                     return Some(mode_blocked_event);
                                 }
-                                if self.has_pending_approval_request(&Value::String(tool_id.clone()))
+                                if self
+                                    .has_pending_approval_request(&Value::String(tool_id.clone()))
                                 {
                                     self.clear_tool_block_index(turn_id, index);
                                     return None;

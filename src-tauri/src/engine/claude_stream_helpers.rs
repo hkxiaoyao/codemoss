@@ -128,6 +128,7 @@ pub(super) fn extract_tool_result_text(value: &Value) -> Option<String> {
             "text",
             "preview",
             "message",
+            "error",
             "response",
             "result",
             "content",
@@ -171,6 +172,41 @@ pub(super) fn extract_tool_result_text(value: &Value) -> Option<String> {
         }
     }
     None
+}
+
+fn explicit_error_flag(value: &Value) -> Option<bool> {
+    value
+        .get("is_error")
+        .or_else(|| value.get("isError"))
+        .and_then(|field| field.as_bool())
+}
+
+fn has_error_payload(value: &Value) -> bool {
+    let Some(error) = value.get("error") else {
+        return false;
+    };
+
+    match error {
+        Value::Null => false,
+        Value::Bool(value) => *value,
+        Value::String(value) => !value.trim().is_empty(),
+        Value::Array(value) => !value.is_empty(),
+        Value::Object(value) => !value.is_empty(),
+        Value::Number(_) => true,
+    }
+}
+
+pub(super) fn tool_result_is_error(block: &Value, event: &Value) -> bool {
+    explicit_error_flag(block)
+        .or_else(|| explicit_error_flag(event))
+        .unwrap_or_else(|| {
+            has_error_payload(block)
+                || event
+                    .get("toolUseResult")
+                    .or_else(|| event.get("tool_use_result"))
+                    .map(has_error_payload)
+                    .unwrap_or(false)
+        })
 }
 
 pub(super) fn extract_tool_result_output(block: &Value, event: &Value) -> Option<String> {

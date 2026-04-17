@@ -9,7 +9,6 @@ import { HomeChat } from "../../home/components/HomeChat";
 import { MainHeader } from "../../app/components/MainHeader";
 import { TopbarSessionTabs } from "../../app/components/TopbarSessionTabs";
 import { Messages } from "../../messages/components/Messages";
-import { ApprovalToasts } from "../../app/components/ApprovalToasts";
 import { UpdateToast } from "../../update/components/UpdateToast";
 import { ErrorToasts } from "../../notifications/components/ErrorToasts";
 import { Composer } from "../../composer/components/Composer";
@@ -196,7 +195,7 @@ type LayoutNodesOptions = {
     request: ApprovalRequest,
     decision: "accept" | "decline",
   ) => void;
-  handleApprovalBatchAccept: (request: ApprovalRequest) => void;
+  handleApprovalBatchAccept: (requests: ApprovalRequest[]) => void;
   handleApprovalRemember: (
     request: ApprovalRequest,
     command: string[],
@@ -862,6 +861,10 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
     pendingTopbarSelectionRef.current?.workspaceId ?? options.activeWorkspaceId;
   const highlightedThreadId =
     pendingTopbarSelectionRef.current?.threadId ?? options.activeThreadId;
+  const selectedWorkspaceId = options.activeWorkspaceId;
+  const selectedThreadId = options.activeThreadId;
+  const selectThread = options.onSelectThread;
+  const selectWorkspace = options.onSelectWorkspace;
   const topbarSessionTabItems = buildTopbarSessionTabItems(
     highlightedWorkspaceId,
     highlightedThreadId,
@@ -906,8 +909,8 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
           pendingTopbarSelectionRef.current = null;
         }
       }
-      const activeWorkspaceId = options.activeWorkspaceId;
-      const activeThreadId = options.activeThreadId;
+      const activeWorkspaceId = selectedWorkspaceId;
+      const activeThreadId = selectedThreadId;
       const activeKey =
         activeWorkspaceId && activeThreadId
           ? toTopbarTabKey(activeWorkspaceId, activeThreadId)
@@ -930,18 +933,14 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
           setAt: Date.now(),
         };
         forceTopbarSessionRender();
-        options.onSelectThread(fallbackTab.workspaceId, fallbackTab.threadId);
+        selectThread(fallbackTab.workspaceId, fallbackTab.threadId);
         return;
       }
-      options.onSelectWorkspace(activeWorkspaceId || fallbackWorkspaceId);
+      selectWorkspace(activeWorkspaceId || fallbackWorkspaceId);
     },
-    [
-      options.activeThreadId,
-      options.activeWorkspaceId,
-      options.onSelectThread,
-      options.onSelectWorkspace,
-    ],
+    [selectedThreadId, selectedWorkspaceId, selectThread, selectWorkspace],
   );
+  const threadStatusById = options.threadStatusById;
   const showTopbarTabMenu = useCallback(
     async (
       position: { x: number; y: number },
@@ -958,7 +957,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       const hasLeftTabs = targetIndex > 0;
       const hasRightTabs = targetIndex < currentWindows.tabs.length - 1;
       const hasCompletedTabs = currentWindows.tabs.some(
-        (tab) => options.threadStatusById[tab.threadId]?.isProcessing === false,
+        (tab) => threadStatusById[tab.threadId]?.isProcessing === false,
       );
       const closeTabItem = await MenuItem.new({
         text: t("threads.closeTab"),
@@ -1003,8 +1002,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
         enabled: hasCompletedTabs,
         action: () => {
           applyTopbarWindowMutation(
-            (windows) =>
-              dismissCompletedTopbarSessionTabs(windows, options.threadStatusById),
+            (windows) => dismissCompletedTopbarSessionTabs(windows, threadStatusById),
             workspaceId,
           );
         },
@@ -1021,7 +1019,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       const window = getCurrentWindow();
       await menu.popup(new LogicalPosition(position.x, position.y), window);
     },
-    [applyTopbarWindowMutation, options.threadStatusById, t],
+    [applyTopbarWindowMutation, t, threadStatusById],
   );
   const sessionTabsNode =
     !options.isPhone && !options.isTablet ? (
@@ -1144,7 +1142,12 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       showMessageAnchors={options.showMessageAnchors}
       codeBlockCopyUseModifier={options.codeBlockCopyUseModifier}
       userInputRequests={options.userInputRequests}
+      approvals={options.approvals}
+      workspaces={options.workspaces}
       onUserInputSubmit={options.handleUserInputSubmit}
+      onApprovalDecision={options.handleApprovalDecision}
+      onApprovalBatchAccept={options.handleApprovalBatchAccept}
+      onApprovalRemember={options.handleApprovalRemember}
       conversationState={conversationState}
       presentationProfile={presentationProfile}
       activeEngine={options.selectedEngine}
@@ -1175,7 +1178,12 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
     options.showMessageAnchors,
     options.codeBlockCopyUseModifier,
     options.userInputRequests,
+    options.approvals,
+    options.workspaces,
     options.handleUserInputSubmit,
+    options.handleApprovalDecision,
+    options.handleApprovalBatchAccept,
+    options.handleApprovalRemember,
     conversationState,
     presentationProfile,
     options.selectedEngine,
@@ -1382,16 +1390,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
     ) : null;
   const composerNode = renderComposerNode();
   const homeComposerNode = renderComposerNode(false);
-
-  const approvalToastsNode = (
-    <ApprovalToasts
-      approvals={options.approvals}
-      workspaces={options.workspaces}
-      onDecision={options.handleApprovalDecision}
-      onApproveBatch={options.handleApprovalBatchAccept}
-      onRemember={options.handleApprovalRemember}
-    />
-  );
+  const approvalToastsNode = null;
 
   const updateToastNode = (
     <UpdateToast

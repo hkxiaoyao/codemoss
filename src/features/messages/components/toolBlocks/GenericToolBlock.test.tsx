@@ -138,6 +138,51 @@ const exitPlanModeJsonItem: Extract<ConversationItem, { kind: "tool" }> = {
   status: "completed",
 };
 
+const exitPlanModeSlashVariantItem: Extract<ConversationItem, { kind: "tool" }> = {
+  id: "tool-8",
+  kind: "tool",
+  toolType: "toolCall",
+  title: "Claude / exit_plan_mode",
+  detail: "PLAN\n# Variant Plan\n\n- step one",
+  status: "completed",
+};
+
+const exitPlanModeBareClaudeVariantItem: Extract<ConversationItem, { kind: "tool" }> = {
+  id: "tool-8b",
+  kind: "tool",
+  toolType: "toolCall",
+  title: "Claude / exitplanmode",
+  detail: "PLAN\n# Bare Variant Plan\n\n- step one",
+  status: "completed",
+};
+
+const exitPlanModeRichMarkdownItem: Extract<ConversationItem, { kind: "tool" }> = {
+  id: "tool-9",
+  kind: "tool",
+  toolType: "toolCall",
+  title: "Tool: ExitPlanMode",
+  detail: `PLAN
+# Rollout
+
+## Checklist
+- done
+  - nested detail
+
+| Item | State |
+| --- | --- |
+| API | ready |
+
+\`\`\`md
+PLANFILEPATH should stay inside code fence
+\`\`\`
+
+<!-- keep table and code block stable -->
+
+PLANFILEPATH
+/Users/demo/.claude/plans/rich-plan.md`,
+  status: "completed",
+};
+
 describe("GenericToolBlock", () => {
   afterEach(() => {
     cleanup();
@@ -463,5 +508,52 @@ describe("GenericToolBlock", () => {
     expect(screen.getByText("用户要求创建多个简单的文本文件。")).toBeTruthy();
     expect(screen.getByText("/Users/demo/.claude/plans/json-plan.md")).toBeTruthy();
     expect(screen.queryByText("Exit plan mode?")).toBeNull();
+  });
+
+  it("normalizes exit plan tool name variants before rendering the dedicated card", () => {
+    render(
+      <GenericToolBlock
+        item={exitPlanModeSlashVariantItem}
+        isExpanded={false}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Execution Plan Ready")).toBeTruthy();
+  });
+
+  it("matches claude-prefixed exitplanmode variant without underscores", () => {
+    render(
+      <GenericToolBlock
+        item={exitPlanModeBareClaudeVariantItem}
+        isExpanded={false}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Execution Plan Ready")).toBeTruthy();
+  });
+
+  it("preserves rich markdown when extracting labeled exit plan payload", () => {
+    const view = render(
+      <GenericToolBlock
+        item={exitPlanModeRichMarkdownItem}
+        isExpanded={false}
+        onToggle={vi.fn()}
+      />,
+    );
+
+    const header = view.container.querySelector(".tool-exit-plan-card-header");
+    expect(header).toBeTruthy();
+    if (header) {
+      fireEvent.click(header);
+    }
+
+    expect(screen.getByText("Rollout")).toBeTruthy();
+    expect(screen.getByText("Checklist")).toBeTruthy();
+    expect(screen.getByText("nested detail")).toBeTruthy();
+    expect(screen.getByText("API")).toBeTruthy();
+    expect(screen.getByText("PLANFILEPATH should stay inside code fence")).toBeTruthy();
+    expect(screen.getByText("/Users/demo/.claude/plans/rich-plan.md")).toBeTruthy();
   });
 });

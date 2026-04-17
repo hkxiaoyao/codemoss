@@ -530,7 +530,6 @@ export function useThreads({
     handleApprovalBatchAccept,
     handleApprovalRemember,
   } = useThreadApprovals({
-    approvals: state.approvals,
     dispatch,
     onDebug,
   });

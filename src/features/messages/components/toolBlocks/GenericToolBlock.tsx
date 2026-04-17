@@ -152,11 +152,25 @@ function isDirectoryPath(filePath: string, fileName: string): boolean {
   );
 }
 
+function normalizeToolIdentifier(toolName: string): string {
+  return toolName.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function matchesNormalizedToolIdentifier(toolName: string, expected: string): boolean {
+  const normalizedToolName = normalizeToolIdentifier(toolName);
+  const normalizedExpected = normalizeToolIdentifier(expected);
+  return (
+    normalizedToolName === normalizedExpected ||
+    normalizedToolName.endsWith(normalizedExpected)
+  );
+}
+
 /**
  * 根据工具名称获取 codicon 图标类名
  */
 function getCodiconClass(toolName: string, title: string): string {
   const lower = toolName.toLowerCase();
+  const normalized = normalizeToolIdentifier(toolName);
   const lowerTitle = title.toLowerCase();
 
   if (
@@ -170,6 +184,7 @@ function getCodiconClass(toolName: string, title: string): string {
 
   // 直接映射
   if (CODICON_MAP[lower]) return CODICON_MAP[lower];
+  if (CODICON_MAP[normalized]) return CODICON_MAP[normalized];
 
   // 分类匹配
   if (isReadTool(lower)) return 'codicon-eye';
@@ -209,7 +224,8 @@ function getToolStatus(
  */
 function isCollapsibleTool(toolName: string, title: string): boolean {
   const lower = toolName.toLowerCase();
-  return COLLAPSIBLE_TOOLS.has(lower) || isMcpTool(title);
+  const normalized = normalizeToolIdentifier(toolName);
+  return COLLAPSIBLE_TOOLS.has(lower) || COLLAPSIBLE_TOOLS.has(normalized) || isMcpTool(title);
 }
 
 /**
@@ -331,39 +347,40 @@ function countContentLines(value: string): number {
   return value.split('\n').length;
 }
 
-function parseLabeledSections(rawText: string): Map<string, string> {
-  const sections = new Map<string, string>();
-  const normalized = rawText.replace(/\r\n/g, '\n').trim();
-  if (!normalized) {
-    return sections;
+function extractLabeledBlock(
+  rawText: string,
+  label: string,
+  nextLabels: string[] = [],
+): string {
+  const normalized = rawText.replace(/\r\n/g, '\n');
+  if (!normalized.trim()) {
+    return '';
   }
 
-  const lines = normalized.split('\n');
-  let currentLabel: string | null = null;
-  let buffer: string[] = [];
+  const startRegex = new RegExp(`(^|\\n)${label}\\s*(?=\\n|$)`, 'i');
+  const startMatch = startRegex.exec(normalized);
+  if (!startMatch) {
+    return '';
+  }
 
-  const flush = () => {
-    if (!currentLabel) {
-      return;
-    }
-    sections.set(currentLabel, buffer.join('\n').trim());
-    buffer = [];
-  };
+  const contentStart = startMatch.index + startMatch[0].length;
+  let contentEnd = normalized.length;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^[A-Z][A-Z0-9_]{2,}$/.test(trimmed)) {
-      flush();
-      currentLabel = trimmed;
+  for (const nextLabel of nextLabels) {
+    const nextRegex = new RegExp(`\\n${nextLabel}\\s*(?=\\n|$)`, 'i');
+    nextRegex.lastIndex = contentStart;
+    const slice = normalized.slice(contentStart);
+    const nextMatch = nextRegex.exec(slice);
+    if (!nextMatch) {
       continue;
     }
-    if (currentLabel) {
-      buffer.push(line);
+    const candidateEnd = contentStart + nextMatch.index;
+    if (candidateEnd < contentEnd) {
+      contentEnd = candidateEnd;
     }
   }
 
-  flush();
-  return sections;
+  return normalized.slice(contentStart, contentEnd).replace(/^\n+|\n+$/g, '');
 }
 
 function extractExitPlanCardContent(
@@ -402,9 +419,8 @@ function extractExitPlanCardContent(
   }
 
   if (!planMarkdown && !planFilePath) {
-    const sections = parseLabeledSections(rawText);
-    planMarkdown = sections.get('PLAN') ?? '';
-    planFilePath = sections.get('PLANFILEPATH') ?? '';
+    planMarkdown = extractLabeledBlock(rawText, 'PLAN', ['PLANFILEPATH']);
+    planFilePath = extractLabeledBlock(rawText, 'PLANFILEPATH');
   }
 
   return {
@@ -913,7 +929,7 @@ export const GenericToolBlock = memo(function GenericToolBlock({
   const hasChanges = (item.changes ?? []).length > 0;
   const status = getToolStatus(item, hasChanges);
   const summary = extractSummary(item, toolName);
-  const isExitPlanTool = toolName.toLowerCase() === 'exitplanmode';
+  const isExitPlanTool = matchesNormalizedToolIdentifier(toolName, 'exitplanmode');
   const exitPlanContent = useMemo(
     () => (isExitPlanTool ? extractExitPlanCardContent(item) : null),
     [isExitPlanTool, item],
@@ -1116,7 +1132,11 @@ export const GenericToolBlock = memo(function GenericToolBlock({
                   {exitPlanCopy.planSummary}
                 </div>
                 <div className="tool-exit-plan-card-markdown">
-                  <Markdown value={exitPlanContent.planMarkdown} workspaceId={workspaceId} />
+                  <Markdown
+                    value={exitPlanContent.planMarkdown}
+                    workspaceId={workspaceId}
+                    preserveFormatting
+                  />
                 </div>
               </section>
             ) : null}

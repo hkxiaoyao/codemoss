@@ -99,8 +99,33 @@ pub(super) fn format_synthetic_approval_resume_message(
     }
 }
 
+pub(super) fn looks_like_claude_permission_denial_message(message: &str) -> bool {
+    let normalized_message = message.trim().to_ascii_lowercase();
+    if normalized_message.is_empty() {
+        return false;
+    }
+
+    normalized_message.contains("requires approval")
+        || normalized_message.contains("requested permissions")
+        || normalized_message.contains("haven't granted it yet")
+        || normalized_message.contains("have not granted it yet")
+        || normalized_message.contains("permission denied")
+        || normalized_message.contains("requires permission")
+        || normalized_message.contains("blocked for security")
+        || normalized_message.contains("blocked. for security")
+        || normalized_message.contains("allowed working directories")
+        || normalized_message.contains("may only write to files")
+}
+
+fn normalize_claude_tool_name_for_blocked_classification(tool_name: &str) -> String {
+    tool_name
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['_', '-', ' '], "")
+}
+
 pub(super) fn classify_claude_mode_blocked_tool(tool_name: &str) -> Option<ClaudeModeBlockedKind> {
-    let normalized = tool_name.trim().to_ascii_lowercase();
+    let normalized = normalize_claude_tool_name_for_blocked_classification(tool_name);
     if normalized.is_empty() {
         return None;
     }
@@ -113,6 +138,8 @@ pub(super) fn classify_claude_mode_blocked_tool(tool_name: &str) -> Option<Claud
         || normalized.contains("shell")
         || normalized.contains("terminal")
         || normalized.contains("stdin")
+        || normalized.contains("native")
+        || normalized == "run"
     {
         return Some(ClaudeModeBlockedKind::CommandExecution);
     }
@@ -165,6 +192,25 @@ fn extract_first_non_empty_string(value: &Value, keys: &[&str]) -> Option<String
 
 fn normalize_claude_raw_path(raw_path: &str) -> String {
     raw_path.trim().replace('\\', "/")
+}
+
+fn resolve_absolute_candidate_against_existing_ancestor(
+    candidate: &Path,
+) -> Result<PathBuf, String> {
+    let mut existing_ancestor = Some(candidate);
+    while let Some(path) = existing_ancestor {
+        if path.exists() {
+            let canonical_existing = path
+                .canonicalize()
+                .map_err(|error| format!("Failed to resolve approval path: {error}"))?;
+            let suffix = candidate
+                .strip_prefix(path)
+                .map_err(|_| "Claude approval path is invalid.".to_string())?;
+            return Ok(canonical_existing.join(suffix));
+        }
+        existing_ancestor = path.parent();
+    }
+    Err("Claude approval path is invalid.".to_string())
 }
 
 pub(super) fn normalize_claude_workspace_relative_path(path: &Path) -> Result<String, String> {
@@ -385,9 +431,10 @@ impl ClaudeSession {
             let canonical_root = configured_root
                 .canonicalize()
                 .map_err(|error| format!("Failed to resolve workspace root: {error}"))?;
-            let relative = candidate
-                .strip_prefix(&configured_root)
-                .or_else(|_| candidate.strip_prefix(&canonical_root))
+            let normalized_absolute_candidate =
+                resolve_absolute_candidate_against_existing_ancestor(&candidate)?;
+            let relative = normalized_absolute_candidate
+                .strip_prefix(&canonical_root)
                 .map_err(|_| {
                     format!(
                         "Claude approval path is outside workspace: {}",

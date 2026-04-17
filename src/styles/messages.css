@@ -27,6 +27,13 @@
   min-height: 100%;
 }
 
+.messages-inline-approval-slot {
+  position: sticky;
+  top: calc(var(--main-topbar-height) + 8px);
+  z-index: 4;
+  margin: 0 0 14px;
+}
+
 .app.canvas-width-wide .messages-full {
   max-width: none;
 }

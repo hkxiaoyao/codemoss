@@ -41,13 +41,12 @@ describe("useThreadApprovals", () => {
 
     const { result } = renderHook(() =>
       useThreadApprovals({
-        approvals,
         dispatch,
       }),
     );
 
     await act(async () => {
-      await result.current.handleApprovalBatchAccept(approvals[1]!);
+      await result.current.handleApprovalBatchAccept([approvals[0]!, approvals[1]!]);
     });
 
     expect(respondToServerRequest).toHaveBeenNthCalledWith(1, "ws-1", 1, "accept");
@@ -117,5 +116,124 @@ describe("useThreadApprovals", () => {
       workspaceId: "ws-1",
       approval: approvals[1],
     });
+  });
+
+  it("approves the provided approval batch even when turn id is missing", async () => {
+    const dispatch = vi.fn();
+    const approvals: ApprovalRequest[] = [
+      {
+        workspace_id: "ws-1",
+        request_id: 1,
+        method: "item/fileChange/requestApproval",
+        params: { threadId: "claude:thread-1", file_path: "aaa.txt" },
+      },
+      {
+        workspace_id: "ws-1",
+        request_id: 2,
+        method: "item/fileChange/requestApproval",
+        params: { threadId: "claude:thread-1", file_path: "bbb.txt" },
+      },
+      {
+        workspace_id: "ws-1",
+        request_id: 3,
+        method: "item/fileChange/requestApproval",
+        params: { threadId: "claude:thread-2", file_path: "ccc.txt" },
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useThreadApprovals({
+        dispatch,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handleApprovalBatchAccept([approvals[0]!, approvals[1]!]);
+    });
+
+    expect(respondToServerRequest).toHaveBeenNthCalledWith(1, "ws-1", 1, "accept");
+    expect(respondToServerRequest).toHaveBeenNthCalledWith(2, "ws-1", 2, "accept");
+    expect(respondToServerRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("only approves the requests included in the provided batch", async () => {
+    const dispatch = vi.fn();
+    const approvals: ApprovalRequest[] = [
+      {
+        workspace_id: "ws-1",
+        request_id: 1,
+        method: "item/fileChange/requestApproval",
+        params: { toolName: "Write", input: { file_path: "aaa.txt" } },
+      },
+      {
+        workspace_id: "ws-1",
+        request_id: 2,
+        method: "item/fileChange/requestApproval",
+        params: { toolName: "Write", input: { file_path: "bbb.txt" } },
+      },
+      {
+        workspace_id: "ws-1",
+        request_id: 3,
+        method: "item/commandExecution/requestApproval",
+        params: { toolName: "Bash", command: ["pwd"] },
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useThreadApprovals({
+        dispatch,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handleApprovalBatchAccept([approvals[0]!, approvals[1]!]);
+    });
+
+    expect(respondToServerRequest).toHaveBeenNthCalledWith(1, "ws-1", 1, "accept");
+    expect(respondToServerRequest).toHaveBeenNthCalledWith(2, "ws-1", 2, "accept");
+    expect(respondToServerRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it("skips duplicate and non-file approvals inside the provided batch", async () => {
+    const dispatch = vi.fn();
+    const approvals: ApprovalRequest[] = [
+      {
+        workspace_id: "ws-1",
+        request_id: 1,
+        method: "item/fileChange/requestApproval",
+        params: { toolName: "Write", input: { file_path: "aaa.txt" } },
+      },
+      {
+        workspace_id: "ws-1",
+        request_id: 2,
+        method: "item/fileChange/requestApproval",
+        params: { toolName: "Write", input: { file_path: "bbb.txt" } },
+      },
+      {
+        workspace_id: "ws-1",
+        request_id: 3,
+        method: "item/commandExecution/requestApproval",
+        params: { toolName: "Bash", command: ["pwd"] },
+      },
+    ];
+
+    const { result } = renderHook(() =>
+      useThreadApprovals({
+        dispatch,
+      }),
+    );
+
+    await act(async () => {
+      await result.current.handleApprovalBatchAccept([
+        approvals[0]!,
+        approvals[0]!,
+        approvals[2]!,
+        approvals[1]!,
+      ]);
+    });
+
+    expect(respondToServerRequest).toHaveBeenNthCalledWith(1, "ws-1", 1, "accept");
+    expect(respondToServerRequest).toHaveBeenNthCalledWith(2, "ws-1", 2, "accept");
+    expect(respondToServerRequest).toHaveBeenCalledTimes(2);
   });
 });

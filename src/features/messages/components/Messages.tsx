@@ -11,11 +11,13 @@ import Terminal from "lucide-react/dist/esm/icons/terminal";
 import { AgentIcon } from "../../../components/AgentIcon";
 import { ProxyStatusBadge } from "../../../components/ProxyStatusBadge";
 import type {
+  ApprovalRequest,
   ConversationItem,
   OpenAppTarget,
   RequestUserInputRequest,
   RequestUserInputResponse,
   TurnPlan,
+  WorkspaceInfo,
 } from "../../../types";
 import type {
   ConversationEngine,
@@ -42,6 +44,7 @@ import {
 } from "./toolBlocks";
 import { buildCommandSummary, extractToolName, isBashTool } from "./toolBlocks/toolConstants";
 import type { PresentationProfile } from "../presentation/presentationProfile";
+import { ApprovalToasts } from "../../app/components/ApprovalToasts";
 import { RequestUserInputMessage } from "../../app/components/RequestUserInputMessage";
 import { ImageLightbox, MessageImageGrid, type MessageImage } from "./MessageMediaBlocks";
 import {
@@ -86,10 +89,18 @@ type MessagesProps = {
   showMessageAnchors?: boolean;
   codeBlockCopyUseModifier?: boolean;
   userInputRequests?: RequestUserInputRequest[];
+  approvals?: ApprovalRequest[];
+  workspaces?: WorkspaceInfo[];
   onUserInputSubmit?: (
     request: RequestUserInputRequest,
     response: RequestUserInputResponse,
   ) => Promise<void> | void;
+  onApprovalDecision?: (
+    request: ApprovalRequest,
+    decision: "accept" | "decline",
+  ) => void;
+  onApprovalBatchAccept?: (requests: ApprovalRequest[]) => void;
+  onApprovalRemember?: (request: ApprovalRequest, command: string[]) => void;
   activeEngine?: "claude" | "codex" | "gemini" | "opencode";
   activeCollaborationModeId?: string | null;
   plan?: TurnPlan | null;
@@ -1431,7 +1442,12 @@ export const Messages = memo(function Messages({
   showMessageAnchors = true,
   codeBlockCopyUseModifier = false,
   userInputRequests: legacyUserInputRequests = [],
+  approvals = [],
+  workspaces = [],
   onUserInputSubmit: legacyOnUserInputSubmit,
+  onApprovalDecision,
+  onApprovalBatchAccept,
+  onApprovalRemember,
   activeEngine: legacyActiveEngine = "claude",
   activeCollaborationModeId = null,
   plan: legacyPlan = null,
@@ -2256,6 +2272,28 @@ export const Messages = memo(function Messages({
     autoScrollRef.current = liveAutoFollowEnabled ? true : nearBottom;
     scheduleAnchorUpdate("scroll");
   }, [isNearBottom, liveAutoFollowEnabled, scheduleAnchorUpdate]);
+  const clearTransientUiState = useCallback(() => {
+    if (copyTimeoutRef.current) {
+      window.clearTimeout(copyTimeoutRef.current);
+      copyTimeoutRef.current = null;
+    }
+    if (anchorUpdateRafRef.current !== null) {
+      window.cancelAnimationFrame(anchorUpdateRafRef.current);
+      anchorUpdateRafRef.current = null;
+    }
+    if (planPanelFocusRafRef.current !== null) {
+      window.cancelAnimationFrame(planPanelFocusRafRef.current);
+      planPanelFocusRafRef.current = null;
+    }
+    if (planPanelFocusTimeoutRef.current !== null) {
+      window.clearTimeout(planPanelFocusTimeoutRef.current);
+      planPanelFocusTimeoutRef.current = null;
+    }
+    if (planPanelFocusNodeRef.current) {
+      planPanelFocusNodeRef.current.classList.remove("plan-panel-focus-ring");
+      planPanelFocusNodeRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!isMessagesPerfDebugEnabled()) {
@@ -2315,27 +2353,7 @@ export const Messages = memo(function Messages({
     };
   });
 
-  useEffect(() => {
-    return () => {
-      if (copyTimeoutRef.current) {
-        window.clearTimeout(copyTimeoutRef.current);
-      }
-      if (anchorUpdateRafRef.current !== null) {
-        window.cancelAnimationFrame(anchorUpdateRafRef.current);
-        anchorUpdateRafRef.current = null;
-      }
-      if (planPanelFocusRafRef.current !== null) {
-        window.cancelAnimationFrame(planPanelFocusRafRef.current);
-      }
-      if (planPanelFocusTimeoutRef.current !== null) {
-        window.clearTimeout(planPanelFocusTimeoutRef.current);
-      }
-      if (planPanelFocusNodeRef.current) {
-        planPanelFocusNodeRef.current.classList.remove("plan-panel-focus-ring");
-        planPanelFocusNodeRef.current = null;
-      }
-    };
-  }, []);
+  useEffect(() => clearTransientUiState, [clearTransientUiState]);
 
   useEffect(() => {
     if (!hasAnchorRail) {
@@ -2496,6 +2514,30 @@ export const Messages = memo(function Messages({
   const shouldRenderUserInputNode =
     (activeEngine === "codex" || activeEngine === "claude") &&
     Boolean(legacyOnUserInputSubmit);
+  const visibleApprovals = useMemo(() => {
+    if (!approvals.length) {
+      return [];
+    }
+
+    return approvals.filter((approval) =>
+      !workspaceId || approval.workspace_id === workspaceId,
+    );
+  }, [approvals, workspaceId]);
+  const approvalNode =
+    visibleApprovals.length > 0 && onApprovalDecision
+      ? (
+        <div className="messages-inline-approval-slot">
+          <ApprovalToasts
+            approvals={visibleApprovals}
+            workspaces={workspaces}
+            onDecision={onApprovalDecision}
+            onApproveBatch={onApprovalBatchAccept}
+            onRemember={onApprovalRemember}
+            variant="inline"
+          />
+        </div>
+      )
+      : null;
   const userInputNode =
     shouldRenderUserInputNode && legacyOnUserInputSubmit
       ? (
@@ -2771,6 +2813,7 @@ export const Messages = memo(function Messages({
         onScroll={updateAutoScroll}
       >
         <div className="messages-full">
+          {approvalNode}
           {shouldCollapseHistoryItems && (
             <div
               className="messages-collapsed-indicator"

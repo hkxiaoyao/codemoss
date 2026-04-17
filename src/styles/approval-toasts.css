@@ -13,6 +13,18 @@
   transform: translate(-50%, -50%);
 }
 
+.approval-toasts-inline {
+  position: relative;
+  top: auto;
+  left: auto;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  transform: none;
+  z-index: auto;
+}
+
 .approval-toast {
   background: var(--surface-context-core);
   border-radius: 12px;
@@ -22,6 +34,14 @@
   pointer-events: auto;
   animation: approval-toast-in 0.2s ease-out;
   max-width: 100%;
+}
+
+.approval-toasts-inline .approval-toast {
+  width: 100%;
+  box-sizing: border-box;
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  backdrop-filter: none;
 }
 
 .approval-toast-queue-summary {

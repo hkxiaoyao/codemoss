@@ -14,11 +14,7 @@ fn test_external_spec_root() -> String {
 
 #[test]
 fn session_creation() {
-    let session = ClaudeSession::new(
-        "test-workspace".to_string(),
-        test_workspace_path(),
-        None,
-    );
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
 
     assert_eq!(session.workspace_id, "test-workspace");
 }
@@ -63,11 +59,7 @@ fn format_synthetic_approval_resume_message_embeds_marker_payload() {
 
 #[tokio::test]
 async fn ask_user_question_registers_and_clears_pending_request() {
-    let session = ClaudeSession::new(
-        "test-workspace".to_string(),
-        test_workspace_path(),
-        None,
-    );
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
     let input = json!({
         "questions": [
             {
@@ -106,11 +98,7 @@ async fn ask_user_question_registers_and_clears_pending_request() {
 
 #[test]
 fn ask_user_question_preserves_multi_select_flag() {
-    let session = ClaudeSession::new(
-        "test-workspace".to_string(),
-        test_workspace_path(),
-        None,
-    );
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
     let input = json!({
         "questions": [
             {
@@ -139,11 +127,7 @@ fn ask_user_question_preserves_multi_select_flag() {
 
 #[test]
 fn has_pending_user_input_accepts_numeric_id_for_backward_compat() {
-    let session = ClaudeSession::new(
-        "test-workspace".to_string(),
-        test_workspace_path(),
-        None,
-    );
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
     if let Ok(mut pending) = session.pending_user_inputs.lock() {
         pending.insert("42".to_string(), "turn-42".to_string());
     }
@@ -153,11 +137,7 @@ fn has_pending_user_input_accepts_numeric_id_for_backward_compat() {
 
 #[test]
 fn has_any_pending_user_input_reports_presence() {
-    let session = ClaudeSession::new(
-        "test-workspace".to_string(),
-        test_workspace_path(),
-        None,
-    );
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
     assert!(!session.has_any_pending_user_input());
     if let Ok(mut pending) = session.pending_user_inputs.lock() {
         pending.insert("ask-1".to_string(), "turn-1".to_string());
@@ -167,11 +147,7 @@ fn has_any_pending_user_input_reports_presence() {
 
 #[tokio::test]
 async fn respond_to_user_input_rejects_mismatched_request_id() {
-    let session = ClaudeSession::new(
-        "test-workspace".to_string(),
-        test_workspace_path(),
-        None,
-    );
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
     if let Ok(mut pending) = session.pending_user_inputs.lock() {
         pending.insert("ask-fallback".to_string(), "turn-1".to_string());
     }
@@ -194,11 +170,7 @@ async fn respond_to_user_input_rejects_mismatched_request_id() {
 
 #[test]
 fn build_command_adds_external_spec_root_when_configured() {
-    let session = ClaudeSession::new(
-        "test-workspace".to_string(),
-        test_workspace_path(),
-        None,
-    );
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
     let mut params = SendMessageParams::default();
     params.text = "hello".to_string();
     params.custom_spec_root = Some(test_external_spec_root());
@@ -231,11 +203,7 @@ fn should_not_use_stream_json_input_for_single_line_text_without_images() {
 
 #[test]
 fn build_command_uses_stream_json_for_multiline_text() {
-    let session = ClaudeSession::new(
-        "test-workspace".to_string(),
-        test_workspace_path(),
-        None,
-    );
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
     let mut params = SendMessageParams::default();
     params.text = "line1\nline2".to_string();
 
@@ -255,11 +223,7 @@ fn build_command_uses_stream_json_for_multiline_text() {
 
 #[test]
 fn build_resume_command_uses_stream_json_for_multiline_answer() {
-    let session = ClaudeSession::new(
-        "test-workspace".to_string(),
-        test_workspace_path(),
-        None,
-    );
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
     let mut params = SendMessageParams::default();
     params.text = "line1\r\nline2".to_string();
     params.continue_session = true;
