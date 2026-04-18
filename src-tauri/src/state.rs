@@ -27,7 +27,7 @@ pub(crate) struct AppState {
     pub(crate) dictation: Mutex<DictationState>,
     pub(crate) codex_login_cancels: Mutex<HashMap<String, oneshot::Sender<()>>>,
     pub(crate) detached_external_change_runtime: Mutex<DetachedExternalChangeRuntime>,
-    pub(crate) runtime_manager: crate::runtime::RuntimeManager,
+    pub(crate) runtime_manager: Arc<crate::runtime::RuntimeManager>,
     /// Multi-engine manager
     pub(crate) engine_manager: EngineManager,
 }
@@ -48,8 +48,12 @@ impl AppState {
         if let Err(error) = proxy_core::apply_app_proxy_settings(&app_settings) {
             eprintln!("[proxy] failed to apply persisted proxy settings: {error}");
         }
-        let runtime_manager = crate::runtime::RuntimeManager::new(&data_dir);
+        let runtime_manager = Arc::new(crate::runtime::RuntimeManager::new(&data_dir));
         runtime_manager.orphan_sweep_on_startup(app_settings.runtime_orphan_sweep_on_launch);
+        let engine_manager = EngineManager::new();
+        engine_manager
+            .claude_manager
+            .set_runtime_manager(runtime_manager.clone());
         Self {
             workspaces: Mutex::new(workspaces),
             sessions: Mutex::new(HashMap::new()),
@@ -64,7 +68,7 @@ impl AppState {
             codex_login_cancels: Mutex::new(HashMap::new()),
             detached_external_change_runtime: Mutex::new(DetachedExternalChangeRuntime::default()),
             runtime_manager,
-            engine_manager: EngineManager::new(),
+            engine_manager,
         }
     }
 }

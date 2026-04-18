@@ -28,8 +28,11 @@ use super::events::{engine_event_to_app_server_event, EngineEvent};
 use super::status::{detect_gemini_status, detect_opencode_status};
 use super::{EngineConfig, EngineStatus, EngineType};
 
+#[path = "commands_opencode_helpers.rs"]
+mod opencode_helpers;
 #[path = "commands_parse_helpers.rs"]
 mod parse_helpers;
+use opencode_helpers::*;
 use parse_helpers::*;
 
 /// Maximum lifetime for an event forwarder task. Prevents orphaned tasks from
@@ -789,142 +792,6 @@ async fn fetch_opencode_provider_catalog_from_auth_picker(
     });
     providers.dedup_by(|a, b| a.id == b.id);
     providers
-}
-
-fn parse_opencode_models_provider_ids(stdout: &str) -> Vec<String> {
-    let mut providers = Vec::new();
-    for raw in strip_ansi_codes(stdout).lines() {
-        let line = raw.trim();
-        if line.is_empty() || line.starts_with('{') || line.starts_with('[') {
-            continue;
-        }
-        if line.starts_with("http://") || line.starts_with("https://") {
-            continue;
-        }
-        let Some((provider, _model)) = line.split_once('/') else {
-            continue;
-        };
-        let provider = provider.trim().to_lowercase();
-        if provider.is_empty() {
-            continue;
-        }
-        providers.push(provider);
-    }
-    providers.sort();
-    providers.dedup();
-    providers
-}
-
-fn provider_label_from_id(provider_id: &str) -> String {
-    match provider_id {
-        "z-ai" => "Z.AI".to_string(),
-        "io-net" => "IO.NET".to_string(),
-        "iflow" => "iFlow".to_string(),
-        "zenmux" => "ZenMux".to_string(),
-        "fastrouter" => "FastRouter".to_string(),
-        "modelscope" => "ModelScope".to_string(),
-        "minimax-cn-coding-plan" => "MiniMax Coding Plan (minimaxi.com)".to_string(),
-        "minimax-cn" => "MiniMax (minimaxi.com)".to_string(),
-        "opencode" => "OpenCode Zen".to_string(),
-        "github-copilot" => "GitHub Copilot".to_string(),
-        "openai" => "OpenAI".to_string(),
-        "google" => "Google".to_string(),
-        "anthropic" => "Anthropic".to_string(),
-        _ => provider_id
-            .split('-')
-            .filter(|segment| !segment.is_empty())
-            .map(|segment| {
-                let mut chars = segment.chars();
-                let Some(first) = chars.next() else {
-                    return String::new();
-                };
-                format!("{}{}", first.to_ascii_uppercase(), chars.as_str())
-            })
-            .collect::<Vec<_>>()
-            .join(" "),
-    }
-}
-
-async fn fetch_opencode_provider_ids_from_models(
-    workspace_path: &PathBuf,
-    config: Option<&EngineConfig>,
-) -> Vec<String> {
-    let mut cmd = build_opencode_command(config);
-    cmd.current_dir(workspace_path);
-    cmd.arg("models");
-    let output = match cmd.output().await {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
-    };
-    if !output.status.success() {
-        return Vec::new();
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_opencode_models_provider_ids(&stdout)
-}
-
-fn build_provider_prefill_query(provider_id: &str) -> Option<String> {
-    let normalized = slugify_provider_label(provider_id);
-    if normalized.is_empty() {
-        return None;
-    }
-    let query = match normalized.as_str() {
-        "minimax-cn-coding-plan" | "minimax-coding-plan" | "minimax-cn" => "minimax",
-        "z-ai" | "zhipuai-coding-plan" | "zhipu-ai-coding-plan" => "zhipu",
-        "github-models" | "github-token" => "github",
-        other => other,
-    };
-    Some(query.to_string())
-}
-
-fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\"'\"'"))
-}
-
-#[cfg(target_os = "macos")]
-fn open_terminal_with_command(command: &str) -> Result<(), String> {
-    let script = format!(
-        "tell application \"Terminal\"\nactivate\ndo script \"{}\"\nend tell",
-        command.replace('\\', "\\\\").replace('"', "\\\"")
-    );
-    let status = std::process::Command::new("osascript")
-        .arg("-e")
-        .arg(script)
-        .status()
-        .map_err(|e| format!("Failed to launch Terminal auth flow: {}", e))?;
-    if !status.success() {
-        return Err("Terminal auth flow returned non-zero exit code".to_string());
-    }
-    Ok(())
-}
-
-fn apply_mcp_toggle_state(
-    workspace_id: &str,
-    servers: Vec<OpenCodeMcpServerState>,
-) -> (bool, Vec<OpenCodeMcpServerState>, HashMap<String, bool>) {
-    let cache = OPENCODE_MCP_TOGGLE_STATE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = match cache.lock() {
-        Ok(value) => value,
-        Err(_) => return (true, servers, HashMap::new()),
-    };
-    let entry = guard
-        .entry(workspace_id.to_string())
-        .or_insert_with(|| OpenCodeMcpToggleState {
-            global_enabled: true,
-            server_enabled: HashMap::new(),
-        });
-    let global_enabled = entry.global_enabled;
-    let server_enabled_map = entry.server_enabled.clone();
-    let merged = servers
-        .into_iter()
-        .map(|mut item| {
-            let override_enabled = server_enabled_map.get(&item.name).copied();
-            let effective_enabled = global_enabled && override_enabled.unwrap_or(item.enabled);
-            item.enabled = effective_enabled;
-            item
-        })
-        .collect::<Vec<_>>();
-    (global_enabled, merged, server_enabled_map)
 }
 
 /// Detect all installed engines and their capabilities
@@ -2011,14 +1878,18 @@ pub async fn engine_send_message(
 
     match effective_engine {
         EngineType::Claude => {
-            // Get workspace path
-            let workspace_path = {
+            let workspace_entry = {
                 let workspaces = state.workspaces.lock().await;
                 workspaces
                     .get(&workspace_id)
-                    .map(|w| std::path::PathBuf::from(&w.path))
+                    .cloned()
                     .ok_or_else(|| "Workspace not found".to_string())?
             };
+            let workspace_path = std::path::PathBuf::from(&workspace_entry.path);
+            state
+                .runtime_manager
+                .record_starting(&workspace_entry, "claude", "engine-send-message")
+                .await;
 
             let session = manager
                 .get_claude_session(&workspace_id, &workspace_path)
@@ -2088,9 +1959,14 @@ pub async fn engine_send_message(
             let item_id_clone = item_id.clone();
             let turn_id_for_forwarder = turn_id.clone();
             let mut accumulated_agent_text = String::new();
+            let runtime_manager = state.runtime_manager.clone();
+            let workspace_entry_for_forwarder = workspace_entry.clone();
+            let session_for_forwarder = session.clone();
 
             // Spawn event forwarder: reads from broadcast channel and emits Tauri events.
             tokio::spawn(async move {
+                let turn_source = format!("turn:{turn_id_for_forwarder}");
+                let stream_source = format!("stream:{turn_id_for_forwarder}");
                 let deadline = tokio::time::Instant::now()
                     + std::time::Duration::from_secs(EVENT_FORWARDER_TIMEOUT_SECS);
                 loop {
@@ -2114,9 +1990,48 @@ pub async fn engine_send_message(
 
                     let event = turn_event.event;
                     let is_terminal = event.is_terminal();
+                    if matches!(event, EngineEvent::TurnStarted { .. }) {
+                        runtime_manager
+                            .acquire_turn_lease(
+                                &workspace_entry_for_forwarder,
+                                "claude",
+                                &turn_source,
+                            )
+                            .await;
+                        let pids = session_for_forwarder.active_process_ids().await;
+                        runtime_manager
+                            .sync_claude_runtime(
+                                &workspace_entry_for_forwarder,
+                                &pids,
+                                &turn_source,
+                            )
+                            .await;
+                    }
 
                     if let EngineEvent::TextDelta { text, .. } = &event {
                         accumulated_agent_text.push_str(text);
+                    }
+                    if matches!(
+                        event,
+                        EngineEvent::TextDelta { .. }
+                            | EngineEvent::ReasoningDelta { .. }
+                            | EngineEvent::ToolOutputDelta { .. }
+                    ) {
+                        runtime_manager
+                            .acquire_stream_lease(
+                                &workspace_entry_for_forwarder,
+                                "claude",
+                                &stream_source,
+                            )
+                            .await;
+                        let pids = session_for_forwarder.active_process_ids().await;
+                        runtime_manager
+                            .sync_claude_runtime(
+                                &workspace_entry_for_forwarder,
+                                &pids,
+                                &turn_source,
+                            )
+                            .await;
                     }
 
                     // Claude 引擎补发 agentMessage completed 事件：
@@ -2180,6 +2095,23 @@ pub async fn engine_send_message(
                     }
 
                     if is_terminal {
+                        runtime_manager
+                            .release_turn_lease(
+                                "claude",
+                                &workspace_entry_for_forwarder.id,
+                                &turn_source,
+                            )
+                            .await;
+                        runtime_manager
+                            .release_stream_lease(
+                                "claude",
+                                &workspace_entry_for_forwarder.id,
+                                &stream_source,
+                            )
+                            .await;
+                        runtime_manager
+                            .record_removed("claude", &workspace_entry_for_forwarder.id)
+                            .await;
                         break;
                     }
                 }
@@ -2188,6 +2120,8 @@ pub async fn engine_send_message(
             // Spawn the message sender: drives the Claude CLI process
             let session_clone = session.clone();
             let turn_id_clone = turn_id.clone();
+            let runtime_manager_for_sender = state.runtime_manager.clone();
+            let workspace_entry_for_sender = workspace_entry.clone();
             tokio::spawn(async move {
                 let send_result = if has_images {
                     session_clone.send_message(params, &turn_id_clone).await
@@ -2198,6 +2132,14 @@ pub async fn engine_send_message(
                 };
                 if let Err(e) = send_result {
                     log::error!("Claude send_message failed: {}", e);
+                    runtime_manager_for_sender
+                        .record_failure(
+                            &workspace_entry_for_sender,
+                            "claude",
+                            "engine-send-message",
+                            e,
+                        )
+                        .await;
                 }
             });
 

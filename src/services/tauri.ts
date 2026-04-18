@@ -429,6 +429,7 @@ export async function getRuntimePoolSnapshot(): Promise<RuntimePoolSnapshot> {
 export async function mutateRuntimePool(mutation: {
   action: "close" | "releaseToCold" | "pin";
   workspaceId: string;
+  engine?: string;
   pinned?: boolean;
 }): Promise<RuntimePoolSnapshot> {
   const { workspaceId, ...rest } = mutation;

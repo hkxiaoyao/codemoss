@@ -33,11 +33,12 @@ mod git_utils;
 // workspace-backed filesystem helpers, so a minimal stub keeps the shared
 // module compilable here without pulling the full desktop app state graph.
 mod state {
-    use std::sync::Arc;
     use std::collections::HashMap;
+    use std::sync::Arc;
     use tokio::sync::Mutex;
 
     use crate::backend::app_server::WorkspaceSession;
+    use crate::engine::EngineManager;
     use crate::runtime::RuntimeManager;
     use crate::types::{AppSettings, WorkspaceEntry};
 
@@ -46,6 +47,7 @@ mod state {
         pub(crate) sessions: Mutex<HashMap<String, Arc<WorkspaceSession>>>,
         pub(crate) app_settings: Mutex<AppSettings>,
         pub(crate) runtime_manager: RuntimeManager,
+        pub(crate) engine_manager: EngineManager,
     }
 }
 #[path = "../local_usage.rs"]

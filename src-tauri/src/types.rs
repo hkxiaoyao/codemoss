@@ -1332,8 +1332,8 @@ impl Default for AppSettings {
             workspace_groups: default_workspace_groups(),
             open_app_targets: default_open_app_targets(),
             selected_open_app_id: default_selected_open_app_id(),
-            runtime_restore_threads_only_on_launch:
-                default_runtime_restore_threads_only_on_launch(),
+            runtime_restore_threads_only_on_launch: default_runtime_restore_threads_only_on_launch(
+            ),
             runtime_force_cleanup_on_exit: default_runtime_force_cleanup_on_exit(),
             runtime_orphan_sweep_on_launch: default_runtime_orphan_sweep_on_launch(),
             codex_max_hot_runtimes: default_codex_max_hot_runtimes(),

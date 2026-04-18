@@ -1677,10 +1677,7 @@ fn build_mode_blocked_signal_from_error_maps_claude_file_change_denial_to_approv
             message,
             ..
         } => {
-            assert_eq!(
-                request_id,
-                Value::String("tool-edit-1".to_string())
-            );
+            assert_eq!(request_id, Value::String("tool-edit-1".to_string()));
             assert_eq!(tool_name, "Edit");
             assert_eq!(
                 input,

@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 use crate::backend::app_server::WorkspaceSession;
 use crate::codex::args::resolve_workspace_codex_args;
 use crate::codex::home::resolve_workspace_codex_home;
+use crate::runtime::RuntimeAcquireGate;
 use crate::storage::{write_workspaces, write_workspaces_preserving_existing};
 use crate::types::{
     AppSettings, WorkspaceEntry, WorkspaceInfo, WorkspaceKind, WorkspaceSettings, WorktreeInfo,
@@ -137,7 +138,7 @@ pub(crate) async fn restart_all_connected_sessions_core<F, Fut>(
     workspaces: &Mutex<HashMap<String, WorkspaceEntry>>,
     sessions: &Mutex<HashMap<String, Arc<WorkspaceSession>>>,
     app_settings: &Mutex<AppSettings>,
-    runtime_manager: Option<&crate::runtime::RuntimeManager>,
+    runtime_manager: Option<&Arc<crate::runtime::RuntimeManager>>,
     spawn_session: F,
 ) -> Result<(), String>
 where
@@ -177,7 +178,7 @@ where
         let new_session = spawn_session(entry.clone(), default_bin, codex_args, codex_home).await?;
         crate::runtime::replace_workspace_session(
             sessions,
-            runtime_manager,
+            runtime_manager.map(|manager| manager.as_ref()),
             entry.id.clone(),
             new_session,
             "settings-restart",
@@ -589,7 +590,7 @@ pub(crate) async fn connect_workspace_core<F, Fut>(
     workspaces: &Mutex<HashMap<String, WorkspaceEntry>>,
     sessions: &Mutex<HashMap<String, Arc<WorkspaceSession>>>,
     app_settings: &Mutex<AppSettings>,
-    runtime_manager: Option<&crate::runtime::RuntimeManager>,
+    runtime_manager: Option<&Arc<crate::runtime::RuntimeManager>>,
     spawn_session: F,
 ) -> Result<(), String>
 where
@@ -597,14 +598,31 @@ where
     Fut: Future<Output = Result<Arc<WorkspaceSession>, String>>,
 {
     let (entry, parent_entry) = resolve_entry_and_parent(workspaces, &workspace_id).await?;
-    if sessions.lock().await.contains_key(&workspace_id) {
-        if let Some(runtime_manager) = runtime_manager {
-            runtime_manager.touch(&workspace_id, "connect", false).await;
+    loop {
+        if sessions.lock().await.contains_key(&workspace_id) {
+            if let Some(runtime_manager) = runtime_manager {
+                runtime_manager
+                    .touch("codex", &workspace_id, "connect")
+                    .await;
+            }
+            return Ok(());
         }
-        return Ok(());
+
+        let Some(runtime_manager) = runtime_manager else {
+            break;
+        };
+        match runtime_manager
+            .begin_runtime_acquire("codex", &workspace_id)
+            .await
+        {
+            RuntimeAcquireGate::Leader => break,
+            RuntimeAcquireGate::Waiter(notify) => notify.notified().await,
+        }
     }
     if let Some(runtime_manager) = runtime_manager {
-        runtime_manager.record_starting(&entry, "codex", "connect").await;
+        runtime_manager
+            .record_starting(&entry, "codex", "connect")
+            .await;
     }
     let (default_bin, codex_args) = {
         let settings = app_settings.lock().await;
@@ -614,31 +632,43 @@ where
         )
     };
     let codex_home = resolve_workspace_codex_home(&entry, parent_entry.as_ref());
-    let session = match spawn_session(entry.clone(), default_bin, codex_args, codex_home).await {
+    let spawn_result = spawn_session(entry.clone(), default_bin, codex_args, codex_home).await;
+    let session = match spawn_result {
         Ok(session) => session,
         Err(error) => {
             if let Some(runtime_manager) = runtime_manager {
                 runtime_manager
                     .record_failure(&entry, "codex", "connect", error.clone())
                     .await;
+                runtime_manager
+                    .finish_runtime_acquire("codex", &workspace_id)
+                    .await;
             }
             return Err(error);
         }
     };
-    crate::runtime::replace_workspace_session(
+    if let Some(runtime_manager) = runtime_manager {
+        session.attach_runtime_manager(runtime_manager.clone());
+    }
+    let replace_result = crate::runtime::replace_workspace_session(
         sessions,
-        runtime_manager,
+        runtime_manager.map(|manager| manager.as_ref()),
         entry.id,
         session,
         "connect",
     )
-    .await?;
-    Ok(())
+    .await;
+    if let Some(runtime_manager) = runtime_manager {
+        runtime_manager
+            .finish_runtime_acquire("codex", &workspace_id)
+            .await;
+    }
+    replace_result
 }
 
 pub(crate) async fn disconnect_workspace_session_core(
     sessions: &Mutex<HashMap<String, Arc<WorkspaceSession>>>,
-    runtime_manager: Option<&crate::runtime::RuntimeManager>,
+    runtime_manager: Option<&Arc<crate::runtime::RuntimeManager>>,
     id: &str,
 ) {
     if let Some(runtime_manager) = runtime_manager {

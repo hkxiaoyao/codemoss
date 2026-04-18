@@ -257,12 +257,23 @@ export type AppSettings = {
 
 export type RuntimePoolState =
   | "starting"
-  | "hot"
-  | "warm"
-  | "busy"
+  | "acquired"
+  | "streaming"
+  | "graceful-idle"
+  | "evictable"
   | "stopping"
   | "failed"
   | "zombie-suspected";
+
+export type RuntimeProcessDiagnostics = {
+  rootProcesses: number;
+  totalProcesses: number;
+  nodeProcesses: number;
+  rootCommand: string | null;
+  managedRuntimeProcesses: number;
+  resumeHelperProcesses: number;
+  orphanResidueProcesses: number;
+};
 
 export type RuntimePoolRow = {
   workspaceId: string;
@@ -276,19 +287,39 @@ export type RuntimePoolRow = {
   startedAtMs: number | null;
   lastUsedAtMs: number;
   pinned: boolean;
+  turnLeaseCount: number;
+  streamLeaseCount: number;
   leaseSources: string[];
+  evictCandidate: boolean;
+  evictionReason: string | null;
   error: string | null;
+  processDiagnostics?: RuntimeProcessDiagnostics | null;
+};
+
+export type RuntimeEngineObservability = {
+  engine: string;
+  sessionCount: number;
+  trackedRootProcesses: number;
+  trackedTotalProcesses: number;
+  trackedNodeProcesses: number;
+  hostManagedRootProcesses: number;
+  hostUnmanagedRootProcesses: number;
+  externalRootProcesses: number;
+  hostUnmanagedTotalProcesses: number;
+  externalTotalProcesses: number;
 };
 
 export type RuntimePoolSnapshot = {
   rows: RuntimePoolRow[];
   summary: {
     totalRuntimes: number;
-    hotRuntimes: number;
-    warmRuntimes: number;
-    busyRuntimes: number;
+    acquiredRuntimes: number;
+    streamingRuntimes: number;
+    gracefulIdleRuntimes: number;
+    evictableRuntimes: number;
     pinnedRuntimes: number;
     codexRuntimes: number;
+    claudeRuntimes: number;
   };
   budgets: {
     maxHotCodex: number;
@@ -303,9 +334,15 @@ export type RuntimePoolSnapshot = {
     orphanEntriesCleaned: number;
     orphanEntriesFailed: number;
     forceKillCount: number;
+    leaseBlockedEvictionCount: number;
+    coordinatorAbortCount: number;
+    startupManagedNodeProcesses: number;
+    startupResumeHelperNodeProcesses: number;
+    startupOrphanResidueProcesses: number;
     lastOrphanSweepAtMs: number | null;
     lastShutdownAtMs: number | null;
   };
+  engineObservability: RuntimeEngineObservability[];
 };
 
 export type CodexDoctorResult = {

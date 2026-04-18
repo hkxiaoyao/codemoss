@@ -15,6 +15,7 @@ pub(crate) mod collaboration_policy;
 pub(crate) mod config;
 pub(crate) mod home;
 pub(crate) mod rewind;
+mod session_runtime;
 pub(crate) mod thread_mode_state;
 
 use self::args::resolve_workspace_codex_args;
@@ -33,6 +34,8 @@ use crate::shared::workspaces_core::disconnect_workspace_session_core;
 use crate::shared::{codex_core, thread_titles_core};
 use crate::state::AppState;
 use crate::types::{LocalUsageSessionSummary, WorkspaceEntry};
+
+pub(crate) use self::session_runtime::ensure_codex_session;
 
 fn normalize_model_id(candidate: Option<String>) -> Option<String> {
     candidate
@@ -884,12 +887,8 @@ pub(crate) async fn rewind_codex_thread(
         .map(ToString::to_string)
         .ok_or_else(|| "codex rewind response missing child thread id".to_string())?;
 
-    disconnect_workspace_session_core(
-        &state.sessions,
-        Some(&state.runtime_manager),
-        &workspace_id,
-    )
-    .await;
+    disconnect_workspace_session_core(&state.sessions, Some(&state.runtime_manager), &workspace_id)
+        .await;
     ensure_codex_session(&workspace_id, &state, &app).await?;
     codex_core::resume_thread_core(&state.sessions, workspace_id, rewound_thread_id).await?;
 
@@ -914,48 +913,11 @@ pub(crate) async fn list_threads(
         .await;
     }
 
-    // Check if Codex session exists.
-    // If not, try to create one. When warmup fails, we still fall back to
-    // local filesystem sessions so the history list remains complete.
     let has_session = {
         let sessions = state.sessions.lock().await;
         sessions.contains_key(&workspace_id)
     };
-    let mut live_enabled = has_session;
-
-    if !has_session {
-        let warmup = timeout(
-            Duration::from_secs(4),
-            ensure_codex_session(&workspace_id, &state, &app),
-        )
-        .await;
-        match warmup {
-            Err(_) => {
-                log::warn!(
-                    "[list_threads] Codex session warmup timed out for workspace {}",
-                    workspace_id
-                );
-                live_enabled = false;
-            }
-            Ok(Err(e)) => {
-                log::debug!(
-                    "[list_threads] Codex session creation failed for {}: {}",
-                    workspace_id,
-                    e
-                );
-                live_enabled = false;
-            }
-            Ok(_) => {
-                log::info!(
-                    "[list_threads] Created Codex session for workspace {}",
-                    workspace_id
-                );
-                live_enabled = true;
-            }
-        }
-    }
-
-    build_unified_codex_thread_page(&state, &workspace_id, cursor, limit, live_enabled).await
+    build_unified_codex_thread_page(&state, &workspace_id, cursor, limit, has_session).await
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1258,100 +1220,6 @@ pub(crate) async fn delete_codex_session(
         "method": "filesystem",
         "archivedBeforeDelete": archive_result.is_ok(),
     }))
-}
-
-/// Ensure a Codex session exists for the workspace. If not, spawn one.
-/// This is called before sending messages to handle the case where user
-/// switches from Claude to Codex engine without reconnecting the workspace.
-pub(crate) async fn ensure_codex_session(
-    workspace_id: &str,
-    state: &AppState,
-    app: &AppHandle,
-) -> Result<(), String> {
-    // Check if session already exists
-    {
-        let sessions = state.sessions.lock().await;
-        if sessions.contains_key(workspace_id) {
-            state
-                .runtime_manager
-                .touch(workspace_id, "ensure-runtime-ready", false)
-                .await;
-            return Ok(());
-        }
-    }
-
-    // Session doesn't exist, spawn one
-    log::info!(
-        "[ensure_codex_session] No session for workspace {}, spawning new Codex session",
-        workspace_id
-    );
-
-    let (entry, parent_entry) = {
-        let workspaces = state.workspaces.lock().await;
-        let entry = workspaces
-            .get(workspace_id)
-            .cloned()
-            .ok_or_else(|| "workspace not found".to_string())?;
-        let parent_entry = entry
-            .parent_id
-            .as_ref()
-            .and_then(|pid| workspaces.get(pid).cloned());
-        (entry, parent_entry)
-    };
-
-    let (default_bin, codex_args) = {
-        let settings = state.app_settings.lock().await;
-        (
-            settings.codex_bin.clone(),
-            resolve_workspace_codex_args(&entry, parent_entry.as_ref(), Some(&settings)),
-        )
-    };
-
-    let codex_home = resolve_workspace_codex_home(&entry, parent_entry.as_ref());
-    let mode_enforcement_enabled = {
-        let settings = state.app_settings.lock().await;
-        settings.codex_mode_enforcement_enabled
-    };
-
-    state
-        .runtime_manager
-        .record_starting(&entry, "codex", "ensure-runtime-ready")
-        .await;
-
-    let session = match spawn_workspace_session(
-        entry.clone(),
-        default_bin,
-        codex_args,
-        app.clone(),
-        codex_home,
-    )
-    .await
-    {
-        Ok(session) => session,
-        Err(error) => {
-            state
-                .runtime_manager
-                .record_failure(
-                    &entry,
-                    "codex",
-                    "ensure-runtime-ready",
-                    error.clone(),
-                )
-                .await;
-            return Err(error);
-        }
-    };
-    session.set_mode_enforcement_enabled(mode_enforcement_enabled);
-
-    crate::runtime::replace_workspace_session(
-        &state.sessions,
-        Some(&state.runtime_manager),
-        entry.id,
-        session,
-        "ensure-runtime-ready",
-    )
-    .await?;
-    Ok(())
 }
 
 #[tauri::command]

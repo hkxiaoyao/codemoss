@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -15,6 +15,7 @@ use crate::backend::events::{AppServerEvent, EventSink};
 use crate::codex::args::{apply_codex_args, parse_codex_args};
 use crate::codex::collaboration_policy::strict_local_collaboration_profile_enabled;
 use crate::codex::thread_mode_state::ThreadModeState;
+use crate::runtime::RuntimeManager;
 use crate::types::WorkspaceEntry;
 
 #[path = "app_server_event_helpers.rs"]
@@ -1037,6 +1038,7 @@ pub(crate) struct WorkspaceSession {
     auto_compaction_state: Mutex<HashMap<String, AutoCompactionThreadState>>,
     local_user_input_requests: Mutex<HashMap<String, String>>,
     local_request_seq: AtomicU64,
+    runtime_manager: StdMutex<Option<Arc<RuntimeManager>>>,
 }
 
 impl WorkspaceSession {
@@ -1127,6 +1129,20 @@ impl WorkspaceSession {
 
     pub(crate) fn initial_turn_start_timeout(&self) -> Duration {
         Duration::from_millis(resolve_initial_turn_start_timeout_ms())
+    }
+
+    pub(crate) fn attach_runtime_manager(&self, runtime_manager: Arc<RuntimeManager>) {
+        *self
+            .runtime_manager
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(runtime_manager);
+    }
+
+    fn runtime_manager(&self) -> Option<Arc<RuntimeManager>> {
+        self.runtime_manager
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     pub(crate) async fn send_notification(
@@ -1790,6 +1806,7 @@ async fn spawn_workspace_session_once<E: EventSink>(
         auto_compaction_state: Mutex::new(HashMap::new()),
         local_user_input_requests: Mutex::new(HashMap::new()),
         local_request_seq: AtomicU64::new(1),
+        runtime_manager: StdMutex::new(None),
     });
 
     let session_clone = Arc::clone(&session);
@@ -1828,6 +1845,11 @@ async fn spawn_workspace_session_once<E: EventSink>(
                 value = blocked_event;
             }
             session_clone.track_plan_turn_state(&value).await;
+            if let Some(runtime_manager) = session_clone.runtime_manager() {
+                runtime_manager
+                    .handle_codex_runtime_event(&session_clone.entry, &value)
+                    .await;
+            }
             let synthetic_plan_event = session_clone
                 .maybe_emit_plan_blocker_user_input(&value)
                 .await;

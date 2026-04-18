@@ -124,10 +124,7 @@ pub fn run() {
                             break;
                         }
                         let settings = state.app_settings.lock().await.clone();
-                        state
-                            .runtime_manager
-                            .reconcile_pool(&settings, &state.sessions)
-                            .await;
+                        crate::runtime::run_reconcile_cycle(&state, &settings).await;
                     }
                 });
             }
@@ -283,9 +280,13 @@ pub fn run() {
             let manager = &state.engine_manager;
             tauri::async_runtime::block_on(async {
                 manager.claude_manager.interrupt_all().await;
-                if state.app_settings.lock().await.runtime_force_cleanup_on_exit {
-                    crate::runtime::shutdown_managed_runtimes(&state.sessions, &state.runtime_manager)
-                        .await;
+                if state
+                    .app_settings
+                    .lock()
+                    .await
+                    .runtime_force_cleanup_on_exit
+                {
+                    crate::runtime::shutdown_managed_runtimes(&state).await;
                 }
                 crate::terminal::cleanup_all_terminal_sessions(&state).await;
             });
