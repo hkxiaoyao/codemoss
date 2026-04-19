@@ -2541,6 +2541,31 @@ fn resolve_codex_sessions_roots(codex_home_override: Option<PathBuf>) -> Vec<Pat
     vec![home.join("sessions"), home.join("archived_sessions")]
 }
 
+fn merge_codex_session_roots(
+    override_home: Option<PathBuf>,
+    default_home: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    let mut seen = HashSet::new();
+
+    for root in resolve_codex_sessions_roots(override_home) {
+        if seen.insert(root.clone()) {
+            roots.push(root);
+        }
+    }
+
+    for root in default_home
+        .map(|home| vec![home.join("sessions"), home.join("archived_sessions")])
+        .unwrap_or_default()
+    {
+        if seen.insert(root.clone()) {
+            roots.push(root);
+        }
+    }
+
+    roots
+}
+
 fn resolve_sessions_roots(
     workspaces: &HashMap<String, WorkspaceEntry>,
     workspace_path: Option<&Path>,
@@ -2548,7 +2573,7 @@ fn resolve_sessions_roots(
     if let Some(workspace_path) = workspace_path {
         let codex_home_override =
             resolve_workspace_codex_home_for_path(workspaces, Some(workspace_path));
-        return resolve_codex_sessions_roots(codex_home_override);
+        return merge_codex_session_roots(codex_home_override, resolve_default_codex_home());
     }
 
     let mut roots = Vec::new();

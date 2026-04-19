@@ -20,8 +20,10 @@ import { EngineIcon } from "../../../../engine/components/EngineIcon";
 import type { WorkspaceInfo } from "../../../../../types";
 import type { EngineType } from "../../../../../types";
 import {
+  buildWorkspaceSessionSelectionKey,
   useWorkspaceSessionCatalog,
   type WorkspaceSessionCatalogFilters,
+  type WorkspaceSessionCatalogMutationResponse,
 } from "../hooks/useWorkspaceSessionCatalog";
 
 type GroupedWorkspace = {
@@ -137,6 +139,12 @@ function formatUpdatedAtDisplay(updatedAt: number, locale: string) {
   }).format(date);
 }
 
+export function collectSucceededWorkspaceIds(
+  results: WorkspaceSessionCatalogMutationResponse["results"],
+): string[] {
+  return [...new Set(results.filter((item) => item.ok).map((item) => item.workspaceId))];
+}
+
 export function SessionManagementSection({
   title,
   description,
@@ -179,7 +187,8 @@ export function SessionManagementSection({
 
   const selectedCount = useMemo(() => Object.keys(selectedIds).length, [selectedIds]);
   const allSelected =
-    entries.length > 0 && entries.every((entry) => Boolean(selectedIds[entry.sessionId]));
+    entries.length > 0 &&
+    entries.every((entry) => Boolean(selectedIds[buildWorkspaceSessionSelectionKey(entry)]));
 
   const engineFilterLabel = useMemo(
     () => ({
@@ -192,14 +201,14 @@ export function SessionManagementSection({
     [t],
   );
 
-  const toggleSelection = (sessionId: string) => {
+  const toggleSelection = (selectionKey: string) => {
     setSelectedIds((current) => {
-      if (current[sessionId]) {
+      if (current[selectionKey]) {
         const next = { ...current };
-        delete next[sessionId];
+        delete next[selectionKey];
         return next;
       }
-      return { ...current, [sessionId]: true };
+      return { ...current, [selectionKey]: true };
     });
   };
 
@@ -208,10 +217,10 @@ export function SessionManagementSection({
     setDeleteArmed(false);
   };
 
-  const keepOnlySelected = (sessionIds: string[]) => {
+  const keepOnlySelected = (selectionKeys: string[]) => {
     const next: Record<string, true> = {};
-    sessionIds.forEach((sessionId) => {
-      next[sessionId] = true;
+    selectionKeys.forEach((selectionKey) => {
+      next[selectionKey] = true;
     });
     setSelectedIds(next);
     setDeleteArmed(false);
@@ -220,7 +229,7 @@ export function SessionManagementSection({
   const handleSelectAll = () => {
     const next: Record<string, true> = {};
     entries.forEach((entry) => {
-      next[entry.sessionId] = true;
+      next[buildWorkspaceSessionSelectionKey(entry)] = true;
     });
     setSelectedIds(next);
   };
@@ -258,8 +267,10 @@ export function SessionManagementSection({
   }, [workspaceId, workspaceLabelById, workspaceOptions]);
 
   const handleMutation = async (kind: "archive" | "unarchive" | "delete") => {
-    const sessionIds = Object.keys(selectedIds);
-    if (sessionIds.length === 0) {
+    const selectedEntries = entries.filter((entry) =>
+      Boolean(selectedIds[buildWorkspaceSessionSelectionKey(entry)]),
+    );
+    if (selectedEntries.length === 0) {
       return;
     }
     if (kind === "delete" && !deleteArmed) {
@@ -267,7 +278,7 @@ export function SessionManagementSection({
       return;
     }
     try {
-      const response = await mutate(kind, sessionIds);
+      const response = await mutate(kind, selectedEntries);
       const succeeded = response.results.filter((item) => item.ok);
       const failed = response.results.filter((item) => !item.ok);
       if (failed.length === 0) {
@@ -299,11 +310,12 @@ export function SessionManagementSection({
       if (shouldReloadInBackground) {
         void reload();
       }
-      if (workspaceId && succeeded.length > 0) {
-        onSessionsMutated?.(workspaceId);
-      }
+      const succeededWorkspaceIds = collectSucceededWorkspaceIds(response.results);
+      succeededWorkspaceIds.forEach((ownerWorkspaceId) => {
+        onSessionsMutated?.(ownerWorkspaceId);
+      });
       if (failed.length > 0) {
-        keepOnlySelected(failed.map((item) => item.sessionId));
+        keepOnlySelected(failed.map((item) => item.selectionKey));
       } else {
         resetSelection();
       }
@@ -507,19 +519,22 @@ export function SessionManagementSection({
             <>
               <ul className="settings-project-sessions-list">
                 {entries.map((entry) => {
-                  const selected = Boolean(selectedIds[entry.sessionId]);
+                  const selectionKey = buildWorkspaceSessionSelectionKey(entry);
+                  const selected = Boolean(selectedIds[selectionKey]);
                   const engineLabel =
                     engineFilterLabel[normalizeEngineType(entry.engine)] ??
                     entry.engine;
+                  const ownerWorkspaceLabel =
+                    workspaceLabelById.get(entry.workspaceId) ?? entry.workspaceId;
                   return (
-                    <li key={entry.sessionId}>
+                    <li key={selectionKey}>
                       <label
                         className={`settings-project-sessions-item${selected ? " is-selected" : ""}`}
                       >
                         <input
                           type="checkbox"
                           checked={selected}
-                          onChange={() => toggleSelection(entry.sessionId)}
+                          onChange={() => toggleSelection(selectionKey)}
                           aria-label={entry.title}
                         />
                         <span className="settings-project-sessions-item-engine" aria-hidden>
@@ -540,6 +555,8 @@ export function SessionManagementSection({
                             <span>{engineLabel}</span>
                             <span>·</span>
                             <span>{formatUpdatedAtDisplay(entry.updatedAt, i18n.language)}</span>
+                            <span>·</span>
+                            <span>{ownerWorkspaceLabel}</span>
                             {entry.sourceLabel ? (
                               <>
                                 <span>·</span>

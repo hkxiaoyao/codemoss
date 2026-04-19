@@ -58,9 +58,10 @@ export function useWorkspaceRestore({
           await connectWorkspace(workspace);
         }
         await listThreadsForWorkspace(workspace);
-        if (!cancelled) {
-          restoredWorkspaces.current.add(workspace.id);
-        }
+        // A rerender may cancel the current effect while the in-flight restore
+        // still succeeds. Keep the success marker so we do not restart the same
+        // workspace restore loop on every workspace refresh.
+        restoredWorkspaces.current.add(workspace.id);
       } finally {
         restoringWorkspaces.current.delete(workspace.id);
       }

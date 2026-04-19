@@ -152,6 +152,7 @@ const RELATED_THREAD_LOAD_CONCURRENCY = 2;
 const DEFAULT_CLAUDE_CONTEXT_WINDOW = 200_000;
 const GEMINI_SESSION_CACHE_TTL_MS = 60_000;
 const GEMINI_SESSION_FETCH_TIMEOUT_MS = 800;
+const NATIVE_SESSION_LIST_FETCH_TIMEOUT_MS = 800;
 const SESSION_CATALOG_PAGE_SIZE = 200;
 const SESSION_CATALOG_MAX_PAGES = 20;
 type RewindFromMessageOptions = {
@@ -1706,6 +1707,8 @@ export function useThreadActions({
       workspacePathsByIdRef.current[workspace.id] = workspace.path;
       const requestSeq = (threadListRequestSeqRef.current[workspace.id] ?? 0) + 1;
       threadListRequestSeqRef.current[workspace.id] = requestSeq;
+      const isLatestThreadListRequest = () =>
+        threadListRequestSeqRef.current[workspace.id] === requestSeq;
       const preserveState = options?.preserveState ?? false;
       const includeOpenCodeSessions = options?.includeOpenCodeSessions ?? true;
       const workspacePath = normalizeComparableWorkspacePath(workspace.path);
@@ -1967,15 +1970,32 @@ export function useThreadActions({
         let allSummaries: ThreadSummary[] = summaries;
         const mergedById = new Map<string, ThreadSummary>();
         allSummaries.forEach((entry) => mergedById.set(entry.id, entry));
+        const opencodeSessionsPromise = includeOpenCodeSessions
+          ? withTimeout(
+              getOpenCodeSessionListService(workspace.id),
+              NATIVE_SESSION_LIST_FETCH_TIMEOUT_MS,
+            )
+          : Promise.resolve([] as Awaited<ReturnType<typeof getOpenCodeSessionListService>>);
         const [claudeResult, opencodeResult] = await Promise.allSettled([
-          listClaudeSessionsService(workspace.path, 50),
-          includeOpenCodeSessions
-            ? getOpenCodeSessionListService(workspace.id)
-            : Promise.resolve<
-                Awaited<ReturnType<typeof getOpenCodeSessionListService>>
-              >([]),
+          withTimeout(
+            listClaudeSessionsService(workspace.path, 50),
+            NATIVE_SESSION_LIST_FETCH_TIMEOUT_MS,
+          ),
+          opencodeSessionsPromise,
         ]);
         if (claudeResult.status === "fulfilled") {
+          if (claudeResult.value === null) {
+            onDebug?.({
+              id: `${Date.now()}-client-claude-session-timeout`,
+              timestamp: Date.now(),
+              source: "client",
+              label: "thread/list claude timeout",
+              payload: {
+                workspaceId: workspace.id,
+                timeoutMs: NATIVE_SESSION_LIST_FETCH_TIMEOUT_MS,
+              },
+            });
+          }
           const claudeSessions = Array.isArray(claudeResult.value)
             ? claudeResult.value
             : [];
@@ -2010,6 +2030,18 @@ export function useThreadActions({
           );
         }
         if (opencodeResult.status === "fulfilled") {
+          if (opencodeResult.value === null) {
+            onDebug?.({
+              id: `${Date.now()}-client-opencode-session-timeout`,
+              timestamp: Date.now(),
+              source: "client",
+              label: "thread/list opencode timeout",
+              payload: {
+                workspaceId: workspace.id,
+                timeoutMs: NATIVE_SESSION_LIST_FETCH_TIMEOUT_MS,
+              },
+            });
+          }
           const opencodeSessions = Array.isArray(opencodeResult.value)
             ? opencodeResult.value
             : [];
@@ -2124,6 +2156,10 @@ export function useThreadActions({
           saveThreadActivity(next);
         }
 
+        if (!isLatestThreadListRequest()) {
+          return;
+        }
+
         dispatch({
           type: "setThreads",
           workspaceId: workspace.id,
@@ -2236,7 +2272,7 @@ export function useThreadActions({
           payload: error instanceof Error ? error.message : String(error),
         });
       } finally {
-        if (!preserveState) {
+        if (!preserveState && isLatestThreadListRequest()) {
           dispatch({
             type: "setThreadListLoading",
             workspaceId: workspace.id,

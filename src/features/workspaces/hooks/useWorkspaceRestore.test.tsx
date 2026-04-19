@@ -141,4 +141,61 @@ describe("useWorkspaceRestore", () => {
     expect(connectWorkspace).toHaveBeenCalledTimes(2);
     expect(listThreadsForWorkspace).toHaveBeenCalledTimes(2);
   });
+
+  it("workspace refresh rerender does not restart a restore that already succeeded in flight", async () => {
+    const activeWorkspace = createWorkspace({
+      id: "ws-active",
+      connected: true,
+    });
+    const deferredRestore = (() => {
+      let resolve = () => {};
+      const promise = new Promise<void>((nextResolve) => {
+        resolve = nextResolve;
+      });
+      return { promise, resolve };
+    })();
+    const listThreadsForWorkspace = vi.fn().mockImplementation(
+      () => deferredRestore.promise,
+    );
+    const connectWorkspace = vi.fn().mockResolvedValue(undefined);
+
+    const { rerender } = renderHook(
+      (props: { workspaces: WorkspaceInfo[] }) =>
+        useWorkspaceRestore({
+          workspaces: props.workspaces,
+          hasLoaded: true,
+          activeWorkspaceId: activeWorkspace.id,
+          restoreThreadsOnlyOnLaunch: false,
+          connectWorkspace,
+          listThreadsForWorkspace,
+        }),
+      {
+        initialProps: {
+          workspaces: [activeWorkspace],
+        },
+      },
+    );
+
+    await waitFor(() => {
+      expect(listThreadsForWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({
+      workspaces: [{ ...activeWorkspace }],
+    });
+
+    expect(listThreadsForWorkspace).toHaveBeenCalledTimes(1);
+
+    deferredRestore.resolve();
+
+    await waitFor(() => {
+      expect(listThreadsForWorkspace).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({
+      workspaces: [{ ...activeWorkspace, name: "workspace-renamed" }],
+    });
+
+    expect(listThreadsForWorkspace).toHaveBeenCalledTimes(1);
+  });
 });

@@ -872,6 +872,113 @@ describe("useThreadActions", () => {
     });
   });
 
+  it("ends loading when native session providers hang for an empty workspace", async () => {
+    vi.useFakeTimers();
+    vi.mocked(listThreads).mockResolvedValue({
+      data: [],
+      nextCursor: null,
+    });
+    vi.mocked(listClaudeSessions).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    vi.mocked(getOpenCodeSessionList).mockImplementation(
+      () => new Promise(() => undefined),
+    );
+
+    const { result, dispatch } = renderActions();
+
+    const refreshPromise = result.current.listThreadsForWorkspace(workspace);
+    await vi.advanceTimersByTimeAsync(2_000);
+    await refreshPromise;
+
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setThreadListLoading",
+      workspaceId: "ws-1",
+      isLoading: true,
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setThreadListLoading",
+      workspaceId: "ws-1",
+      isLoading: false,
+    });
+    expect(dispatch).toHaveBeenCalledWith({
+      type: "setThreads",
+      workspaceId: "ws-1",
+      threads: [],
+    });
+  });
+
+  it("ignores stale thread list responses that finish after a newer refresh", async () => {
+    type ThreadListResponse = Awaited<ReturnType<typeof listThreads>>;
+    const createDeferred = <T,>() => {
+      let resolve!: (value: T) => void;
+      const promise = new Promise<T>((nextResolve) => {
+        resolve = nextResolve;
+      });
+      return { promise, resolve };
+    };
+
+    const firstResponse = createDeferred<ThreadListResponse>();
+    const secondResponse = createDeferred<ThreadListResponse>();
+    vi.mocked(listThreads)
+      .mockImplementationOnce(() => firstResponse.promise)
+      .mockImplementationOnce(() => secondResponse.promise);
+    vi.mocked(listClaudeSessions).mockResolvedValue([]);
+    vi.mocked(getOpenCodeSessionList).mockResolvedValue([]);
+    vi.mocked(getThreadTimestamp).mockImplementation((thread) => {
+      const updatedAt = (thread as { updated_at?: number; updatedAt?: number }).updated_at
+        ?? (thread as { updated_at?: number; updatedAt?: number }).updatedAt
+        ?? 0;
+      return updatedAt;
+    });
+
+    const { result, dispatch } = renderActions();
+
+    const firstRefresh = result.current.listThreadsForWorkspace(workspace);
+    const secondRefresh = result.current.listThreadsForWorkspace(workspace);
+
+    await act(async () => {
+      secondResponse.resolve({
+        result: {
+          data: [{ id: "thread-new", cwd: "/tmp/codex", preview: "new", updated_at: 200 }],
+          nextCursor: null,
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      firstResponse.resolve({
+        result: {
+          data: [{ id: "thread-old", cwd: "/tmp/codex", preview: "old", updated_at: 100 }],
+          nextCursor: null,
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      await Promise.all([firstRefresh, secondRefresh]);
+    });
+
+    const setThreadsCalls = dispatch.mock.calls
+      .map(([action]) => action)
+      .filter((action) => action?.type === "setThreads");
+
+    expect(setThreadsCalls).toHaveLength(1);
+    expect(setThreadsCalls[0]).toEqual({
+      type: "setThreads",
+      workspaceId: "ws-1",
+      threads: [
+        expect.objectContaining({
+          id: "thread-new",
+          name: "new",
+          updatedAt: 200,
+        }),
+      ],
+    });
+  });
+
   it("recovers stale unified OpenCode thread ids from refreshed native sessions", async () => {
     vi.mocked(resumeThread).mockImplementation(
       async (_workspaceId: string, threadId: string) => {

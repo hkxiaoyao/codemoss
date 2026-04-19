@@ -304,6 +304,19 @@ fn resolve_sessions_roots_includes_workspace_overrides() {
     assert!(roots.iter().any(|root| root == &expected_b_archived));
 }
 
+#[test]
+fn merge_codex_session_roots_keeps_override_and_default_roots() {
+    let override_home = PathBuf::from("/tmp/codex-override");
+    let default_home = PathBuf::from("/tmp/codex-default");
+
+    let roots = merge_codex_session_roots(Some(override_home.clone()), Some(default_home.clone()));
+
+    assert!(roots.contains(&override_home.join("sessions")));
+    assert!(roots.contains(&override_home.join("archived_sessions")));
+    assert!(roots.contains(&default_home.join("sessions")));
+    assert!(roots.contains(&default_home.join("archived_sessions")));
+}
+
 #[cfg(not(windows))]
 #[test]
 fn resolve_workspace_codex_home_for_path_matches_private_prefix_variant() {
