@@ -1,5 +1,6 @@
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import type { MouseEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { WorkspaceInfo } from "../../../types";
 
@@ -12,6 +13,7 @@ type WorktreeCardProps = {
   hasThreadCursor: boolean;
   isDeleting?: boolean;
   onShowWorktreeMenu: (event: MouseEvent, workspaceId: string) => void;
+  onShowWorktreeSessionMenu: (event: MouseEvent, workspace: WorkspaceInfo) => void;
   onToggleWorkspaceCollapse: (workspaceId: string, collapsed: boolean) => void;
   onConnectWorkspace: (workspace: WorkspaceInfo) => void;
   children?: React.ReactNode;
@@ -46,10 +48,12 @@ export function WorktreeCard({
   hasThreadCursor,
   isDeleting = false,
   onShowWorktreeMenu,
+  onShowWorktreeSessionMenu,
   onToggleWorkspaceCollapse,
   onConnectWorkspace,
   children,
 }: WorktreeCardProps) {
+  const { t } = useTranslation();
   const worktreeCollapsed = worktree.settings.sidebarCollapsed;
   const worktreeBranch = worktree.worktree?.branch ?? "";
   const displayName = worktreeBranch || worktree.name;
@@ -111,6 +115,42 @@ export function WorktreeCard({
             </div>
           ) : (
             <>
+              <button
+                type="button"
+                className="worktree-create-session-button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onShowWorktreeSessionMenu(event, worktree);
+                }}
+                onDoubleClick={(event) => {
+                  event.stopPropagation();
+                }}
+                data-tauri-drag-region="false"
+                aria-label={t("sidebar.sessionActionsGroup")}
+                title={t("sidebar.sessionActionsGroup")}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden
+                >
+                  <path
+                    d="M7 3V11"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M3 7H11"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
               {(threadCount > 0 || hasThreadCursor) && (
                 <span className="worktree-thread-count" aria-label={`Threads: ${threadCount}`}>
                   {threadCount > 0 ? threadCount : "0"}

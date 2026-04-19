@@ -95,6 +95,66 @@ export function useSidebarMenus({
     [closeWorkspaceMenu],
   );
 
+  const buildSessionMenuGroup = useCallback(
+    (workspace: WorkspaceInfo): WorkspaceMenuGroup => ({
+      id: "new-session",
+      label: t("sidebar.sessionActionsGroup"),
+      actions: [
+        {
+          id: "new-session-shared",
+          label: t("sidebar.newSharedSession"),
+          iconKind: "new-shared",
+          unavailable: !onAddSharedAgent,
+          onSelect: () => onAddSharedAgent?.(workspace),
+        },
+        {
+          id: "new-session-claude",
+          label: t("workspace.engineClaudeCode"),
+          iconKind: "engine-claude",
+          onSelect: () => onAddAgent(workspace, "claude"),
+        },
+        {
+          id: "new-session-codex",
+          label: t("workspace.engineCodex"),
+          iconKind: "engine-codex",
+          onSelect: () => onAddAgent(workspace, "codex"),
+        },
+        {
+          id: "new-session-opencode",
+          label: t("workspace.engineOpenCode"),
+          iconKind: "engine-opencode",
+          onSelect: () => onAddAgent(workspace, "opencode"),
+        },
+        {
+          id: "new-session-gemini",
+          label: t("workspace.engineGemini"),
+          iconKind: "engine-gemini",
+          onSelect: () => onAddAgent(workspace, "gemini"),
+        },
+      ],
+    }),
+    [t, onAddAgent, onAddSharedAgent],
+  );
+
+  const resolveWorkspaceMenuPosition = useCallback((event: MouseEvent) => {
+    const menuWidthEstimate = 328;
+    const menuHeightEstimate = 420;
+    const viewportPadding = 12;
+    const maxX = Math.max(
+      viewportPadding,
+      window.innerWidth - menuWidthEstimate - viewportPadding,
+    );
+    const maxY = Math.max(
+      viewportPadding,
+      window.innerHeight - menuHeightEstimate - viewportPadding,
+    );
+
+    return {
+      x: Math.min(Math.max(event.clientX, viewportPadding), maxX),
+      y: Math.min(Math.max(event.clientY, viewportPadding), maxY),
+    };
+  }, []);
+
   const showThreadMenu = useCallback(
     async (
       event: MouseEvent,
@@ -197,59 +257,10 @@ export function useSidebarMenus({
       event.preventDefault();
       event.stopPropagation();
       const workspaceId = workspace.id;
-
-      const menuWidthEstimate = 328;
-      const menuHeightEstimate = 420;
-      const viewportPadding = 12;
-      const maxX = Math.max(
-        viewportPadding,
-        window.innerWidth - menuWidthEstimate - viewportPadding,
-      );
-      const maxY = Math.max(
-        viewportPadding,
-        window.innerHeight - menuHeightEstimate - viewportPadding,
-      );
-      const x = Math.min(Math.max(event.clientX, viewportPadding), maxX);
-      const y = Math.min(Math.max(event.clientY, viewportPadding), maxY);
+      const { x, y } = resolveWorkspaceMenuPosition(event);
 
       const groups: WorkspaceMenuGroup[] = [
-        {
-          id: "new-session",
-          label: t("sidebar.sessionActionsGroup"),
-          actions: [
-            {
-              id: "new-session-shared",
-              label: t("sidebar.newSharedSession"),
-              iconKind: "new-shared",
-              unavailable: !onAddSharedAgent,
-              onSelect: () => onAddSharedAgent?.(workspace),
-            },
-            {
-              id: "new-session-claude",
-              label: t("workspace.engineClaudeCode"),
-              iconKind: "engine-claude",
-              onSelect: () => onAddAgent(workspace, "claude"),
-            },
-            {
-              id: "new-session-codex",
-              label: t("workspace.engineCodex"),
-              iconKind: "engine-codex",
-              onSelect: () => onAddAgent(workspace, "codex"),
-            },
-            {
-              id: "new-session-opencode",
-              label: t("workspace.engineOpenCode"),
-              iconKind: "engine-opencode",
-              onSelect: () => onAddAgent(workspace, "opencode"),
-            },
-            {
-              id: "new-session-gemini",
-              label: t("workspace.engineGemini"),
-              iconKind: "engine-gemini",
-              onSelect: () => onAddAgent(workspace, "gemini"),
-            },
-          ],
-        },
+        buildSessionMenuGroup(workspace),
         {
           id: "workspace-actions",
           label: t("sidebar.workspaceActionsGroup"),
@@ -293,13 +304,29 @@ export function useSidebarMenus({
     },
     [
       t,
-      onAddAgent,
-      onAddSharedAgent,
+      buildSessionMenuGroup,
+      resolveWorkspaceMenuPosition,
       onReloadWorkspaceThreads,
       onDeleteWorkspace,
       onAddWorktreeAgent,
       onAddCloneAgent,
     ],
+  );
+
+  const showWorkspaceSessionMenu = useCallback(
+    (event: MouseEvent, workspace: WorkspaceInfo) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const { x, y } = resolveWorkspaceMenuPosition(event);
+
+      setWorkspaceMenuState({
+        x,
+        y,
+        workspaceId: workspace.id,
+        groups: [buildSessionMenuGroup(workspace)],
+      });
+    },
+    [buildSessionMenuGroup, resolveWorkspaceMenuPosition],
   );
 
   const showWorktreeMenu = useCallback(
@@ -325,6 +352,7 @@ export function useSidebarMenus({
   return {
     showThreadMenu,
     showWorkspaceMenu,
+    showWorkspaceSessionMenu,
     showWorktreeMenu,
     workspaceMenuState,
     closeWorkspaceMenu,

@@ -254,6 +254,7 @@ export function Sidebar({
   const {
     showThreadMenu,
     showWorkspaceMenu,
+    showWorkspaceSessionMenu,
     showWorktreeMenu,
     workspaceMenuState,
     closeWorkspaceMenu,
@@ -774,6 +775,7 @@ export function Sidebar({
             onToggleThreadPin={handleToggleThreadPin}
             getPinTimestamp={getPinTimestamp}
             onConnectWorkspace={onConnectWorkspace}
+            onShowWorktreeSessionMenu={showWorkspaceSessionMenu}
             onToggleWorkspaceCollapse={onToggleWorkspaceCollapse}
             onSelectThread={onSelectThread}
             onShowThreadMenu={showThreadMenu}
@@ -846,6 +848,7 @@ export function Sidebar({
     onSelectThread,
     showThreadMenu,
     showWorkspaceMenu,
+    showWorkspaceSessionMenu,
     showWorktreeMenu,
     systemProxyEnabled,
     systemProxyUrl,
@@ -1212,7 +1215,12 @@ export function Sidebar({
           <div
             className="sidebar-workspace-menu"
             role="menu"
-            aria-label={t("sidebar.workspaceActionsGroup")}
+            aria-label={
+              workspaceMenuState.groups.length === 1 &&
+              workspaceMenuState.groups[0]?.id === "new-session"
+                ? t("sidebar.sessionActionsGroup")
+                : t("sidebar.workspaceActionsGroup")
+            }
             style={{
               left: workspaceMenuState.x,
               top: workspaceMenuState.y,

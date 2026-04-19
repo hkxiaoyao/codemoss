@@ -219,4 +219,32 @@ describe("useSidebarMenus", () => {
     expect(handlers.onAddSharedAgent).toHaveBeenCalledTimes(1);
     expect(handlers.onAddSharedAgent).toHaveBeenCalledWith(workspace);
   });
+
+  it("shows session-only menu for worktree plus entry", () => {
+    const handlers = createHandlers();
+    const { result } = renderHook(() => useSidebarMenus(handlers));
+
+    act(() => {
+      const event = {
+        clientX: 140,
+        clientY: 96,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as Parameters<typeof result.current.showWorkspaceSessionMenu>[0];
+      result.current.showWorkspaceSessionMenu(event, workspace);
+    });
+
+    expect(result.current.workspaceMenuState?.groups.map((group) => group.id)).toEqual([
+      "new-session",
+    ]);
+    expect(
+      result.current.workspaceMenuState?.groups[0]?.actions.map((action) => action.id),
+    ).toEqual([
+      "new-session-shared",
+      "new-session-claude",
+      "new-session-codex",
+      "new-session-opencode",
+      "new-session-gemini",
+    ]);
+  });
 });

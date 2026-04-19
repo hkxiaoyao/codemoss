@@ -47,6 +47,7 @@ describe("WorktreeSection", () => {
         onToggleThreadPin={vi.fn()}
         getPinTimestamp={() => null}
         onConnectWorkspace={vi.fn()}
+        onShowWorktreeSessionMenu={vi.fn()}
         onToggleWorkspaceCollapse={vi.fn()}
         onSelectThread={vi.fn()}
         onShowThreadMenu={vi.fn()}
@@ -94,6 +95,7 @@ describe("WorktreeSection", () => {
         onToggleThreadPin={vi.fn()}
         getPinTimestamp={() => null}
         onConnectWorkspace={vi.fn()}
+        onShowWorktreeSessionMenu={vi.fn()}
         onToggleWorkspaceCollapse={vi.fn()}
         onSelectThread={vi.fn()}
         onShowThreadMenu={vi.fn()}
@@ -145,6 +147,7 @@ describe("WorktreeSection", () => {
         onToggleThreadPin={vi.fn()}
         getPinTimestamp={() => null}
         onConnectWorkspace={vi.fn()}
+        onShowWorktreeSessionMenu={vi.fn()}
         onToggleWorkspaceCollapse={onToggleWorkspaceCollapse}
         onSelectThread={vi.fn()}
         onShowThreadMenu={vi.fn()}
@@ -162,5 +165,56 @@ describe("WorktreeSection", () => {
 
     fireEvent.click(worktreeRow);
     expect(onToggleWorkspaceCollapse).toHaveBeenCalledWith("wt-1", true);
+  });
+
+  it("renders a new session button for worktrees and does not toggle collapse when clicked", () => {
+    const onShowWorktreeSessionMenu = vi.fn();
+    const onToggleWorkspaceCollapse = vi.fn();
+
+    render(
+      <WorktreeSection
+        parentWorkspaceId="workspace-1"
+        worktrees={[worktree]}
+        isSectionCollapsed={false}
+        onToggleSectionCollapse={vi.fn()}
+        deletingWorktreeIds={new Set()}
+        threadsByWorkspace={{ [worktree.id]: [] }}
+        threadStatusById={{}}
+        threadListLoadingByWorkspace={{ [worktree.id]: false }}
+        threadListPagingByWorkspace={{ [worktree.id]: false }}
+        threadListCursorByWorkspace={{ [worktree.id]: null }}
+        expandedWorkspaces={new Set()}
+        activeWorkspaceId={null}
+        activeThreadId={null}
+        getThreadRows={() => ({
+          pinnedRows: [],
+          unpinnedRows: [],
+          totalRoots: 0,
+          hasMoreRoots: false,
+        })}
+        getThreadTime={() => null}
+        isThreadPinned={() => false}
+        isThreadAutoNaming={() => false}
+        onToggleThreadPin={vi.fn()}
+        getPinTimestamp={() => null}
+        onConnectWorkspace={vi.fn()}
+        onShowWorktreeSessionMenu={onShowWorktreeSessionMenu}
+        onToggleWorkspaceCollapse={onToggleWorkspaceCollapse}
+        onSelectThread={vi.fn()}
+        onShowThreadMenu={vi.fn()}
+        onShowWorktreeMenu={vi.fn()}
+        onToggleExpanded={vi.fn()}
+        onLoadOlderThreads={vi.fn()}
+      />,
+    );
+
+    const createSessionButton = screen.getByRole("button", {
+      name: /新建会话|New session|New agent|sidebar\.sessionActionsGroup/i,
+    });
+    fireEvent.click(createSessionButton);
+
+    expect(onShowWorktreeSessionMenu).toHaveBeenCalledTimes(1);
+    expect(onShowWorktreeSessionMenu.mock.calls[0]?.[1]).toEqual(worktree);
+    expect(onToggleWorkspaceCollapse).not.toHaveBeenCalled();
   });
 });

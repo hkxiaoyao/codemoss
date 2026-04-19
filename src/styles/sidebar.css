@@ -1760,6 +1760,26 @@
   justify-content: center;
 }
 
+.worktree-create-session-button {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border-subtle) 74%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface-control) 54%, transparent);
+  color: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.worktree-create-session-button:hover {
+  color: var(--text-strong);
+  background: color-mix(in srgb, var(--surface-control) 88%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 46%, var(--border-subtle) 54%);
+}
+
 .worktree-toggle {
   width: 17px;
   height: 17px;
