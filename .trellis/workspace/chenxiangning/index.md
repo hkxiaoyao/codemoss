@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-2.md`
-- **Total Sessions**: 63
+- **Total Sessions**: 64
 - **Last Active**: 2026-04-20
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~1649 | Active |
+| `journal-2.md` | ~1714 | Active |
 | `journal-1.md` | ~1990 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 64 | 2026-04-20 | 侧栏降级刷新与 worktree 边界收口 | `9e91aeb8` | `feature/vvvv0.4.5` |
 | 63 | 2026-04-20 | 提交加载进度弹窗与引擎可用性状态透传 | `835c49c38d2fcd0799da6bb579983afaaaf1077a` | `feature/vvvv0.4.5` |
 | 62 | 2026-04-20 | review 修复会话创建与 OpenCode 菜单边界 | `049918e90ee7130799ef7a3d31519a667043cf17` | `feature/vvvv0.4.5` |
 | 61 | 2026-04-20 | 补充 v0.4.5 发布说明 | `58e62cbb616f5cd2ff61c4bd666ae3a8bc7fa732` | `feature/vvvv0.4.5` |

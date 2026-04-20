@@ -1647,3 +1647,68 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 64: 侧栏降级刷新与 worktree 边界收口
+
+**Date**: 2026-04-20
+**Task**: 侧栏降级刷新与 worktree 边界收口
+**Branch**: `feature/vvvv0.4.5`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 任务目标
+- 对当前工作区代码进行全面 review，重点检查边界条件处理与 Windows/macOS 兼容性。
+- 直接修复发现的问题，并完成本地提交。
+
+## 主要改动
+- 将线程列表 degraded 状态的用户提示从 thread 行级 badge 收口到 workspace/worktree 级刷新入口。
+- 新增 quick reload 入口，主工作区触发时会联动刷新其 worktree 的线程列表。
+- 修复 WorkspaceCard / WorktreeCard 在缺少 onQuickReloadWorkspaceThreads handler 时仍渲染刷新按钮的空操作边界。
+- 修复 WorktreeCard 名称拆分仅兼容正斜杠的问题，补齐 Windows 反斜杠分隔符场景。
+- 补充 Sidebar 与 WorktreeSection 回归测试，覆盖降级冒泡、按钮显隐、刷新中旋转态和 Windows 风格名称拆分。
+
+## 涉及模块
+- src/app-shell-parts/useAppShellLayoutNodesSection.tsx
+- src/features/app/components/Sidebar.tsx
+- src/features/app/components/WorkspaceCard.tsx
+- src/features/app/components/WorktreeCard.tsx
+- src/features/app/components/WorktreeSection.tsx
+- src/features/layout/hooks/useLayoutNodes.tsx
+- src/i18n/locales/en.part1.ts
+- src/i18n/locales/zh.part1.ts
+- src/styles/sidebar.css
+- 对应 Sidebar / ThreadList / WorktreeSection 测试文件
+
+## 验证结果
+- npx vitest run src/features/app/components/Sidebar.test.tsx src/features/app/components/WorktreeSection.test.tsx src/features/app/components/ThreadList.test.tsx
+- npm run typecheck
+- npm run check:large-files
+- npm run lint（通过，无 error；仍有项目既有 react-hooks warning）
+
+## 后续事项
+- 可单独安排一次 lint warning 清理波次，集中处理 react-hooks/exhaustive-deps 历史告警。
+- ThreadList 相关测试仍存在 act(...) warning，可后续顺手收敛测试包裹方式。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9e91aeb8` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
