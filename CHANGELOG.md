@@ -17,6 +17,7 @@
 - 优化 Codex 实验配置展示与跨平台配置入口，减少不同系统环境下的入口差异与误导
 - 加固 Claude 手动压缩与会话恢复边界，减少 compact、恢复、重发等长链路操作中的状态漂移
 - 同步 OpenSpec 中的 runtime 稳定性与 Claude compact 实施进度，让发布说明、任务状态与实际实现保持一致
+- 优化侧栏线程列表降级恢复入口，将 thread 级降级提示收口到 workspace/worktree 级快速刷新，并支持主工作区联动刷新其 worktree 线程列表
 
 🐛 Fixes
 - 修复会话管理边界处理问题，并补齐全量回归夹具，提升归档、聚合与路由场景的稳定性
@@ -26,6 +27,7 @@
 - 修复 Codex 会话自恢复、零活动超时兜底与 runtime 重连场景中的诊断缺口，提升断链后的可恢复性
 - 修复会话创建失败时缺少用户可见反馈的问题，确保失败后关闭加载弹窗、记录诊断并展示错误提示
 - 修复 OpenCode provider health 探测失败后菜单状态可能卡在 loading 的问题，并补齐 Windows 路径 basename 等边界测试
+- 修复侧栏快速刷新按钮在缺少 handler 时仍可见的空操作边界，并补齐 Windows 反斜杠路径下 Worktree 名称拆分展示
 
 English:
 
@@ -40,6 +42,7 @@ English:
 - Refine Codex experimental settings and cross-platform configuration entry points to reduce platform-specific ambiguity
 - Harden Claude manual compact and session-recovery boundaries to reduce state drift across compact, recovery, and resend flows
 - Sync OpenSpec progress for runtime stability and Claude compact implementation so release notes, task state, and delivered behavior stay aligned
+- Improve sidebar degraded-thread recovery by moving thread-level degraded hints to workspace/worktree quick reload actions, with parent workspace refresh cascading to worktrees
 
 🐛 Fixes
 - Fix session-management boundary handling and add full regression fixtures to improve stability across archive, aggregation, and routing scenarios
@@ -49,6 +52,7 @@ English:
 - Fix diagnostic gaps in Codex session self-recovery, zero-activity timeout fallback, and runtime reconnect scenarios to improve recoverability after disconnects
 - Fix missing user-visible feedback when session creation fails, ensuring the loading dialog closes, diagnostics are recorded, and an error message is shown
 - Fix OpenCode provider health-check failures leaving menu state stuck on loading, and add boundary coverage for Windows path basename extraction
+- Fix sidebar quick-reload buttons appearing without handlers, and correct Worktree name splitting for Windows backslash paths
 
 ---
 
