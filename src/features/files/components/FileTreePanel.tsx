@@ -62,6 +62,7 @@ type FileTreePanelProps = {
   files: string[];
   directories?: string[];
   isLoading: boolean;
+  loadError?: string | null;
   filePanelMode: PanelTabId;
   onFilePanelModeChange: (mode: PanelTabId) => void;
   onInsertText?: (text: string) => void;
@@ -712,6 +713,7 @@ export function FileTreePanel({
   files,
   directories,
   isLoading,
+  loadError = null,
   filePanelMode: _filePanelMode,
   onFilePanelModeChange: _onFilePanelModeChange,
   onInsertText,
@@ -838,6 +840,8 @@ export function FileTreePanel({
     return result;
   }, [seededLazyLoadableDirectories, lazyLoadableDirectories]);
   const showLoading = isLoading && mergedFiles.length === 0;
+  const normalizedLoadError =
+    typeof loadError === "string" && loadError.trim().length > 0 ? loadError.trim() : null;
 
   const gitStatusMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1935,7 +1939,7 @@ export function FileTreePanel({
                 onClick={() => void loadLazyDirectoryChildren(node.path)}
                 title={lazyLoadError}
               >
-                加载失败，点击重试
+                {t("files.retryLoadFiles")}
               </button>
             ) : (
               <div className="file-tree-lazy-state">{t("files.noFilesAvailable")}</div>
@@ -2016,7 +2020,21 @@ export function FileTreePanel({
               />
             ))}
           </div>
-        ) : !isRootVisibleExpanded ? null : nodes.length === 0 ? (
+        ) : !isRootVisibleExpanded ? null : normalizedLoadError && nodes.length === 0 ? (
+          <div className="file-tree-empty" title={normalizedLoadError}>
+            <div>{t("files.loadFilesFailed")}</div>
+            {onRefreshFiles ? (
+              <button
+                type="button"
+                className="file-tree-lazy-retry"
+                onClick={() => void onRefreshFiles()}
+                title={normalizedLoadError}
+              >
+                {t("files.retryLoadFiles")}
+              </button>
+            ) : null}
+          </div>
+        ) : nodes.length === 0 ? (
           <div className="file-tree-empty">
             {t("files.noFilesAvailable")}
           </div>

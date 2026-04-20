@@ -28,6 +28,7 @@ type FileExplorerWorkspaceProps = {
   files: string[];
   directories: string[];
   isLoading: boolean;
+  loadError?: string | null;
   gitignoredFiles: Set<string>;
   gitignoredDirectories: Set<string>;
   gitStatusFiles?: GitFileStatus[];
@@ -56,6 +57,7 @@ export function FileExplorerWorkspace({
   files,
   directories,
   isLoading,
+  loadError = null,
   gitignoredFiles,
   gitignoredDirectories,
   gitStatusFiles,
@@ -175,6 +177,7 @@ export function FileExplorerWorkspace({
           files={files}
           directories={directories}
           isLoading={isLoading}
+          loadError={loadError}
           filePanelMode="files"
           onFilePanelModeChange={() => undefined}
           onOpenFile={handleOpenWorkspaceFile}

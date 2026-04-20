@@ -74,6 +74,7 @@ export function DetachedFileExplorerWindow() {
     gitignoredFiles,
     gitignoredDirectories,
     isLoading,
+    loadError,
     refreshFiles,
   } = useWorkspaceFiles({
     activeWorkspace,
@@ -216,6 +217,7 @@ export function DetachedFileExplorerWindow() {
         files={files}
         directories={directories}
         isLoading={isLoading}
+        loadError={loadError}
         gitignoredFiles={gitignoredFiles}
         gitignoredDirectories={gitignoredDirectories}
         gitStatusFiles={gitStatus.files}

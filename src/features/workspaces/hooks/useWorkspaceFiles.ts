@@ -4,12 +4,21 @@ import { getWorkspaceFiles } from "../../../services/tauri";
 
 const WORKSPACE_FILES_DEBUG_KEY = "ccgui.debug.workspace-files";
 const WORKSPACE_FILES_SLOW_REQUEST_MS = 800;
+const INITIAL_RETRY_DELAY_MS = 1_500;
+const MAX_INITIAL_RETRY_ATTEMPTS = 1;
 
 function isWorkspaceFilesDebugEnabled() {
   if (typeof window === "undefined") {
     return false;
   }
   return window.localStorage.getItem(WORKSPACE_FILES_DEBUG_KEY) === "1";
+}
+
+function normalizeErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
 }
 
 type UseWorkspaceFilesOptions = {
@@ -28,16 +37,49 @@ export function useWorkspaceFiles({
   const [gitignoredFiles, setGitignoredFiles] = useState<Set<string>>(new Set());
   const [gitignoredDirectories, setGitignoredDirectories] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const hasLoadedWorkspaceId = useRef<string | null>(null);
+  const latestWorkspaceIdRef = useRef<string | null>(null);
   const inFlight = useRef<string | null>(null);
   const consecutiveFailures = useRef(0);
+  const retryAttemptsByWorkspaceId = useRef<Map<string, number>>(new Map());
+  const initialRetryTimer = useRef<number | null>(null);
+  const refreshFilesRef = useRef<
+    ((reason?: "initial" | "retry" | "poll" | "manual") => Promise<void>) | null
+  >(null);
 
   const BASE_REFRESH_INTERVAL_MS = 30_000;
   const MAX_REFRESH_INTERVAL_MS = 180_000;
   const workspaceId = activeWorkspace?.id ?? null;
   const isConnected = Boolean(activeWorkspace?.connected);
+  latestWorkspaceIdRef.current = workspaceId;
 
-  const refreshFiles = useCallback(async (reason: "initial" | "poll" | "manual" = "manual") => {
+  const clearInitialRetryTimer = useCallback(() => {
+    if (initialRetryTimer.current !== null) {
+      window.clearTimeout(initialRetryTimer.current);
+      initialRetryTimer.current = null;
+    }
+  }, []);
+
+  const scheduleInitialRetry = useCallback(
+    (failedWorkspaceId: string) => {
+      clearInitialRetryTimer();
+      const attempts = retryAttemptsByWorkspaceId.current.get(failedWorkspaceId) ?? 0;
+      if (attempts >= MAX_INITIAL_RETRY_ATTEMPTS) {
+        return;
+      }
+      retryAttemptsByWorkspaceId.current.set(failedWorkspaceId, attempts + 1);
+      initialRetryTimer.current = window.setTimeout(() => {
+        initialRetryTimer.current = null;
+        void refreshFilesRef.current?.("retry");
+      }, INITIAL_RETRY_DELAY_MS);
+    },
+    [clearInitialRetryTimer],
+  );
+
+  const refreshFiles = useCallback(async (
+    reason: "initial" | "retry" | "poll" | "manual" = "manual",
+  ) => {
     if (!workspaceId || !isConnected) {
       return;
     }
@@ -97,19 +139,26 @@ export function useWorkspaceFiles({
           gitignoredDirectories: ignoredDirectories.length,
         },
       });
-      if (requestWorkspaceId === workspaceId) {
+      if (requestWorkspaceId === latestWorkspaceIdRef.current) {
         setFiles(nextFiles);
         setDirectories(nextDirectories);
         setGitignoredFiles(new Set(ignored));
         setGitignoredDirectories(new Set(ignoredDirectories));
+        setLoadError(null);
         hasLoadedWorkspaceId.current = requestWorkspaceId;
         consecutiveFailures.current = 0;
+        retryAttemptsByWorkspaceId.current.delete(requestWorkspaceId);
+        clearInitialRetryTimer();
       }
     } catch (error) {
       const elapsedMs = Date.now() - startedAt;
+      const message = normalizeErrorMessage(error);
       consecutiveFailures.current += 1;
-      if (requestWorkspaceId === workspaceId) {
-        hasLoadedWorkspaceId.current = requestWorkspaceId;
+      if (requestWorkspaceId === latestWorkspaceIdRef.current) {
+        setLoadError(message);
+        if (reason === "initial") {
+          scheduleInitialRetry(requestWorkspaceId);
+        }
       }
       if (import.meta.env.DEV && isWorkspaceFilesDebugEnabled()) {
         console.warn("[workspace-files] refresh failed", {
@@ -117,7 +166,7 @@ export function useWorkspaceFiles({
           reason,
           ms: elapsedMs,
           failureCount: consecutiveFailures.current,
-          error: error instanceof Error ? error.message : String(error),
+          error: message,
         });
       }
       onDebug?.({
@@ -130,7 +179,7 @@ export function useWorkspaceFiles({
           reason,
           ms: elapsedMs,
           failureCount: consecutiveFailures.current,
-          message: error instanceof Error ? error.message : String(error),
+          message,
         },
       });
     } finally {
@@ -139,18 +188,33 @@ export function useWorkspaceFiles({
         setIsLoading(false);
       }
     }
-  }, [isConnected, onDebug, workspaceId]);
+  }, [
+    clearInitialRetryTimer,
+    isConnected,
+    onDebug,
+    scheduleInitialRetry,
+    workspaceId,
+  ]);
+
+  useEffect(() => {
+    refreshFilesRef.current = refreshFiles;
+  }, [refreshFiles]);
 
   useEffect(() => {
     setFiles([]);
     setDirectories([]);
     setGitignoredFiles(new Set());
     setGitignoredDirectories(new Set());
+    setLoadError(null);
     hasLoadedWorkspaceId.current = null;
     inFlight.current = null;
     consecutiveFailures.current = 0;
+    retryAttemptsByWorkspaceId.current.clear();
+    clearInitialRetryTimer();
     setIsLoading(Boolean(workspaceId && isConnected));
-  }, [isConnected, workspaceId]);
+  }, [clearInitialRetryTimer, isConnected, workspaceId]);
+
+  useEffect(() => clearInitialRetryTimer, [clearInitialRetryTimer]);
 
   useEffect(() => {
     if (!workspaceId || !isConnected) {
@@ -202,6 +266,7 @@ export function useWorkspaceFiles({
     gitignoredFiles,
     gitignoredDirectories,
     isLoading,
+    loadError,
     refreshFiles,
   };
 }

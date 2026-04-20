@@ -864,6 +864,7 @@ export function AppShell() {
     gitignoredFiles,
     gitignoredDirectories,
     isLoading: isFilesLoading,
+    loadError: fileTreeLoadError,
     refreshFiles,
   } = useWorkspaceFiles({
     activeWorkspace,
@@ -2781,7 +2782,7 @@ export function AppShell() {
     dragHandle, editorHighlightTarget, editorNavigationTarget, editorSplitLayout, effectiveModels, effectiveReasoningSupported, effectiveRuntimeMode, effectiveSelectedModel,
     effectiveSelectedModelId, effectiveUiMode, engineModelsAsOptions, engineSelectedModelIdByType, engineSelection, engineStatuses, ensureLaunchTerminal, ensureTerminalWithTitle,
     ensureWorkspaceThreadListLoaded, entry, errorToasts, existing, exitDiffView, expandRightPanel, expandSidebar, filePanelMode,
-    filePassword, fileReferenceMode, fileStatus, files, finishedByAgentUpdate, finishedByDuration, firstAnswer, flushDraggedHeight,
+    filePassword, fileReferenceMode, fileStatus, fileTreeLoadError, files, finishedByAgentUpdate, finishedByDuration, firstAnswer, flushDraggedHeight,
     force, forkThreadForWorkspace, forkSessionFromMessageForWorkspace, forkClaudeSessionFromMessageForWorkspace, getGlobalPromptsDir, getPinTimestamp, getThreadRows, getWorkspaceGroupName, getWorkspacePromptsDir, gitCommitDiffs,
     gitDiffListView, gitDiffViewStyle, gitHistoryPanelHeight, gitHistoryPanelHeightRef, gitIssues, gitIssuesError, gitIssuesLoading, gitIssuesTotal,
     gitLogAhead, gitLogAheadEntries, gitLogBehind, gitLogBehindEntries, gitLogEntries, gitLogError, gitLogLoading, gitLogTotal,

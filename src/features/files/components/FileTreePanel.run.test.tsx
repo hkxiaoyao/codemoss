@@ -901,12 +901,44 @@ describe("FileTreePanel run action isolation", () => {
     );
 
     fireEvent.doubleClick(screen.getByRole("button", { name: /node_modules/ }));
-    expect(await screen.findByRole("button", { name: "加载失败，点击重试" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "files.retryLoadFiles" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "加载失败，点击重试" }));
+    fireEvent.click(screen.getByRole("button", { name: "files.retryLoadFiles" }));
     await waitFor(() => {
       expect(screen.getByText("package-lock.json")).toBeTruthy();
     });
+  });
+
+  it("shows load error state instead of empty state when root file list fails", () => {
+    const onRefreshFiles = vi.fn();
+
+    render(
+      <FileTreePanel
+        workspaceId="workspace-1"
+        workspacePath="/tmp/workspace"
+        files={[]}
+        directories={[]}
+        isLoading={false}
+        loadError="network down"
+        filePanelMode="files"
+        onFilePanelModeChange={() => undefined}
+        onOpenFile={() => undefined}
+        onInsertText={() => undefined}
+        openTargets={[]}
+        openAppIconById={{}}
+        selectedOpenAppId=""
+        onSelectOpenAppId={() => undefined}
+        onRefreshFiles={onRefreshFiles}
+        gitStatusFiles={[]}
+        gitignoredFiles={new Set<string>()}
+      />,
+    );
+
+    expect(screen.getByText("files.loadFilesFailed")).toBeTruthy();
+    expect(screen.queryByText("files.noFilesAvailable")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "files.retryLoadFiles" }));
+    expect(onRefreshFiles).toHaveBeenCalledTimes(1);
   });
 
   it("mentions file using Windows-style absolute path when workspace path uses backslashes", () => {

@@ -355,6 +355,7 @@ type LayoutNodesOptions = {
   filePanelMode: "git" | "files" | "search" | "prompts" | "memory" | "activity" | "radar";
   onFilePanelModeChange: (mode: "git" | "files" | "search" | "prompts" | "memory" | "activity" | "radar") => void;
   fileTreeLoading: boolean;
+  fileTreeLoadError?: string | null;
   onRefreshFiles?: () => void;
   onOpenDetachedFileExplorer?: (initialFilePath?: string | null) => void;
   onToggleRuntimeConsole: () => void;
@@ -1562,6 +1563,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
         files={options.files}
         directories={options.directories}
         isLoading={options.fileTreeLoading}
+        loadError={options.fileTreeLoadError}
         filePanelMode={options.filePanelMode}
         onFilePanelModeChange={options.onFilePanelModeChange}
         onInsertText={options.onInsertComposerText}

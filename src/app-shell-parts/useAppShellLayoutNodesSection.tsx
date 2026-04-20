@@ -28,7 +28,7 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     editorHighlightTarget, editorNavigationTarget, editorSplitLayout, effectiveModels, effectiveReasoningSupported, effectiveRuntimeMode, effectiveSelectedModel, effectiveSelectedModelId,
     effectiveUiMode, engineModelsAsOptions, engineSelectedModelIdByType, engineSelection, engineStatuses, ensureLaunchTerminal, ensureTerminalWithTitle, ensureWorkspaceThreadListLoaded,
     entry, errorToasts, existing, exitDiffView, expandRightPanel, expandSidebar, filePanelMode, filePassword,
-    fileReferenceMode, fileStatus, files, finishedByAgentUpdate, finishedByDuration, firstAnswer, flushDraggedHeight, force,
+    fileReferenceMode, fileStatus, fileTreeLoadError, files, finishedByAgentUpdate, finishedByDuration, firstAnswer, flushDraggedHeight, force,
     forkThreadForWorkspace, getGlobalPromptsDir, getPinTimestamp, getThreadRows, getWorkspaceGroupName, getWorkspacePromptsDir, gitCommitDiffs, gitDiffListView,
     gitDiffViewStyle, gitHistoryPanelHeight, gitHistoryPanelHeightRef, gitIssues, gitIssuesError, gitIssuesLoading, gitIssuesTotal, gitLogAhead,
     gitLogAheadEntries, gitLogBehind, gitLogBehindEntries, gitLogEntries, gitLogError, gitLogLoading, gitLogTotal, gitLogUpstream,
@@ -454,6 +454,7 @@ export function useAppShellLayoutNodesSection(ctx: any) {
       setLiveEditPreviewEnabled((current) => !current);
     },
     fileTreeLoading: isFilesLoading,
+    fileTreeLoadError,
     onRefreshFiles: refreshFiles,
     onOpenDetachedFileExplorer: handleOpenDetachedFileExplorer,
     onToggleRuntimeConsole: handleToggleRuntimeConsole,
