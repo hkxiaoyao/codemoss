@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::json;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast::error::TryRecvError;
 
 fn test_workspace_path() -> PathBuf {
@@ -120,6 +121,32 @@ fn extract_text_from_content_concatenates_fragmented_blocks() {
 
     let text = extract_text_from_content(&content);
     assert_eq!(text.as_deref(), Some("你好！我是Antigravity"));
+}
+
+#[test]
+fn buffered_claude_text_delta_batches_until_take() {
+    let mut buffer = BufferedClaudeTextDelta::default();
+    buffer.push("你");
+    buffer.push("好");
+
+    assert_eq!(buffer.take().as_deref(), Some("你好"));
+    assert!(buffer.take().is_none());
+}
+
+#[test]
+fn buffered_claude_text_delta_expires_after_window() {
+    let mut buffer = BufferedClaudeTextDelta::default();
+    buffer.push("a");
+    buffer.started_at = Some(
+        Instant::now()
+            .checked_sub(Duration::from_millis(
+                CLAUDE_TEXT_DELTA_COALESCE_WINDOW_MS + 10,
+            ))
+            .expect("instant subtraction should succeed"),
+    );
+
+    assert!(buffer.has_expired(Duration::from_millis(CLAUDE_TEXT_DELTA_COALESCE_WINDOW_MS,)));
+    assert_eq!(buffer.take().as_deref(), Some("a"));
 }
 
 #[test]
