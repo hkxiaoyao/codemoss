@@ -129,3 +129,67 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 71: 支持历史幕布按分段吸顶用户问题
+
+**Date**: 2026-04-21
+**Task**: 支持历史幕布按分段吸顶用户问题
+**Branch**: `feature/f-v0.4.6`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 落地 pin-history-user-question-bubble，对历史幕布提供按分段吸顶的用户问题气泡。
+- 保持 realtime sticky 现有 contract，不与 history sticky 混用。
+
+主要改动:
+- 在 Messages.tsx 中拆分 live sticky 与 history sticky 的资格判断。
+- 在 messagesLiveWindow.ts 中导出 ordinary user 问题判定，复用伪 user 过滤逻辑。
+- 在 messages.css 中为 history sticky 复用现有 sticky wrapper 视觉与 top offset。
+- 在 Messages.live-behavior.test.tsx 中补充 history sticky、realtime 优先级、伪 user 排除、collapsed-history 边界回归测试。
+- 新增 OpenSpec change: pin-history-user-question-bubble，并补齐 proposal/design/specs/tasks。
+- 新建 Trellis task: 04-21-pin-history-user-question-bubble。
+
+涉及模块:
+- src/features/messages/components/Messages.tsx
+- src/features/messages/components/messagesLiveWindow.ts
+- src/features/messages/components/Messages.live-behavior.test.tsx
+- src/styles/messages.css
+- openspec/changes/pin-history-user-question-bubble/*
+- .trellis/tasks/04-21-pin-history-user-question-bubble/task.json
+
+验证结果:
+- pnpm vitest run src/features/messages/components/Messages.live-behavior.test.tsx 通过（27 tests）。
+- npm run typecheck 通过。
+- npm run check:large-files 通过。
+- npm run lint 通过（仓库已有 warnings，无 errors）。
+- openspec validate pin-history-user-question-bubble --type change --strict --no-interactive 通过。
+- git diff --check 通过。
+
+后续事项:
+- 建议补一次人工滚动验收，确认真实浏览器/Tauri 中 sticky 接棒体感符合预期。
+- 若人工验收无问题，可继续准备 archive 或后续合并流程。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `be4384f23fef61ee5903a24492fe8214575aeaf7` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
