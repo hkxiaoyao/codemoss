@@ -1509,3 +1509,61 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 94: Checkpoint fusion stalled continuity
+
+**Date**: 2026-04-22
+**Task**: Checkpoint fusion stalled continuity
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 为 codex queue-fusion stalled continuity 建立第一版最小闭环，避免切换后长期假 loading。
+- 将 queue-fusion cutover 的 stalled source 从前端一路透传到 backend/runtime pool，便于后续继续补齐 same-run 和 terminal cleanup。
+
+主要改动:
+- 将 fusion 切换文案改为待确认语义，不再在 continuation 证据出现前宣称“内容正在继续生成”。
+- 在 queued cutover fusion 发送链路中新增 resumeSource/resumeTurnId，并在 frontend 侧增加 bounded settlement 与 fusion-specific stalled 提示。
+- backend app_server / codex command / runtime continuity 新增 queue-fusion-cutover source，turn/stalled payload 与 runtime pool row 共享 source/stage 诊断信息。
+- 更新 OpenSpec change fix-codex-fusion-stalled-continuity 的 proposal/design/spec/tasks，并勾选本轮已完成的阶段任务。
+
+涉及模块:
+- frontend: src/features/threads/hooks/useQueuedSend.ts, useThreadMessaging.ts, useThreadTurnEvents.ts, useAppServerEvents.ts, RuntimePoolSection.tsx
+- service/types: src/services/tauri.ts, src/types.ts, i18n locales, vitest setup
+- backend/runtime: src-tauri/src/backend/app_server.rs, app_server_event_helpers.rs, app_server_runtime_lifecycle.rs, src-tauri/src/codex/mod.rs, src-tauri/src/runtime/mod.rs
+- spec: openspec/changes/fix-codex-fusion-stalled-continuity/**
+
+验证结果:
+- npm run typecheck
+- npx vitest run src/features/threads/hooks/useQueuedSend.test.tsx src/features/threads/hooks/useThreadMessaging.test.tsx src/features/threads/hooks/useThreadTurnEvents.test.tsx src/features/app/hooks/useAppServerEvents.turn-stalled.test.tsx
+- cargo test --manifest-path src-tauri/Cargo.toml runtime::tests::record_runtime_ended_clears_leases_and_persists_exit_diagnostics -- --nocapture
+
+后续事项:
+- 继续补齐 same-run continuation 的 bounded settlement。
+- 补齐 late event / runtime-ended / terminal cleanup 的更完整回归与收口。
+- 在不影响现有 global runtime notice 工作区改动的前提下，继续推进该 OpenSpec change 到可归档状态。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `486cf0388c6fd9dadc1836d3650e05cea50e87fd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
