@@ -1912,3 +1912,61 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 101: fix(messages): 修复实时对话中 inline code 的流式渲染错位
+
+**Date**: 2026-04-22
+**Task**: fix(messages): 修复实时对话中 inline code 的流式渲染错位
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：落实 OpenSpec change `fix-live-inline-code-markdown-rendering`，修复实时对话阶段 inline code 在 streaming 中偶发渲染错位、边界漂移、live/history 不一致的问题。
+
+主要改动：
+- 在 `src/utils/markdownCodeRegions.ts` 新增 markdown code-region 保护层，使用 placeholder 保护 inline code span，避免 normalizer 穿透 code span，同时保持外层 list/paragraph 结构稳定。
+- 在 `src/features/messages/components/Markdown.tsx` 接入 protected-region aware 的 markdown normalization。
+- 在 `src/features/messages/components/MessagesRows.tsx` 收敛 live assistant markdown flush 策略，去掉 zero-buffer 风险窗口，改为 bounded throttle。
+- 在 `src/features/threads/hooks/threadReducerTextMerge.ts` 收紧 backtick 场景下的 delta/snapshot merge，避免 partial snapshot、echo cleanup 与 readable rewrite 破坏 code span 边界。
+- 在 `src/utils/threadItems.ts` 让 assistant 文本 normalize 对 inline code 保持边界安全。
+- 回填 OpenSpec change `openspec/changes/fix-live-inline-code-markdown-rendering/` 的 tasks 完成状态。
+
+涉及模块：
+- message markdown render path
+- assistant live merge path
+- assistant text normalization path
+- OpenSpec change artifacts
+
+验证结果：
+- `npm run check:large-files` 通过
+- `npm run typecheck` 通过
+- `npm run test` 通过，338 个 test files 全绿
+- `openspec validate "fix-live-inline-code-markdown-rendering" --type change --strict --no-interactive` 通过
+
+后续事项：
+- 当前提交只包含 live inline-code 修复范围；工作区仍存在其他未提交改动，需后续按各自任务边界单独整理。
+- 如需继续推进，可在后续提交中归档该 OpenSpec change，或补充更细的 streaming diagnostics 文档化。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4f74ea65` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

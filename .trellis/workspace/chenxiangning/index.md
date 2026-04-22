@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 100
+- **Total Sessions**: 101
 - **Last Active**: 2026-04-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1914 | Active |
+| `journal-3.md` | ~1972 | Active |
 | `journal-2.md` | ~1960 | Archived |
 | `journal-1.md` | ~1990 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 101 | 2026-04-22 | fix(messages): 修复实时对话中 inline code 的流式渲染错位 | `4f74ea65` | `feature/v-0.4.7` |
 | 100 | 2026-04-22 | 修正空闲态最小化提示图标语义 | `6373bd82c7111a6614d56c938ebb150f360e6ebc` | `feature/v-0.4.7` |
 | 99 | 2026-04-22 | 补强运行时提示启动链路与边界回写 | `f616a615afb3b7898b48478b4df43ae0cbf4618f` | `feature/v-0.4.7` |
 | 98 | 2026-04-22 | 拆分消息样式并补强桌面渲染守卫 | `7619db05` | `feature/v-0.4.7` |
