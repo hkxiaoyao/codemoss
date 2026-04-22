@@ -1467,3 +1467,62 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 128: 稳定 sentinel 刷新路径
+
+**Date**: 2026-04-23
+**Task**: 稳定 sentinel 刷新路径
+**Branch**: `feature/v-0.4.8`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 处理 ButtonArea 与 useSessionRadarFeed 中不能机械修复的 exhaustive-deps sentinel warning。
+
+主要改动:
+- 新建 OpenSpec change `stabilize-exhaustive-deps-sentinel-patterns` 与对应 Trellis task，完成 proposal/design/specs/tasks/PRD。
+- 将 ButtonArea 的 `customModelsVersion` 版本号哨兵替换为显式 storage snapshot，并通过 `storage` / `localStorageChange` 事件刷新。
+- 将 useSessionRadarFeed 的 `durationRefreshTick` / `historyMutationVersion` 替换为显式 `clockNow` / `recentHistorySnapshot`。
+- 新增 ButtonArea 定向测试，并扩展 radar incremental test 覆盖 history event refresh。
+- exhaustive-deps warning 总量从 `98` 降到 `95`，文件数从 `16` 降到 `14`。
+
+涉及模块:
+- src/features/composer/components/ChatInputBox/ButtonArea.tsx
+- src/features/composer/components/ChatInputBox/ButtonArea.test.tsx
+- src/features/session-activity/hooks/useSessionRadarFeed.ts
+- src/features/session-activity/hooks/useSessionRadarFeed.incremental.test.tsx
+- openspec/changes/stabilize-exhaustive-deps-sentinel-patterns/**
+- .trellis/tasks/04-23-stabilize-exhaustive-deps-sentinel-patterns/prd.md
+
+验证结果:
+- npm run typecheck 通过
+- npm run lint 通过（剩余 95 条 exhaustive-deps warning，0 errors）
+- npx vitest run src/features/composer/components/ChatInputBox/ButtonArea.test.tsx src/features/session-activity/hooks/useSessionRadarFeed.test.ts src/features/session-activity/hooks/useSessionRadarFeed.incremental.test.tsx 通过（3 files / 7 tests）
+- openspec status --change stabilize-exhaustive-deps-sentinel-patterns 显示 4/4 artifacts complete
+
+后续事项:
+- 下一轮优先直接攻 git-history hotspot，当前 remaining exhaustive-deps 里 70/95 集中在该文件。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `def54253` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
