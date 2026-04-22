@@ -1295,8 +1295,9 @@ impl AppSettings {
 
     pub(crate) fn upgrade_runtime_pool_settings_for_startup(&mut self) {
         self.sanitize_runtime_pool_settings();
-        self.codex_warm_ttl_seconds =
-            self.codex_warm_ttl_seconds.max(default_codex_warm_ttl_seconds());
+        self.codex_warm_ttl_seconds = self
+            .codex_warm_ttl_seconds
+            .max(default_codex_warm_ttl_seconds());
     }
 }
 

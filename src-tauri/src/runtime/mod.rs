@@ -19,8 +19,8 @@ use crate::state::AppState;
 use crate::types::{AppSettings, WorkspaceEntry};
 
 use self::process_diagnostics::{
-    build_engine_observability, current_host_untracked_engine_roots,
-    merge_process_diagnostics, snapshot_process_diagnostics, terminate_pid_tree,
+    build_engine_observability, current_host_untracked_engine_roots, merge_process_diagnostics,
+    snapshot_process_diagnostics, terminate_pid_tree,
 };
 
 const LEDGER_FILE_NAME: &str = "runtime-pool-ledger.json";
@@ -246,6 +246,8 @@ pub(crate) struct RuntimePoolRow {
     #[serde(default)]
     pub(crate) foreground_work_state: Option<RuntimeForegroundWorkState>,
     #[serde(default)]
+    pub(crate) foreground_work_source: Option<String>,
+    #[serde(default)]
     pub(crate) foreground_work_thread_id: Option<String>,
     #[serde(default)]
     pub(crate) foreground_work_turn_id: Option<String>,
@@ -376,6 +378,7 @@ struct RuntimeEntry {
     active_work_since_ms: Option<u64>,
     active_work_last_renewed_at_ms: Option<u64>,
     foreground_work_state: Option<RuntimeForegroundWorkState>,
+    foreground_work_source: Option<String>,
     foreground_work_thread_id: Option<String>,
     foreground_work_turn_id: Option<String>,
     foreground_work_since_ms: Option<u64>,
@@ -435,6 +438,7 @@ impl RuntimeEntry {
             active_work_since_ms: None,
             active_work_last_renewed_at_ms: None,
             foreground_work_state: None,
+            foreground_work_source: None,
             foreground_work_thread_id: None,
             foreground_work_turn_id: None,
             foreground_work_since_ms: None,
@@ -579,10 +583,12 @@ impl RuntimeEntry {
         state: RuntimeForegroundWorkState,
         thread_id: &str,
         turn_id: Option<&str>,
+        source: &str,
         timeout_ms: u64,
     ) {
         let now = now_millis();
         self.foreground_work_state = Some(state);
+        self.foreground_work_source = Some(source.to_string());
         self.foreground_work_thread_id = Some(thread_id.to_string());
         self.foreground_work_turn_id = turn_id
             .map(str::trim)
@@ -600,6 +606,7 @@ impl RuntimeEntry {
 
     fn clear_foreground_work_continuity(&mut self) {
         self.foreground_work_state = None;
+        self.foreground_work_source = None;
         self.foreground_work_thread_id = None;
         self.foreground_work_turn_id = None;
         self.foreground_work_since_ms = None;
@@ -831,6 +838,28 @@ impl RuntimeManager {
             runtime.last_probe_failure_source = Some(source.to_string());
             runtime.last_recovery_source = Some(source.to_string());
             runtime.last_guard_state = Some("probe-failed".to_string());
+            if runtime.startup_state == Some(RuntimeStartupState::Ready) {
+                runtime.startup_state = Some(RuntimeStartupState::SuspectStale);
+            }
+        }
+        drop(entries);
+        let _ = self.persist_ledger().await;
+    }
+
+    pub(crate) async fn note_stale_session_rejection(
+        &self,
+        engine: &str,
+        workspace_id: &str,
+        source: &str,
+        reason: &str,
+    ) {
+        let key = runtime_key(engine, workspace_id);
+        let mut entries = self.entries.lock().await;
+        if let Some(runtime) = entries.get_mut(&key) {
+            runtime.last_probe_failure = Some(reason.to_string());
+            runtime.last_probe_failure_source = Some(source.to_string());
+            runtime.last_recovery_source = Some(source.to_string());
+            runtime.last_guard_state = Some("pre-probe-rejected".to_string());
             if runtime.startup_state == Some(RuntimeStartupState::Ready) {
                 runtime.startup_state = Some(RuntimeStartupState::SuspectStale);
             }
@@ -1543,6 +1572,7 @@ impl RuntimeManager {
             RuntimeForegroundWorkState::StartupPending,
             thread_id,
             None,
+            "turn-start",
             timeout_ms,
         );
         runtime.last_used_at_ms = now_millis();
@@ -1563,6 +1593,7 @@ impl RuntimeManager {
             RuntimeForegroundWorkState::StartupPending,
             THREAD_CREATE_PENDING_SENTINEL,
             None,
+            "thread-create",
             timeout_ms,
         );
         runtime.last_used_at_ms = now_millis();
@@ -1576,6 +1607,7 @@ impl RuntimeManager {
         engine: &str,
         thread_id: &str,
         turn_id: Option<&str>,
+        source: &str,
         timeout_ms: u64,
     ) {
         let mut entries = self.entries.lock().await;
@@ -1585,6 +1617,7 @@ impl RuntimeManager {
             RuntimeForegroundWorkState::ResumePending,
             thread_id,
             turn_id,
+            source,
             timeout_ms,
         );
         runtime.last_used_at_ms = now_millis();
@@ -1777,6 +1810,7 @@ impl RuntimeManager {
                         .active_work_last_renewed_at_ms
                         .or(entry.foreground_work_last_event_at_ms),
                     foreground_work_state: entry.foreground_work_state.clone(),
+                    foreground_work_source: entry.foreground_work_source.clone(),
                     foreground_work_thread_id: entry.foreground_work_thread_id.clone(),
                     foreground_work_turn_id: entry.foreground_work_turn_id.clone(),
                     foreground_work_since_ms: entry.foreground_work_since_ms,
@@ -1980,6 +2014,7 @@ impl RuntimeManager {
                         .active_work_last_renewed_at_ms
                         .or(entry.foreground_work_last_event_at_ms),
                     foreground_work_state: entry.foreground_work_state.clone(),
+                    foreground_work_source: entry.foreground_work_source.clone(),
                     foreground_work_thread_id: entry.foreground_work_thread_id.clone(),
                     foreground_work_turn_id: entry.foreground_work_turn_id.clone(),
                     foreground_work_since_ms: entry.foreground_work_since_ms,

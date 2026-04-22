@@ -7,6 +7,20 @@ const SESSION_HEALTH_PROBE_TIMEOUT_SECS: u64 = 3;
 const DELETE_ARCHIVE_TIMEOUT_MS: u64 = 2_000;
 const LIST_THREADS_LIVE_TIMEOUT_MS: u64 = 1_500;
 const CLAUDE_MANUAL_COMPACT_TIMEOUT_SECS: u64 = 120;
+const CREATE_SESSION_RUNTIME_RECOVERING_ERROR_PREFIX: &str = "[SESSION_CREATE_RUNTIME_RECOVERING]";
+
+fn is_stopping_runtime_race_error(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("manual shutdown")
+        || normalized.contains("manual_shutdown")
+        || (normalized.contains("[runtime_ended]") && normalized.contains("stopped after"))
+}
+
+fn create_session_runtime_recovering_error() -> String {
+    format!(
+        "{CREATE_SESSION_RUNTIME_RECOVERING_ERROR_PREFIX} Managed runtime was restarting while creating this session. The app retried automatically but could not acquire a healthy runtime yet. Reconnect the workspace and try again."
+    )
+}
 
 fn is_valid_claude_model_for_passthrough(model: &str) -> bool {
     let trimmed = model.trim();
@@ -140,23 +154,37 @@ impl DaemonState {
             sessions.get(workspace_id).cloned()
         };
         if let Some(session) = existing_session {
-            match session
-                .probe_health(Duration::from_secs(SESSION_HEALTH_PROBE_TIMEOUT_SECS))
-                .await
-            {
-                Ok(()) => return Ok(()),
-                Err(error) => {
-                    log::warn!(
-                        "[daemon.ensure_codex_session_for_workspace] stale session detected for workspace {}: {}",
-                        workspace_id,
-                        error
-                    );
-                    workspaces_core::disconnect_workspace_session_core(
-                        &self.sessions,
-                        None,
-                        workspace_id,
-                    )
-                    .await;
+            if let Some(reason) = session.stale_reuse_reason() {
+                log::warn!(
+                    "[daemon.ensure_codex_session_for_workspace] stale session rejected before probe for workspace {}: {}",
+                    workspace_id,
+                    reason
+                );
+                workspaces_core::disconnect_workspace_session_core(
+                    &self.sessions,
+                    None,
+                    workspace_id,
+                )
+                .await;
+            } else {
+                match session
+                    .probe_health(Duration::from_secs(SESSION_HEALTH_PROBE_TIMEOUT_SECS))
+                    .await
+                {
+                    Ok(()) => return Ok(()),
+                    Err(error) => {
+                        log::warn!(
+                            "[daemon.ensure_codex_session_for_workspace] stale session detected for workspace {}: {}",
+                            workspace_id,
+                            error
+                        );
+                        workspaces_core::disconnect_workspace_session_core(
+                            &self.sessions,
+                            None,
+                            workspace_id,
+                        )
+                        .await;
+                    }
                 }
             }
         }
@@ -573,6 +601,20 @@ impl DaemonState {
 
     pub(super) async fn get_app_settings(&self) -> AppSettings {
         settings_core::get_app_settings_core(&self.app_settings).await
+    }
+
+    pub(super) async fn codex_doctor(
+        &self,
+        codex_bin: Option<String>,
+        codex_args: Option<String>,
+    ) -> Result<Value, String> {
+        let settings = self.app_settings.lock().await.clone();
+        crate::codex::run_codex_doctor_with_settings(codex_bin, codex_args, &settings).await
+    }
+
+    pub(super) async fn claude_doctor(&self, claude_bin: Option<String>) -> Result<Value, String> {
+        let settings = self.app_settings.lock().await.clone();
+        crate::codex::run_claude_doctor_with_settings(claude_bin, &settings).await
     }
 
     pub(super) fn get_codex_unified_exec_external_status(
@@ -1769,7 +1811,37 @@ impl DaemonState {
     }
 
     pub(super) async fn start_thread(&self, workspace_id: String) -> Result<Value, String> {
-        codex_core::start_thread_core(&self.sessions, workspace_id, None).await
+        self.ensure_codex_session_for_workspace(&workspace_id)
+            .await?;
+        let first_attempt =
+            codex_core::start_thread_core(&self.sessions, workspace_id.clone(), None).await;
+        match first_attempt {
+            Ok(response) => Ok(response),
+            Err(error) if is_stopping_runtime_race_error(&error) => {
+                log::warn!(
+                    "[daemon.start_thread] retrying after stopping runtime race for workspace {}: {}",
+                    workspace_id,
+                    error
+                );
+                self.ensure_codex_session_for_workspace(&workspace_id)
+                    .await?;
+                match codex_core::start_thread_core(&self.sessions, workspace_id.clone(), None)
+                    .await
+                {
+                    Ok(response) => Ok(response),
+                    Err(retry_error) if is_stopping_runtime_race_error(&retry_error) => {
+                        log::warn!(
+                            "[daemon.start_thread] stopping runtime race retry exhausted for workspace {}: {}",
+                            workspace_id,
+                            retry_error
+                        );
+                        Err(create_session_runtime_recovering_error())
+                    }
+                    Err(retry_error) => Err(retry_error),
+                }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub(super) async fn resume_thread(
@@ -1903,6 +1975,22 @@ impl DaemonState {
         serde_json::to_value(result).map_err(|error| error.to_string())
     }
 
+    pub(super) async fn fork_claude_session(
+        &self,
+        workspace_path: String,
+        session_id: String,
+    ) -> Result<Value, String> {
+        let path = PathBuf::from(workspace_path);
+        let forked_session_id =
+            engine::claude_history::fork_claude_session(&path, &session_id).await?;
+        Ok(json!({
+            "thread": {
+                "id": format!("claude:{}", forked_session_id)
+            },
+            "sessionId": forked_session_id
+        }))
+    }
+
     pub(super) async fn fork_claude_session_from_message(
         &self,
         workspace_path: String,
@@ -1922,6 +2010,15 @@ impl DaemonState {
             },
             "sessionId": forked_session_id
         }))
+    }
+
+    pub(super) async fn delete_claude_session(
+        &self,
+        workspace_path: String,
+        session_id: String,
+    ) -> Result<(), String> {
+        let path = PathBuf::from(workspace_path);
+        engine::claude_history::delete_claude_session(&path, &session_id).await
     }
 
     pub(super) async fn list_gemini_sessions(
@@ -1960,6 +2057,24 @@ impl DaemonState {
         )
         .await?;
         serde_json::to_value(result).map_err(|error| error.to_string())
+    }
+
+    pub(super) async fn delete_gemini_session(
+        &self,
+        workspace_path: String,
+        session_id: String,
+    ) -> Result<(), String> {
+        let path = PathBuf::from(workspace_path);
+        let config = self
+            .engine_manager
+            .get_engine_config(engine::EngineType::Gemini)
+            .await;
+        engine::gemini_history::delete_gemini_session(
+            &path,
+            &session_id,
+            config.as_ref().and_then(|item| item.home_dir.as_deref()),
+        )
+        .await
     }
 
     pub(super) async fn list_mcp_server_status(

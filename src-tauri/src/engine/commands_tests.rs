@@ -450,3 +450,13 @@ fn delete_opencode_session_from_datastore_removes_session_and_storage_json() {
 
     let _ = std::fs::remove_dir_all(&base);
 }
+
+#[test]
+fn remote_claude_doctor_request_normalizes_explicit_bin() {
+    let (method, params) = crate::codex::remote_claude_doctor_request(Some(
+        "\\\\wsl$\\Ubuntu\\home\\demo\\claude".to_string(),
+    ));
+
+    assert_eq!(method, "claude_doctor");
+    assert_eq!(params, json!({ "claudeBin": "/home/demo/claude" }));
+}

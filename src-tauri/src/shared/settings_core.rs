@@ -269,7 +269,9 @@ mod tests {
         let mut updated = previous.clone();
         updated.system_proxy_enabled = !previous.system_proxy_enabled;
 
-        assert!(app_settings_change_requires_codex_restart(&previous, &updated));
+        assert!(app_settings_change_requires_codex_restart(
+            &previous, &updated
+        ));
     }
 
     #[test]
@@ -278,7 +280,9 @@ mod tests {
         let mut updated = previous.clone();
         updated.codex_unified_exec_policy = CodexUnifiedExecPolicy::ForceEnabled;
 
-        assert!(app_settings_change_requires_codex_restart(&previous, &updated));
+        assert!(app_settings_change_requires_codex_restart(
+            &previous, &updated
+        ));
     }
 
     #[test]

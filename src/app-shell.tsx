@@ -218,6 +218,7 @@ export function AppShell() {
     appSettings,
     setAppSettings,
     doctor,
+    claudeDoctor,
     appSettingsLoading,
     reduceTransparency,
     setReduceTransparency,
@@ -722,6 +723,7 @@ export function AppShell() {
     setActiveEngine,
     engineModelsAsOptions,
     engineStatuses,
+    refreshEngineModels,
     refreshEngines,
   } = useEngineController({ activeWorkspace, onDebug: addDebugEntry });
   const {
@@ -1118,6 +1120,7 @@ export function AppShell() {
     refreshThread,
     sendUserMessage,
     sendUserMessageToThread,
+    handleFusionStalled,
     startFork,
     startReview,
     startResume,
@@ -1245,8 +1248,8 @@ export function AppShell() {
       label: "engine/models refresh on new claude thread",
       payload: { workspaceId: activeWorkspaceId, threadId: activeThreadId },
     });
-    void refreshEngines();
-  }, [activeEngine, activeThreadId, activeWorkspaceId, addDebugEntry, refreshEngines]);
+    void refreshEngineModels("claude");
+  }, [activeEngine, activeThreadId, activeWorkspaceId, addDebugEntry, refreshEngineModels]);
 
   const handleUserInputSubmitWithPlanApply = useCallback(
     async (
@@ -1977,6 +1980,12 @@ export function AppShell() {
   } = useComposerController({
     activeThreadId,
     activeTurnId,
+    activeContinuationPulse: activeThreadId
+      ? (threadStatusById[activeThreadId]?.continuationPulse ?? 0)
+      : 0,
+    activeTerminalPulse: activeThreadId
+      ? (threadStatusById[activeThreadId]?.terminalPulse ?? 0)
+      : 0,
     activeWorkspaceId,
     activeWorkspace,
     isProcessing,
@@ -1987,6 +1996,7 @@ export function AppShell() {
     startThreadForWorkspace,
     sendUserMessage,
     sendUserMessageToThread,
+    handleFusionStalled,
     startFork,
     startReview,
     startResume,
@@ -2824,7 +2834,7 @@ export function AppShell() {
     confirmBranch, confirmClonePrompt, confirmCommit, confirmCustom, confirmRenameWorktreeUpstream, confirmWorktreePrompt, connectWorkspace, createBranch,
     createPrompt, createWorkspaceGroup, debugEntries, debugOpen, debugPanelHeight, defaultModel, deletePrompt, deleteThreadPrompt,
     deleteWorkspaceGroup, deletingWorktreeIds, delta, dictationError, dictationHint, dictationLevel, dictationModel, dictationReady,
-    dictationState, dictationTranscript, diffScrollRequestId, diffSource, directories, dismissErrorToast, dismissUpdate, doctor,
+    dictationState, dictationTranscript, diffScrollRequestId, diffSource, directories, dismissErrorToast, dismissUpdate, doctor, claudeDoctor,
     dragHandle, editorHighlightTarget, editorNavigationTarget, editorSplitLayout, effectiveModels, effectiveReasoningSupported, effectiveRuntimeMode, effectiveSelectedModel,
     effectiveSelectedModelId, effectiveUiMode, engineModelsAsOptions, engineSelectedModelIdByType, engineSelection, engineStatuses, ensureLaunchTerminal, ensureTerminalWithTitle,
     ensureWorkspaceThreadListLoaded, entry, errorToasts, existing, exitDiffView, expandRightPanel, expandSidebar, filePanelMode,
@@ -2863,7 +2873,7 @@ export function AppShell() {
     pinnedThreadsVersion, planByThread, planPanelHeight, pointerId, prefillDraft, prevFiles, previous, previousAgentTimestamp,
     previousDurationMs, previousTracker, prompts, pushError, pushLoading, queueGitStatusRefresh, queueMessage,
     queueSaveSettings, rafId, rateLimitsByWorkspace, reasoningOptions, reasoningSupported, recentThreads, reduceTransparency, refreshAccountInfo,
-    refreshAccountRateLimits, refreshFiles, refreshGitDiffs, refreshGitLog, refreshGitStatus, refreshThread, refreshWorkspaces, releaseNotesActiveIndex,
+    refreshAccountRateLimits, refreshEngines, refreshFiles, refreshGitDiffs, refreshGitLog, refreshGitStatus, refreshThread, refreshWorkspaces, releaseNotesActiveIndex,
     releaseNotesEntries, releaseNotesError, releaseNotesLoading, releaseNotesOpen, reloadSelectedAgent, removeImage, removeImagesForThread, removeThread, removeThreads,
     removeWorkspace, removeWorktree, renamePrompt, renameThread, renameWorkspaceGroup, renameWorktree, renameWorktreeNotice, renameWorktreePrompt,
     renameWorktreeUpstream, renameWorktreeUpstreamPrompt, requestId, requestThreadId, resetGitHubPanelState, resetSoloSplitToHalf, resetWorkspaceThreads, resolveCloneProjectContext,

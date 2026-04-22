@@ -1,4 +1,9 @@
-import { vi } from "vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach, vi } from "vitest";
+
+afterEach(() => {
+  cleanup();
+});
 
 if (typeof Element !== "undefined" && !Element.prototype.getAnimations) {
   Object.defineProperty(Element.prototype, "getAnimations", {
@@ -42,6 +47,58 @@ vi.mock("react-i18next", () => ({
         "errors.failedToCreateSession": "Failed to create session.",
         "errors.failedToCreateSessionNoThreadId":
           "The runtime did not return a new session id.",
+        "errors.failedToCreateSessionRuntimeRecovering":
+          "The runtime was restarting while creating this session. The app already retried once. Reconnect the workspace and try again.",
+        "errors.reconnectAndRetryCreateSession":
+          "Reconnect and retry creation",
+        "errors.reconnectingAndRetryingCreateSession":
+          "Reconnecting and retrying creation...",
+        "errors.runtimeRecovered": "Runtime recovered.",
+        "errors.retryingCreateSessionAfterRecovery":
+          "Retrying session creation...",
+        "runtimeNotice.title": "运行时提示",
+        "runtimeNotice.open": "打开运行时提示",
+        "runtimeNotice.minimize": "最小化",
+        "runtimeNotice.clear": "清空",
+        "runtimeNotice.emptyTitle": "暂无运行时提示",
+        "runtimeNotice.emptyDescription": "初始化进度和关键错误会显示在这里",
+        "runtimeNotice.statusIdle": "空闲",
+        "runtimeNotice.statusStreaming": "运行中",
+        "runtimeNotice.statusError": "异常",
+        "runtimeNotice.severityInfo": "提示",
+        "runtimeNotice.severityWarning": "警告",
+        "runtimeNotice.severityError": "错误",
+        "runtimeNotice.bootstrap.start": "正在初始化本地状态...",
+        "runtimeNotice.bootstrap.storageMigrationCheck": "正在检查本地状态迁移...",
+        "runtimeNotice.bootstrap.inputHistoryRestore": "正在恢复输入历史...",
+        "runtimeNotice.bootstrap.interfaceResources": "正在加载界面资源...",
+        "runtimeNotice.bootstrap.mountShell": "正在挂载客户端界面...",
+        "runtimeNotice.bootstrap.localStorageMigrationFailed":
+          "本地状态迁移失败，已按降级模式继续启动",
+        "runtimeNotice.bootstrap.ready": "客户端初始化完成",
+        "runtimeNotice.bootstrap.failed": "客户端初始化失败，请刷新后重试",
+        "runtimeNotice.runtime.startupPending":
+          `${String(params?.workspace ?? "")}：${String(params?.engine ?? "Runtime")} runtime 正在连接...`,
+        "runtimeNotice.runtime.resumePending":
+          `${String(params?.workspace ?? "")}：Runtime 探活异常，正在尝试恢复`,
+        "runtimeNotice.runtime.ready":
+          `${String(params?.workspace ?? "")}：${String(params?.engine ?? "Runtime")} runtime 已连接`,
+        "runtimeNotice.runtime.suspectStale":
+          `${String(params?.workspace ?? "")}：Runtime 探活异常，正在尝试恢复`,
+        "runtimeNotice.runtime.cooldown":
+          `${String(params?.workspace ?? "")}：Runtime 恢复失败，当前处于冷却期`,
+        "runtimeNotice.runtime.quarantined":
+          `${String(params?.workspace ?? "")}：Runtime 恢复失败，需要人工关注`,
+        "runtimeNotice.engine.checking":
+          `正在检测 ${String(params?.engine ?? "")} 状态...`,
+        "runtimeNotice.engine.ready":
+          `${String(params?.engine ?? "")} 已就绪`,
+        "runtimeNotice.engine.unavailable":
+          `${String(params?.engine ?? "")} 未安装，请先安装`,
+        "runtimeNotice.engine.requiresLogin":
+          `${String(params?.engine ?? "")} 需先登录`,
+        "runtimeNotice.error.createSessionRecoveryRequired":
+          `${String(params?.workspace ?? "")}：会话创建失败，运行时正在恢复`,
         "sidebar.searchProjects": "Search projects",
         "sidebar.clearSearch": "Clear search",
         "sidebar.pinned": "Pinned",
@@ -110,7 +167,17 @@ vi.mock("react-i18next", () => ({
         "settings.sidebarReleaseNotes": "Release Notes",
         "settings.releaseNotesDescription": "Review feature updates and fixes from every release.",
         "settings.openReleaseNotes": "Open release notes",
-        "settings.sidebarCodex": "Codex",
+        "settings.sidebarCodex": "CLI Validation",
+        "settings.cliValidationTitle": "CLI Validation",
+        "settings.cliValidationDescription":
+          "Validate the CLIs used by ccgui, choose the shared execution backend once, and switch diagnostics between Codex and Claude Code.",
+        "settings.cliExecutionBackendTitle": "Execution backend",
+        "settings.cliExecutionBackendDescription":
+          "These transport settings are shared by Codex and Claude Code runtime requests.",
+        "settings.cliValidationTabCodex": "Codex",
+        "settings.cliValidationTabClaudeCode": "Claude Code",
+        "settings.runClaudeDoctor": "Run Claude Doctor",
+        "settings.defaultClaudePath": "Default Claude Code path",
         "settings.sidebarExperimental": "Experimental",
         "settings.basicAppearance": "Appearance",
         "settings.basicBehavior": "Behavior",
@@ -614,11 +681,13 @@ vi.mock("react-i18next", () => ({
         "settings.unableToOpenConfig": "Unable to open config.",
         // Thread error messages
         "threads.sessionStopped": "会话已停止。",
-        "threads.sessionStoppedForFusion": "已切换到融合回复，内容正在继续生成。",
+        "threads.sessionStoppedForFusion": "正在切换到融合回复，等待新的接续事件…",
         "threads.turnFailed": "会话失败。",
         "threads.turnFailedWithMessage": "会话失败：{{message}}",
         "threads.turnFailedToStart": "会话启动失败。",
         "threads.turnFailedToStartWithMessage": "会话启动失败：{{message}}",
+        "threads.fusionTurnStalled": "融合回复未能接上，当前线程已回到可继续操作的状态。",
+        "threads.fusionTurnStalledWithMessage": "融合回复未能接上：{{message}}",
         "threads.untitledThread": "未命名对话",
         "messages.middleStepsCollapsedHint": "已折叠 {{count}} 条中间步骤（实时中）",
         "workspace.homeHeroTitle": "构建任何东西",

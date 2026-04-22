@@ -1649,6 +1649,74 @@ describe("Messages", () => {
     expect(container.querySelector(".message.assistant .markdown-live-streaming")).toBeTruthy();
   });
 
+  it("stabilizes live inline code rendering behind a bounded markdown throttle", () => {
+    vi.useFakeTimers();
+    try {
+      const firstItems: ConversationItem[] = [
+        {
+          id: "user-live-inline-code-1",
+          kind: "message",
+          role: "user",
+          text: "继续",
+        },
+        {
+          id: "assistant-live-inline-code-1",
+          kind: "message",
+          role: "assistant",
+          text: "命令是 `pnpm",
+        },
+      ];
+
+      const { container, rerender } = render(
+        <Messages
+          items={firstItems}
+          threadId="claude:thread-live-inline-code"
+          workspaceId="ws-1"
+          isThinking
+          processingStartedAt={Date.now() - 1_000}
+          activeEngine="claude"
+          openTargets={[]}
+          selectedOpenAppId=""
+        />,
+      );
+
+      rerender(
+        <Messages
+          items={[
+            firstItems[0]!,
+            {
+              id: "assistant-live-inline-code-1",
+              kind: "message",
+              role: "assistant",
+              text: "命令是 `pnpm\nrun\nlint`，执行后继续。",
+            },
+          ]}
+          threadId="claude:thread-live-inline-code"
+          workspaceId="ws-1"
+          isThinking
+          processingStartedAt={Date.now() - 1_000}
+          activeEngine="claude"
+          openTargets={[]}
+          selectedOpenAppId=""
+        />,
+      );
+
+      expect(container.querySelector(".message.assistant code")).toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(60);
+      });
+
+      const code = container.querySelector(".message.assistant code");
+      expect(code?.textContent ?? "").toBe("pnpm run lint");
+      expect(container.querySelector(".message.assistant .markdown")?.textContent ?? "").not.toContain(
+        "pnpmrunlint",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("freezes assistant content updates while text is selected", () => {
     const initialItems: ConversationItem[] = [
       {

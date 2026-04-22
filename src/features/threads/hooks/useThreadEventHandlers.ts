@@ -11,12 +11,20 @@ import { useThreadApprovalEvents } from "./useThreadApprovalEvents";
 import { useThreadItemEvents } from "./useThreadItemEvents";
 import { useThreadTurnEvents } from "./useThreadTurnEvents";
 import { useThreadUserInputEvents } from "./useThreadUserInputEvents";
-import { stripBackendErrorPrefix } from "../utils/networkErrors";
+import { parseFirstPacketTimeoutSeconds, stripBackendErrorPrefix } from "../utils/networkErrors";
 import { captureClaudeMcpRuntimeSnapshotFromRaw } from "../utils/claudeMcpRuntimeSnapshot";
 import { buildThreadDebugCorrelation } from "../utils/threadDebugCorrelation";
 import type { ThreadAction } from "./useThreadsReducer";
 import { isDebugLightPathEnabled } from "../utils/realtimePerfFlags";
+import {
+  buildThreadStreamCorrelationDimensions,
+  completeThreadStreamTurn,
+  noteThreadDeltaReceived,
+  noteThreadTurnStarted,
+  reportThreadUpstreamPending,
+} from "../utils/streamLatencyDiagnostics";
 
+const TURN_FIRST_DELTA_WARNING_MS = 6_000;
 const TURN_STALL_WARNING_MS = 6_000;
 const TURN_DIAGNOSTIC_VERBOSE_FLAG_KEY = "ccgui.debug.turnDiagnosticsVerbose";
 const EXECUTION_ITEM_TYPES = new Set([
@@ -242,6 +250,7 @@ export function useThreadEventHandlers({
 }: ThreadEventHandlersOptions) {
   const threadLifecycleSnapshotRef = useRef<Map<string, ThreadLifecycleSnapshot>>(new Map());
   const turnDiagnosticsRef = useRef<Map<string, TurnDiagnosticState>>(new Map());
+  const turnFirstDeltaTimerRef = useRef<Map<string, number>>(new Map());
   const turnStallTimerRef = useRef<Map<string, number>>(new Map());
 
   const getThreadLifecycleSnapshot = useCallback((threadId: string) => {
@@ -283,6 +292,15 @@ export function useThreadEventHandlers({
     [onDebug],
   );
 
+  const clearFirstDeltaTimer = useCallback((threadId: string) => {
+    const timerId = turnFirstDeltaTimerRef.current.get(threadId);
+    if (timerId === undefined) {
+      return;
+    }
+    window.clearTimeout(timerId);
+    turnFirstDeltaTimerRef.current.delete(threadId);
+  }, []);
+
   const clearTurnStallTimer = useCallback((threadId: string) => {
     const timerId = turnStallTimerRef.current.get(threadId);
     if (timerId === undefined) {
@@ -291,6 +309,44 @@ export function useThreadEventHandlers({
     window.clearTimeout(timerId);
     turnStallTimerRef.current.delete(threadId);
   }, []);
+
+  const scheduleFirstDeltaTimer = useCallback(
+    (threadId: string) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      clearFirstDeltaTimer(threadId);
+      const timerId = window.setTimeout(() => {
+        if (interruptedThreadsRef.current.has(threadId)) {
+          return;
+        }
+        const diagnostic = turnDiagnosticsRef.current.get(threadId);
+        if (!diagnostic || diagnostic.firstDeltaAt !== null) {
+          return;
+        }
+        const lifecycle = getThreadLifecycleSnapshot(threadId);
+        const now = Date.now();
+        const elapsedMs = Math.max(0, now - diagnostic.startedAt);
+        reportThreadUpstreamPending(threadId, {
+          elapsedMs,
+          diagnosticCategory: "first-token-delay",
+          reason: "waiting-for-first-delta",
+        });
+        emitTurnDiagnostic("waiting-for-first-delta", {
+          workspaceId: diagnostic.workspaceId,
+          threadId: diagnostic.threadId,
+          turnId: diagnostic.turnId,
+          elapsedMs,
+          isProcessing: lifecycle.isProcessing,
+          activeTurnId: lifecycle.activeTurnId,
+          diagnosticCategory: "first-token-delay",
+          ...buildThreadStreamCorrelationDimensions(threadId),
+        }, { force: true });
+      }, TURN_FIRST_DELTA_WARNING_MS);
+      turnFirstDeltaTimerRef.current.set(threadId, timerId);
+    },
+    [clearFirstDeltaTimer, emitTurnDiagnostic, getThreadLifecycleSnapshot, interruptedThreadsRef],
+  );
 
   const scheduleTurnStallTimer = useCallback(
     (threadId: string) => {
@@ -319,6 +375,7 @@ export function useThreadEventHandlers({
           hasExecutionItem: false,
           isProcessing: lifecycle.isProcessing,
           activeTurnId: lifecycle.activeTurnId,
+          ...buildThreadStreamCorrelationDimensions(threadId),
         }, { force: true });
       }, TURN_STALL_WARNING_MS);
       turnStallTimerRef.current.set(threadId, timerId);
@@ -382,6 +439,7 @@ export function useThreadEventHandlers({
           deltaSeen: diagnostic.firstDeltaAt !== null,
           isProcessing: lifecycle.isProcessing,
           activeTurnId: lifecycle.activeTurnId,
+          ...buildThreadStreamCorrelationDimensions(threadId),
         });
       }
       if (itemType && EXECUTION_ITEM_TYPES.has(itemType) && diagnostic.firstExecutionAt === null) {
@@ -403,6 +461,7 @@ export function useThreadEventHandlers({
             diagnostic.firstDeltaAt === null ? null : Math.max(0, now - diagnostic.firstDeltaAt),
           isProcessing: lifecycle.isProcessing,
           activeTurnId: lifecycle.activeTurnId,
+          ...buildThreadStreamCorrelationDimensions(threadId),
         });
       }
     },
@@ -410,12 +469,17 @@ export function useThreadEventHandlers({
   );
 
   useEffect(() => {
-    const timers = turnStallTimerRef.current;
+    const firstDeltaTimers = turnFirstDeltaTimerRef.current;
+    const stallTimers = turnStallTimerRef.current;
     return () => {
-      timers.forEach((timerId) => {
+      firstDeltaTimers.forEach((timerId) => {
         window.clearTimeout(timerId);
       });
-      timers.clear();
+      firstDeltaTimers.clear();
+      stallTimers.forEach((timerId) => {
+        window.clearTimeout(timerId);
+      });
+      stallTimers.clear();
     };
   }, []);
 
@@ -606,6 +670,7 @@ export function useThreadEventHandlers({
         return;
       }
       dispatch({ type: "markHeartbeat", threadId, pulse });
+      dispatch({ type: "markContinuationEvidence", threadId });
       safeMessageActivity();
     },
     [dispatch, safeMessageActivity],
@@ -614,12 +679,21 @@ export function useThreadEventHandlers({
   const onTurnStartedTracked = useCallback(
     (workspaceId: string, threadId: string, turnId: string) => {
       const startedAt = Date.now();
+      noteThreadTurnStarted({
+        workspaceId,
+        threadId,
+        turnId,
+        startedAt,
+      });
       clearTurnStallTimer(threadId);
+      clearFirstDeltaTimer(threadId);
       turnDiagnosticsRef.current.set(
         threadId,
         createTurnDiagnosticState(workspaceId, threadId, turnId, startedAt),
       );
+      scheduleFirstDeltaTimer(threadId);
       onTurnStarted(workspaceId, threadId, turnId);
+      dispatch({ type: "markContinuationEvidence", threadId });
       const lifecycle = getThreadLifecycleSnapshot(threadId);
       emitTurnDiagnostic("started", {
         workspaceId,
@@ -627,9 +701,18 @@ export function useThreadEventHandlers({
         turnId,
         isProcessing: lifecycle.isProcessing,
         activeTurnId: lifecycle.activeTurnId,
+        ...buildThreadStreamCorrelationDimensions(threadId),
       });
     },
-    [clearTurnStallTimer, emitTurnDiagnostic, getThreadLifecycleSnapshot, onTurnStarted],
+    [
+      clearFirstDeltaTimer,
+      clearTurnStallTimer,
+      dispatch,
+      emitTurnDiagnostic,
+      getThreadLifecycleSnapshot,
+      onTurnStarted,
+      scheduleFirstDeltaTimer,
+    ],
   );
 
   const onAgentMessageDeltaTracked = useCallback(
@@ -640,6 +723,7 @@ export function useThreadEventHandlers({
       delta: string;
     }) => {
       onAgentMessageDelta(payload);
+      dispatch({ type: "markContinuationEvidence", threadId: payload.threadId });
       if (interruptedThreadsRef.current.has(payload.threadId)) {
         return;
       }
@@ -647,11 +731,14 @@ export function useThreadEventHandlers({
       if (!diagnostic) {
         return;
       }
+      const deltaTimestamp = Date.now();
+      noteThreadDeltaReceived(payload.threadId, deltaTimestamp);
       diagnostic.deltaCount += 1;
       if (diagnostic.firstDeltaAt !== null) {
         return;
       }
-      diagnostic.firstDeltaAt = Date.now();
+      diagnostic.firstDeltaAt = deltaTimestamp;
+      clearFirstDeltaTimer(payload.threadId);
       scheduleTurnStallTimer(payload.threadId);
       const lifecycle = getThreadLifecycleSnapshot(payload.threadId);
       emitTurnDiagnostic("first-delta", {
@@ -663,9 +750,12 @@ export function useThreadEventHandlers({
         elapsedMs: Math.max(0, diagnostic.firstDeltaAt - diagnostic.startedAt),
         isProcessing: lifecycle.isProcessing,
         activeTurnId: lifecycle.activeTurnId,
+        ...buildThreadStreamCorrelationDimensions(payload.threadId),
       });
     },
     [
+      clearFirstDeltaTimer,
+      dispatch,
       emitTurnDiagnostic,
       getThreadLifecycleSnapshot,
       interruptedThreadsRef,
@@ -677,25 +767,28 @@ export function useThreadEventHandlers({
   const onItemStartedTracked = useCallback(
     (workspaceId: string, threadId: string, item: Record<string, unknown>) => {
       onItemStarted(workspaceId, threadId, item);
+      dispatch({ type: "markContinuationEvidence", threadId });
       captureTurnItemDiagnostic(threadId, "started", item);
     },
-    [captureTurnItemDiagnostic, onItemStarted],
+    [captureTurnItemDiagnostic, dispatch, onItemStarted],
   );
 
   const onItemUpdatedTracked = useCallback(
     (workspaceId: string, threadId: string, item: Record<string, unknown>) => {
       onItemUpdated(workspaceId, threadId, item);
+      dispatch({ type: "markContinuationEvidence", threadId });
       captureTurnItemDiagnostic(threadId, "updated", item);
     },
-    [captureTurnItemDiagnostic, onItemUpdated],
+    [captureTurnItemDiagnostic, dispatch, onItemUpdated],
   );
 
   const onItemCompletedTracked = useCallback(
     (workspaceId: string, threadId: string, item: Record<string, unknown>) => {
       onItemCompleted(workspaceId, threadId, item);
+      dispatch({ type: "markContinuationEvidence", threadId });
       captureTurnItemDiagnostic(threadId, "completed", item);
     },
-    [captureTurnItemDiagnostic, onItemCompleted],
+    [captureTurnItemDiagnostic, dispatch, onItemCompleted],
   );
 
   const finalizeTurnDiagnostic = useCallback(
@@ -705,6 +798,7 @@ export function useThreadEventHandlers({
       payload?: Record<string, unknown>,
     ) => {
       const diagnostic = turnDiagnosticsRef.current.get(threadId);
+      clearFirstDeltaTimer(threadId);
       clearTurnStallTimer(threadId);
       if (!diagnostic) {
         return;
@@ -714,6 +808,22 @@ export function useThreadEventHandlers({
         diagnostic.completedAt = now;
       } else {
         diagnostic.errorAt = now;
+      }
+      const rawMessage =
+        typeof payload?.message === "string" ? payload.message : null;
+      const firstPacketTimeoutSeconds =
+        rawMessage ? parseFirstPacketTimeoutSeconds(rawMessage) : null;
+      if (diagnostic.firstDeltaAt === null && finalState === "error") {
+        reportThreadUpstreamPending(threadId, {
+          elapsedMs: Math.max(0, now - diagnostic.startedAt),
+          diagnosticCategory:
+            firstPacketTimeoutSeconds !== null
+              ? "first-packet-timeout"
+              : "first-token-delay",
+          reason: firstPacketTimeoutSeconds !== null ? "first-packet-timeout" : "turn-error",
+          firstPacketTimeoutSeconds,
+          message: rawMessage,
+        });
       }
       const lifecycle = getThreadLifecycleSnapshot(threadId);
       emitTurnDiagnostic(finalState, {
@@ -743,11 +853,19 @@ export function useThreadEventHandlers({
         stalledAfterFirstDelta: diagnostic.stallReported,
         isProcessing: lifecycle.isProcessing,
         activeTurnId: lifecycle.activeTurnId,
+        firstPacketTimeoutSeconds,
+        ...buildThreadStreamCorrelationDimensions(threadId),
         ...payload,
       }, { force: finalState === "error" || diagnostic.stallReported });
       turnDiagnosticsRef.current.delete(threadId);
+      completeThreadStreamTurn(threadId);
     },
-    [clearTurnStallTimer, emitTurnDiagnostic, getThreadLifecycleSnapshot],
+    [
+      clearFirstDeltaTimer,
+      clearTurnStallTimer,
+      emitTurnDiagnostic,
+      getThreadLifecycleSnapshot,
+    ],
   );
 
   const onTurnCompletedTracked = useCallback(
@@ -794,6 +912,7 @@ export function useThreadEventHandlers({
         message: string;
         reasonCode: string;
         stage: string;
+        source: string;
         startedAtMs: number | null;
         timeoutMs: number | null;
       },
@@ -808,6 +927,7 @@ export function useThreadEventHandlers({
         diagnosticCategory: "resume_stalled",
         reasonCode: payload.reasonCode,
         stage: payload.stage,
+        source: payload.source,
         startedAtMs: payload.startedAtMs,
         timeoutMs: payload.timeoutMs,
       });

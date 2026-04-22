@@ -1,15 +1,14 @@
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
+import {
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import Bell from "lucide-react/dist/esm/icons/bell";
-import Check from "lucide-react/dist/esm/icons/check";
-import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
-import ChevronUp from "lucide-react/dist/esm/icons/chevron-up";
-import Copy from "lucide-react/dist/esm/icons/copy";
-import Flag from "lucide-react/dist/esm/icons/flag";
-import Terminal from "lucide-react/dist/esm/icons/terminal";
-import { AgentIcon } from "../../../components/AgentIcon";
-import { ProxyStatusBadge } from "../../../components/ProxyStatusBadge";
 import type {
   AccessMode,
   ApprovalRequest,
@@ -21,30 +20,18 @@ import type {
   TurnPlan,
   WorkspaceInfo,
 } from "../../../types";
-import type { ConversationEngine, ConversationState } from "../../threads/contracts/conversationCurtainContracts";
-import type { AgentTaskScrollRequest } from "../types";
-import { Markdown } from "./Markdown";
-import { CollapsibleUserTextBlock } from "./CollapsibleUserTextBlock";
-import { DiffBlock } from "../../git/components/DiffBlock";
-import { languageFromPath } from "../../../utils/syntax";
-import { useFileLinkOpener } from "../hooks/useFileLinkOpener";
-import {
-  groupToolItems,
-  shouldHideToolItemForRender,
-  type GroupedEntry,
-} from "../utils/groupToolItems";
-import {
-  ToolBlockRenderer,
-  ReadToolGroupBlock,
-  EditToolGroupBlock,
-  BashToolGroupBlock,
-  SearchToolGroupBlock,
-} from "./toolBlocks";
-import { buildCommandSummary, extractToolName, isBashTool } from "./toolBlocks/toolConstants";
-import type { PresentationProfile } from "../presentation/presentationProfile";
+import { isMacPlatform, isWindowsPlatform } from "../../../utils/platform";
+import type { ConversationState } from "../../threads/contracts/conversationCurtainContracts";
 import { ApprovalToasts } from "../../app/components/ApprovalToasts";
 import { RequestUserInputMessage } from "../../app/components/RequestUserInputMessage";
-import { ImageLightbox, MessageImageGrid, type MessageImage } from "./MessageMediaBlocks";
+import { useStreamActivityPhase } from "../../threads/hooks/useStreamActivityPhase";
+import {
+  noteThreadVisibleRender,
+  resolveActiveThreadStreamMitigation,
+  useThreadStreamLatencySnapshot,
+} from "../../threads/utils/streamLatencyDiagnostics";
+import type { AgentTaskScrollRequest } from "../types";
+import type { PresentationProfile } from "../presentation/presentationProfile";
 import {
   MESSAGES_LIVE_AUTO_FOLLOW_FLAG_KEY,
   MESSAGES_LIVE_COLLAPSE_MIDDLE_STEPS_FLAG_KEY,
@@ -52,11 +39,14 @@ import {
   readLocalBooleanFlag,
   writeLocalBooleanFlag,
 } from "../constants/liveCanvasControls";
-import { parseMemoryContextSummary } from "./messagesMemoryContext";
-import { useStreamActivityPhase, type StreamActivityPhase } from "../../threads/hooks/useStreamActivityPhase";
+import { useFileLinkOpener } from "../hooks/useFileLinkOpener";
+import {
+  groupToolItems,
+  shouldHideToolItemForRender,
+} from "../utils/groupToolItems";
+import { MessagesTimeline } from "./MessagesTimeline";
 import {
   collapseConsecutiveReasoningRuns,
-  compactComparableReasoningText,
   dedupeAdjacentReasoningItems,
   isExplicitReasoningSegmentId,
   parseReasoning,
@@ -75,10 +65,28 @@ import {
   isReasoningConversationItem,
   isUserMessageConversationItem,
 } from "./messageItemPredicates";
-import { resolveUserMessagePresentation } from "./messagesUserPresentation";
 import { parseAgentTaskNotification } from "../utils/agentTaskNotification";
 import { dedupeExitPlanItemsKeepFirst } from "./messagesExitPlan";
-import { RuntimeReconnectCard } from "./RuntimeReconnectCard";
+import {
+  countRenderableCollapsedEntries,
+  findLastAssistantMessageIndex,
+  findLastUserMessageIndex,
+  HistoryStickyCandidate,
+  isMessagesPerfDebugEnabled,
+  isSelectionInsideNode,
+  logClaudeRender,
+  logMessagesPerf,
+  MESSAGES_SLOW_ANCHOR_WARN_MS,
+  MESSAGES_SLOW_RENDER_WARN_MS,
+  normalizeHistoryStickyHeaderText,
+  resolveRenderableItems,
+  resolveWorkingActivityLabel,
+  SCROLL_THRESHOLD_PX,
+  scrollKeyForItems,
+  shouldHideClaudeReasoningModule,
+  toConversationEngine,
+  VISIBLE_MESSAGE_WINDOW,
+} from "./messagesRenderUtils";
 import { resolveAssistantRuntimeReconnectHint, resolveRetryMessageForReconnectItem } from "./runtimeReconnect";
 
 type MessagesProps = {
@@ -135,1137 +143,40 @@ type MessagesProps = {
   ) => Promise<string | null | void> | string | null | void;
 };
 
-type WorkingIndicatorProps = {
-  isThinking: boolean;
-  proxyEnabled?: boolean;
-  proxyUrl?: string | null;
-  processingStartedAt?: number | null;
-  lastDurationMs?: number | null;
-  heartbeatPulse?: number;
-  hasItems: boolean;
-  reasoningLabel?: string | null;
-  activityLabel?: string | null;
-  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
-  waitingForFirstChunk?: boolean;
-  presentationProfile?: PresentationProfile | null;
-  streamActivityPhase?: StreamActivityPhase;
-  primaryLabel?: string | null;
+type HistoryExpansionScrollSnapshot = {
+  scrollHeight: number;
+  scrollTop: number;
 };
 
-type MessageRowProps = {
-  item: Extract<ConversationItem, { kind: "message" }>;
-  workspaceId?: string | null;
-  threadId?: string | null;
-  isStreaming?: boolean;
-  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
-  activeCollaborationModeId?: string | null;
-  enableCollaborationBadge?: boolean;
-  presentationProfile?: PresentationProfile | null;
-  showRuntimeReconnectCard?: boolean;
-  onRecoverThreadRuntime?: (
-    workspaceId: string,
-    threadId: string,
-  ) => Promise<string | null | void> | string | null | void;
-  onRecoverThreadRuntimeAndResend?: (
-    workspaceId: string,
-    threadId: string,
-    message: Pick<QueuedMessage, "text" | "images">,
-  ) => Promise<string | null | void> | string | null | void;
-  retryMessage?: Pick<QueuedMessage, "text" | "images"> | null;
-  isCopied: boolean;
-  onCopy: (
-    item: Extract<ConversationItem, { kind: "message" }>,
-    copyText?: string,
-  ) => void;
-  codeBlockCopyUseModifier?: boolean;
-  onOpenFileLink?: (path: string) => void;
-  onOpenFileLinkMenu?: (event: React.MouseEvent, path: string) => void;
-};
-
-type ReasoningRowProps = {
-  item: Extract<ConversationItem, { kind: "reasoning" }>;
-  workspaceId?: string | null;
-  parsed: ReturnType<typeof parseReasoning>;
-  isExpanded: boolean;
-  isLive: boolean;
-  activeEngine?: "claude" | "codex" | "gemini" | "opencode";
-  onToggle: (id: string) => void;
-  onOpenFileLink?: (path: string) => void;
-  onOpenFileLinkMenu?: (event: React.MouseEvent, path: string) => void;
-};
-
-type ReviewRowProps = {
-  item: Extract<ConversationItem, { kind: "review" }>;
-  workspaceId?: string | null;
-  onOpenFileLink?: (path: string) => void;
-  onOpenFileLinkMenu?: (event: React.MouseEvent, path: string) => void;
-};
-
-type DiffRowProps = {
-  item: Extract<ConversationItem, { kind: "diff" }>;
-};
-
-type ExploreRowProps = {
-  item: Extract<ConversationItem, { kind: "explore" }>;
-  isExpanded: boolean;
-  onToggle: (id: string) => void;
-};
-
-function areMessageImagesEqual(
-  previous: Extract<ConversationItem, { kind: "message" }>["images"],
-  next: Extract<ConversationItem, { kind: "message" }>["images"],
-) {
-  if (previous === next) {
-    return true;
-  }
-  if (!previous?.length && !next?.length) {
-    return true;
-  }
-  if (!previous || !next || previous.length !== next.length) {
-    return false;
-  }
-  return previous.every((image, index) => image === next[index]);
-}
-
-function areMessageItemsEqual(
-  previous: Extract<ConversationItem, { kind: "message" }>,
-  next: Extract<ConversationItem, { kind: "message" }>,
-) {
-  return (
-    previous === next ||
-    (
-      previous.id === next.id &&
-      previous.role === next.role &&
-      previous.text === next.text &&
-      previous.engineSource === next.engineSource &&
-      previous.isFinal === next.isFinal &&
-      previous.finalCompletedAt === next.finalCompletedAt &&
-      previous.finalDurationMs === next.finalDurationMs &&
-      previous.selectedAgentName === next.selectedAgentName &&
-      previous.selectedAgentIcon === next.selectedAgentIcon &&
-      areMessageImagesEqual(previous.images, next.images)
-    )
-  );
-}
-
-function areMessageRowPropsEqual(
-  previous: MessageRowProps,
-  next: MessageRowProps,
-) {
-  return (
-    areMessageItemsEqual(previous.item, next.item) &&
-    previous.workspaceId === next.workspaceId &&
-    previous.threadId === next.threadId &&
-    previous.isStreaming === next.isStreaming &&
-    previous.activeEngine === next.activeEngine &&
-    previous.enableCollaborationBadge === next.enableCollaborationBadge &&
-    previous.presentationProfile === next.presentationProfile &&
-    previous.showRuntimeReconnectCard === next.showRuntimeReconnectCard &&
-    previous.onRecoverThreadRuntime === next.onRecoverThreadRuntime &&
-    previous.onRecoverThreadRuntimeAndResend === next.onRecoverThreadRuntimeAndResend &&
-    previous.retryMessage?.text === next.retryMessage?.text &&
-    areMessageImagesEqual(previous.retryMessage?.images, next.retryMessage?.images) &&
-    previous.isCopied === next.isCopied &&
-    previous.onCopy === next.onCopy &&
-    previous.codeBlockCopyUseModifier === next.codeBlockCopyUseModifier &&
-    previous.onOpenFileLink === next.onOpenFileLink &&
-    previous.onOpenFileLinkMenu === next.onOpenFileLinkMenu
-  );
-}
-
-function isSelectionInsideNode(selection: Selection | null, node: HTMLElement | null) {
-  if (!selection || selection.rangeCount === 0 || selection.isCollapsed || !node) {
-    return false;
-  }
-  for (let index = 0; index < selection.rangeCount; index += 1) {
-    const range = selection.getRangeAt(index);
-    if (node.contains(range.commonAncestorContainer)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-const SCROLL_THRESHOLD_PX = 120;
-const OPENCODE_NON_STREAMING_HINT_DELAY_MS = 12_000;
-const MESSAGES_PERF_DEBUG_FLAG_KEY = "ccgui.debug.messages.perf";
-const CLAUDE_HIDE_REASONING_MODULE_FLAG_KEY = "ccgui.claude.hideReasoningModule";
-const CLAUDE_RENDER_DEBUG_FLAG_KEY = "ccgui.debug.claude.render";
-
-const MESSAGES_SLOW_RENDER_WARN_MS = 18;
-const MESSAGES_SLOW_ANCHOR_WARN_MS = 8;
-const VISIBLE_MESSAGE_WINDOW = 30;
-
-type HistoryStickyCandidate = {
-  id: string;
-  text: string;
-};
-
-function normalizeHistoryStickyHeaderText(text: string) {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function isMessagesPerfDebugEnabled(): boolean {
-  if (!import.meta.env.DEV) {
-    return false;
-  }
-  if (typeof window === "undefined") {
-    return false;
-  }
-  return window.localStorage.getItem(MESSAGES_PERF_DEBUG_FLAG_KEY) === "1";
-}
-
-function shouldHideClaudeReasoningModule(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  try {
-    const value = window.localStorage.getItem(CLAUDE_HIDE_REASONING_MODULE_FLAG_KEY);
-    if (!value) {
-      return false;
-    }
-    const normalized = value.trim().toLowerCase();
-    return !(normalized === "0" || normalized === "false" || normalized === "off");
-  } catch {
-    return false;
-  }
-}
-
-function isClaudeRenderDebugEnabled(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-  try {
-    const value = window.localStorage.getItem(CLAUDE_RENDER_DEBUG_FLAG_KEY);
-    if (!value) {
-      return false;
-    }
-    const normalized = value.trim().toLowerCase();
-    return normalized === "1" || normalized === "true" || normalized === "on";
-  } catch {
-    return false;
-  }
-}
-
-function logClaudeRender(label: string, payload: Record<string, unknown>) {
-  if (!isClaudeRenderDebugEnabled()) {
-    return;
-  }
-  console.info(`[messages][claude-render] ${label}`, payload);
-}
-
-function logMessagesPerf(label: string, payload: Record<string, unknown>): void {
-  if (!isMessagesPerfDebugEnabled()) {
-    return;
-  }
-  console.info(`[messages][perf] ${label}`, payload);
-}
-
-function normalizeAgentTaskStatus(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (!normalized) {
-    return { label: "agent", tone: "neutral" as const };
-  }
-  if (/(fail|error|cancel(?:led)?|abort|timeout|timed[_ -]?out)/.test(normalized)) {
-    return { label: value?.trim() ?? "error", tone: "error" as const };
-  }
-  if (/(complete|completed|success|done|finish(?:ed)?)/.test(normalized)) {
-    return { label: value?.trim() ?? "completed", tone: "completed" as const };
-  }
-  if (/(running|processing|started|in[_ -]?progress|queued|pending)/.test(normalized)) {
-    return { label: value?.trim() ?? "running", tone: "running" as const };
-  }
-  return { label: value?.trim() ?? normalized, tone: "neutral" as const };
-}
-
-function basenameFromPath(value: string | null | undefined) {
-  const normalized = (value ?? "").trim();
-  if (!normalized) {
+function readHistoryExpansionScrollSnapshot(
+  container: HTMLDivElement | null,
+): HistoryExpansionScrollSnapshot | null {
+  if (!container) {
     return null;
   }
-  const segments = normalized.split(/[\\/]/).filter(Boolean);
-  return segments[segments.length - 1] ?? normalized;
+  const { scrollHeight, scrollTop } = container;
+  if (!Number.isFinite(scrollHeight) || !Number.isFinite(scrollTop)) {
+    return null;
+  }
+  return { scrollHeight, scrollTop };
 }
 
-function resolveAgentTaskDisplaySummary(summary: string | null | undefined) {
-  const normalized = (summary ?? "").trim();
-  if (!normalized) {
-    return {
-      title: "Agent result",
-      subtitle: null as string | null,
-    };
-  }
-  const match =
-    /Agent\s+["“]?([^"”]+)["”]?/i.exec(normalized)
-    ?? /智能体\s*["“]?([^"”]+)["”]?/i.exec(normalized);
-  const title = match?.[1]?.trim() || normalized;
-  return {
-    title,
-    subtitle: title === normalized ? null : normalized,
-  };
-}
-
-function toConversationEngine(
-  engine: "claude" | "codex" | "gemini" | "opencode",
-): ConversationEngine {
-  if (engine === "claude" || engine === "gemini" || engine === "opencode") {
-    return engine;
-  }
-  return "codex";
-}
-
-function resolveProvenanceEngineLabel(
-  engineSource: string | null | undefined,
-): string | null {
-  const normalized = (engineSource ?? "").trim().toLowerCase();
-  if (normalized === "claude") {
-    return "Claude";
-  }
-  if (normalized === "gemini") {
-    return "Gemini";
-  }
-  if (normalized === "opencode") {
-    return "OpenCode";
-  }
-  if (normalized === "codex") {
-    return "Codex";
-  }
-  return null;
-}
-
-function resolveRenderableItems({
-  legacyItems,
-  legacyThreadId: _legacyThreadId,
-  legacyWorkspaceId: _legacyWorkspaceId,
-  conversationState,
-}: {
-  legacyItems: ConversationItem[];
-  legacyThreadId: string | null;
-  legacyWorkspaceId: string | null;
-  conversationState: ConversationState | null;
-}) {
-  if (!conversationState) {
-    return legacyItems;
-  }
-  return conversationState.items;
-}
-
-function normalizeMessageImageSrc(path: string) {
-  if (!path) {
-    return "";
-  }
-  if (path.startsWith("data:") || path.startsWith("http://") || path.startsWith("https://")) {
-    return path;
-  }
-  if (path.startsWith("file://")) {
-    return path;
-  }
-  try {
-    return convertFileSrc(path);
-  } catch {
-    return "";
-  }
-}
-
-function formatDurationMs(durationMs: number) {
-  const durationSeconds = Math.max(0, Math.floor(durationMs / 1000));
-  const durationHours = Math.floor(durationSeconds / 3600);
-  const durationMinutes = Math.floor(durationSeconds / 60);
-  const durationRemainder = durationSeconds % 60;
-  if (durationHours > 0) {
-    const remainderMinutes = durationMinutes % 60;
-    return `${durationHours}:${String(remainderMinutes).padStart(2, "0")}:${String(durationRemainder).padStart(2, "0")}`;
-  }
-  return `${durationMinutes}:${String(durationRemainder).padStart(2, "0")}`;
-}
-
-function formatCompletedTimeMs(timestampMs: number) {
-  const date = new Date(timestampMs);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  const seconds = String(date.getSeconds()).padStart(2, "0");
-  return `${month}-${day} ${hours}:${minutes}:${seconds}`;
-}
-
-function scrollKeyForItems(items: ConversationItem[]) {
-  if (!items.length) {
-    return "empty";
-  }
-  const last = items[items.length - 1];
-  if (!last) {
-    return "empty";
-  }
-  switch (last.kind) {
-    case "message":
-      return `${last.id}-${last.text.length}`;
-    case "reasoning":
-      return `${last.id}-${last.summary.length}-${last.content.length}`;
-    case "explore":
-      return `${last.id}-${last.status}-${last.entries.length}`;
-    case "tool":
-      return `${last.id}-${last.status ?? ""}-${last.output?.length ?? 0}`;
-    case "diff":
-      return `${last.id}-${last.status ?? ""}-${last.diff.length}`;
-    case "review":
-      return `${last.id}-${last.state}-${last.text.length}`;
-    default: {
-      const _exhaustive: never = last;
-      return _exhaustive;
-    }
-  }
-}
-
-function resolveCodexCommandActivityLabel(item: Extract<ConversationItem, { kind: "tool" }>) {
-  return buildCommandSummary(item, { includeDetail: false });
-}
-
-function shouldHideCodexCanvasCommandCard(
-  item: Extract<ConversationItem, { kind: "tool" }>,
-  activeEngine: "claude" | "codex" | "gemini" | "opencode",
+function restoreHistoryExpansionScrollPosition(
+  container: HTMLDivElement,
+  snapshot: HistoryExpansionScrollSnapshot,
 ) {
-  if (activeEngine !== "codex" && activeEngine !== "claude") {
+  const currentScrollHeight = container.scrollHeight;
+  if (!Number.isFinite(currentScrollHeight)) {
     return false;
   }
-  const normalizedToolName = extractToolName(item.title)
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-  if (
-    normalizedToolName === "exitplanmode" ||
-    normalizedToolName.endsWith("exitplanmode")
-  ) {
+  const scrollHeightDelta = currentScrollHeight - snapshot.scrollHeight;
+  const nextScrollTop = snapshot.scrollTop + scrollHeightDelta;
+  if (!Number.isFinite(nextScrollTop)) {
     return false;
   }
-  if (item.toolType === "commandExecution") {
-    return true;
-  }
-  return isBashTool(extractToolName(item.title).toLowerCase());
-}
-
-function countRenderableCollapsedEntries(
-  items: ConversationItem[],
-  activeEngine: "claude" | "codex" | "gemini" | "opencode",
-) {
-  if (items.length === 0) {
-    return 0;
-  }
-  return groupToolItems(items).reduce((count, entry) => {
-    if (entry.kind === "bashGroup") {
-      return activeEngine === "codex" || activeEngine === "claude" ? count : count + 1;
-    }
-    if (
-      entry.kind === "item" &&
-      entry.item.kind === "tool" &&
-      shouldHideCodexCanvasCommandCard(entry.item, activeEngine)
-    ) {
-      return count;
-    }
-    return count + 1;
-  }, 0);
-}
-
-function resolveWorkingActivityLabel(
-  item: ConversationItem,
-  activeEngine: "claude" | "codex" | "gemini" | "opencode" = "claude",
-  presentationProfile: PresentationProfile | null = null,
-) {
-  if (item.kind === "reasoning") {
-    const parsed = parseReasoning(item);
-    return parsed.workingLabel;
-  }
-  if (item.kind === "explore") {
-    const lastEntry = item.entries[item.entries.length - 1];
-    if (!lastEntry) {
-      return item.status === "exploring" ? "Exploring..." : "Explored";
-    }
-    return lastEntry.detail ? `${lastEntry.label} (${lastEntry.detail})` : lastEntry.label;
-  }
-  if (item.kind === "tool") {
-    const title = item.title?.trim();
-    const detail = item.detail?.trim();
-    const preferCommandSummary = presentationProfile
-      ? presentationProfile.preferCommandSummary
-      : activeEngine === "codex";
-    if (preferCommandSummary) {
-      const codexCommand = resolveCodexCommandActivityLabel(item);
-      if (codexCommand) {
-        return codexCommand;
-      }
-    }
-    if (!title) {
-      return null;
-    }
-    if (detail && item.toolType === "commandExecution") {
-      return `${title} @ ${detail}`;
-    }
-    return title;
-  }
-  if (item.kind === "diff") {
-    return item.title?.trim() || null;
-  }
-  if (item.kind === "review") {
-    return item.state === "started" ? "Review started" : "Review completed";
-  }
-  return null;
-}
-
-function findLastUserMessageIndex(items: ConversationItem[]) {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (isUserMessageConversationItem(item)) {
-      return index;
-    }
-  }
-  return -1;
-}
-
-function findLastAssistantMessageIndex(items: ConversationItem[]) {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (isAssistantMessageConversationItem(item)) {
-      return index;
-    }
-  }
-  return -1;
-}
-
-function shouldDisplayWorkingActivityLabel(
-  reasoningLabel: string | null,
-  activityLabel: string | null,
-) {
-  if (!activityLabel) {
-    return false;
-  }
-  if (!reasoningLabel) {
-    return true;
-  }
-  const compactReasoning = compactComparableReasoningText(reasoningLabel);
-  const compactActivity = compactComparableReasoningText(activityLabel);
-  if (!compactReasoning || !compactActivity) {
-    return true;
-  }
-  if (compactReasoning === compactActivity) {
-    return false;
-  }
-  if (compactReasoning.length >= 12 && compactActivity.includes(compactReasoning)) {
-    return false;
-  }
-  if (compactActivity.length >= 12 && compactReasoning.includes(compactActivity)) {
-    return false;
-  }
+  container.scrollTop = Math.max(0, nextScrollTop);
   return true;
 }
-
-const WorkingIndicator = memo(function WorkingIndicator({
-  isThinking,
-  proxyEnabled = false,
-  proxyUrl = null,
-  processingStartedAt = null,
-  lastDurationMs = null,
-  heartbeatPulse = 0,
-  hasItems,
-  reasoningLabel = null,
-  activityLabel = null,
-  activeEngine = "claude",
-  waitingForFirstChunk = false,
-  presentationProfile = null,
-  streamActivityPhase = "idle",
-  primaryLabel = null,
-}: WorkingIndicatorProps) {
-  const { t } = useTranslation();
-  const [elapsedMs, setElapsedMs] = useState(0);
-
-  useEffect(() => {
-    if (!isThinking || !processingStartedAt) {
-      setElapsedMs(0);
-      return undefined;
-    }
-    setElapsedMs(Date.now() - processingStartedAt);
-    const interval = window.setInterval(() => {
-      setElapsedMs(Date.now() - processingStartedAt);
-    }, 1000);
-    return () => window.clearInterval(interval);
-  }, [isThinking, processingStartedAt]);
-
-  const showNonStreamingHint =
-    (presentationProfile?.heartbeatWaitingHint ?? activeEngine === "opencode") &&
-    isThinking &&
-    waitingForFirstChunk &&
-    elapsedMs >= OPENCODE_NON_STREAMING_HINT_DELAY_MS;
-  const showActivityLabel = shouldDisplayWorkingActivityLabel(
-    reasoningLabel,
-    activityLabel,
-  );
-  const supportsStreamActivityPhaseFx =
-    activeEngine === "codex" || activeEngine === "claude" || activeEngine === "gemini";
-  const streamPhaseClass =
-    supportsStreamActivityPhaseFx && streamActivityPhase !== "idle"
-      ? ` is-${streamActivityPhase}`
-      : "";
-  const nonStreamingHintText = t("messages.nonStreamingHint");
-  const resolvedNonStreamingHint =
-    nonStreamingHintText === "messages.nonStreamingHint"
-      ? "This model may return non-streaming output, or the network may be unreachable. Please wait..."
-      : nonStreamingHintText;
-  const heartbeatHints = useMemo(() => {
-    const keys = [
-      "messages.opencodeHeartbeatHint1",
-      "messages.opencodeHeartbeatHint2",
-      "messages.opencodeHeartbeatHint3",
-      "messages.opencodeHeartbeatHint4",
-      "messages.opencodeHeartbeatHint5",
-    ];
-    const translated = keys
-      .map((key) => t(key))
-      .filter((value, index) => value !== keys[index]);
-    if (translated.length > 0) {
-      return translated;
-    }
-    return [resolvedNonStreamingHint];
-  }, [resolvedNonStreamingHint, t]);
-  const [heartbeatHintText, setHeartbeatHintText] = useState("");
-  const heartbeatStateRef = useRef<{ lastPulse: number; lastIndex: number }>({
-    lastPulse: 0,
-    lastIndex: -1,
-  });
-
-  useEffect(() => {
-    if (!showNonStreamingHint) {
-      heartbeatStateRef.current = { lastPulse: 0, lastIndex: -1 };
-      setHeartbeatHintText("");
-      return;
-    }
-    if (heartbeatPulse <= 0 || heartbeatPulse === heartbeatStateRef.current.lastPulse) {
-      return;
-    }
-    heartbeatStateRef.current.lastPulse = heartbeatPulse;
-    let randomIndex = Math.floor(Math.random() * heartbeatHints.length);
-    if (heartbeatHints.length > 1 && randomIndex === heartbeatStateRef.current.lastIndex) {
-      randomIndex = (randomIndex + 1) % heartbeatHints.length;
-    }
-    heartbeatStateRef.current.lastIndex = randomIndex;
-    const pulseText = t("messages.opencodeHeartbeatPulse", {
-      pulse: heartbeatPulse,
-      hint: heartbeatHints[randomIndex],
-    });
-    setHeartbeatHintText(
-      pulseText === "messages.opencodeHeartbeatPulse"
-        ? `Heartbeat ${heartbeatPulse}: ${heartbeatHints[randomIndex]}`
-        : pulseText,
-    );
-  }, [heartbeatHints, heartbeatPulse, showNonStreamingHint, t]);
-
-  return (
-    <>
-      {isThinking && (
-        <div className={`working${streamPhaseClass}`}>
-          {proxyEnabled && (
-            <ProxyStatusBadge
-              proxyUrl={proxyUrl}
-              label={t("messages.proxyBadge")}
-              variant="prominent"
-              animated
-              className="working-proxy-badge"
-            />
-          )}
-          <span className="working-spinner" aria-hidden />
-          <div className="working-timer">
-            <span className="working-timer-clock">{formatDurationMs(elapsedMs)}</span>
-          </div>
-          <span className="working-text">
-            {primaryLabel || reasoningLabel || t("messages.generatingResponse")}
-          </span>
-          {showActivityLabel && <span className="working-activity">{activityLabel}</span>}
-          {showNonStreamingHint && (
-            <span className="working-hint">
-              {heartbeatHintText || resolvedNonStreamingHint}
-            </span>
-          )}
-        </div>
-      )}
-      {!isThinking && lastDurationMs !== null && hasItems && (
-        <div className="turn-complete" aria-live="polite">
-          <span className="turn-complete-line" aria-hidden />
-          <span className="turn-complete-label">
-            {t("messages.doneIn", { duration: formatDurationMs(lastDurationMs) })}
-          </span>
-          <span className="turn-complete-line" aria-hidden />
-        </div>
-      )}
-    </>
-  );
-});
-
-const MessageRow = memo(function MessageRow({
-  item,
-  workspaceId = null,
-  threadId = null,
-  isStreaming = false,
-  activeEngine = "claude",
-  enableCollaborationBadge = false,
-  presentationProfile = null,
-  showRuntimeReconnectCard = false,
-  onRecoverThreadRuntime,
-  onRecoverThreadRuntimeAndResend,
-  retryMessage = null,
-  isCopied,
-  onCopy,
-  codeBlockCopyUseModifier,
-  onOpenFileLink,
-  onOpenFileLinkMenu,
-}: MessageRowProps) {
-  const { t } = useTranslation();
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
-  const [memorySummaryExpanded, setMemorySummaryExpanded] = useState(false);
-  const [isAgentBadgeExpanded, setIsAgentBadgeExpanded] = useState(false);
-  const userMessagePresentation = useMemo(
-    () => (
-      item.role === "user"
-        ? resolveUserMessagePresentation({
-            text: item.text,
-            selectedAgentName: item.selectedAgentName,
-            selectedAgentIcon: item.selectedAgentIcon,
-            enableCollaborationBadge,
-          })
-        : null
-    ),
-    [
-      enableCollaborationBadge,
-      item.role,
-      item.selectedAgentIcon,
-      item.selectedAgentName,
-      item.text,
-    ],
-  );
-  const memorySummary = useMemo(
-    () =>
-      item.role === "assistant"
-        ? parseMemoryContextSummary(item.text)
-        : userMessagePresentation?.memorySummary ?? null,
-    [item.role, item.text, userMessagePresentation?.memorySummary],
-  );
-  const agentTaskNotification = useMemo(
-    () => parseAgentTaskNotification(item.text),
-    [item.text],
-  );
-  const displayText = agentTaskNotification
-    ? agentTaskNotification.resultText
-    : item.role === "user"
-      ? (userMessagePresentation?.displayText ?? item.text)
-      : memorySummary
-        ? ""
-        : item.text;
-  const selectedAgentName = userMessagePresentation?.selectedAgentName ?? null;
-  const selectedAgentIcon = userMessagePresentation?.selectedAgentIcon ?? null;
-  const hasInjectedAgentPromptBlock =
-    userMessagePresentation?.hasInjectedAgentPromptBlock ?? false;
-  const hasExternalAgentBadge =
-    item.role === "user"
-    && !agentTaskNotification
-    && (Boolean(selectedAgentName) || hasInjectedAgentPromptBlock);
-  const agentTaskDisplay = useMemo(() => {
-    if (!agentTaskNotification) {
-      return null;
-    }
-    return {
-      ...resolveAgentTaskDisplaySummary(agentTaskNotification.summary),
-      status: normalizeAgentTaskStatus(agentTaskNotification.status),
-      outputFileName: basenameFromPath(agentTaskNotification.outputFile),
-    };
-  }, [agentTaskNotification]);
-  useEffect(() => {
-    setIsAgentBadgeExpanded(false);
-  }, [item.id, selectedAgentIcon, selectedAgentName]);
-  const handleToggleAgentBadge = useCallback(() => {
-    setIsAgentBadgeExpanded((current) => !current);
-  }, []);
-  const hasText = displayText.trim().length > 0;
-  const hideCopyButton = item.role === "assistant" && Boolean(memorySummary) && !hasText;
-  const useCodexCanvasMarkdown = presentationProfile
-    ? presentationProfile.codexCanvasMarkdown
-    : activeEngine === "codex";
-  const markdownClassName =
-    item.role === "assistant" && useCodexCanvasMarkdown
-      ? "markdown markdown-codex-canvas"
-      : "markdown";
-  const resolvedMarkdownClassName = isStreaming
-    ? `${markdownClassName} markdown-live-streaming`
-    : markdownClassName;
-  const imageItems = useMemo(() => {
-    if (!item.images || item.images.length === 0) {
-      return [];
-    }
-    return item.images
-      .map((image, index) => {
-        const src = normalizeMessageImageSrc(image);
-        if (!src) {
-          return null;
-        }
-        return { src, label: `Image ${index + 1}` };
-      })
-      .filter(Boolean) as MessageImage[];
-  }, [item.images]);
-  const provenanceLabel = resolveProvenanceEngineLabel(item.engineSource);
-  const runtimeReconnectHint = useMemo(
-    () => (
-      item.role === "assistant"
-        ? resolveAssistantRuntimeReconnectHint(item, Boolean(agentTaskNotification))
-        : null
-    ),
-    [agentTaskNotification, item],
-  );
-
-  const bubbleNode = (
-    <div className={`bubble message-bubble${agentTaskNotification ? " message-bubble-agent-task" : ""}`}>
-      {item.role === "assistant" && provenanceLabel ? (
-        <div className="message-provenance-row">
-          <span className="message-provenance-badge">{provenanceLabel}</span>
-        </div>
-      ) : null}
-      {agentTaskNotification && agentTaskDisplay ? (
-        <div className="message-agent-task-card">
-          <div className="message-agent-task-header">
-            <div className="message-agent-task-avatar" aria-hidden>
-              <AgentIcon
-                seed={agentTaskDisplay.title || agentTaskNotification.taskId || item.id}
-                fallback="codicon-hubot"
-                className="message-agent-task-avatar-icon"
-                size={18}
-              />
-            </div>
-            <div className="message-agent-task-heading">
-              <span className="message-agent-task-eyebrow">Agent session</span>
-              <strong className="message-agent-task-title">{agentTaskDisplay.title}</strong>
-              {agentTaskDisplay.subtitle ? (
-                <span className="message-agent-task-subtitle">{agentTaskDisplay.subtitle}</span>
-              ) : null}
-            </div>
-            <span className={`message-agent-task-status is-${agentTaskDisplay.status.tone}`}>
-              {agentTaskDisplay.status.label}
-            </span>
-          </div>
-          <div className="message-agent-task-meta">
-            {agentTaskNotification.taskId ? (
-              <span className="message-agent-task-chip">task {agentTaskNotification.taskId}</span>
-            ) : null}
-            {agentTaskNotification.toolUseId ? (
-              <span className="message-agent-task-chip">tool {agentTaskNotification.toolUseId}</span>
-            ) : null}
-            {agentTaskDisplay.outputFileName ? (
-              <span className="message-agent-task-chip">{agentTaskDisplay.outputFileName}</span>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-      {imageItems.length > 0 && (
-        <MessageImageGrid
-          images={imageItems}
-          onOpen={setLightboxIndex}
-          hasText={hasText}
-        />
-      )}
-      {memorySummary ? (
-        <div className="memory-context-summary-card">
-          <button
-            type="button"
-            className="memory-context-summary-toggle"
-            onClick={() => setMemorySummaryExpanded((current) => !current)}
-            aria-expanded={memorySummaryExpanded}
-          >
-            <span className="memory-context-summary-title">
-              {t("messages.memoryContextSummary")}
-            </span>
-            <span className="memory-context-summary-count">
-              {t("messages.memoryContextSummaryCount", {
-                count: memorySummary.lines.length,
-              })}
-            </span>
-            {memorySummaryExpanded ? (
-              <ChevronUp size={14} aria-hidden />
-            ) : (
-              <ChevronDown size={14} aria-hidden />
-            )}
-          </button>
-          {memorySummaryExpanded && (
-            <div className="memory-context-summary-content">
-              {memorySummary.lines.map((line, index) => (
-                <p key={`${item.id}-line-${index}`}>{line}</p>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : null}
-      {runtimeReconnectHint && showRuntimeReconnectCard ? (
-        <RuntimeReconnectCard
-          hint={runtimeReconnectHint}
-          workspaceId={workspaceId}
-          threadId={threadId}
-          onRecoverThreadRuntime={onRecoverThreadRuntime}
-          retryMessage={retryMessage}
-          onRecoverThreadRuntimeAndResend={onRecoverThreadRuntimeAndResend}
-        />
-      ) : null}
-      {hasText && (
-        item.role === "user" && !agentTaskNotification ? (
-          <CollapsibleUserTextBlock content={displayText} />
-        ) : runtimeReconnectHint && showRuntimeReconnectCard ? null : (
-          <Markdown
-            value={displayText}
-            className={resolvedMarkdownClassName}
-            workspaceId={workspaceId}
-            codeBlockStyle="message"
-            codeBlockCopyUseModifier={codeBlockCopyUseModifier}
-            streamingThrottleMs={isStreaming ? 0 : 80}
-            onOpenFileLink={onOpenFileLink}
-            onOpenFileLinkMenu={onOpenFileLinkMenu}
-          />
-        )
-      )}
-      {lightboxIndex !== null && imageItems.length > 0 && (
-        <ImageLightbox
-          images={imageItems}
-          activeIndex={lightboxIndex}
-          onClose={() => setLightboxIndex(null)}
-        />
-      )}
-      {!hideCopyButton && (
-        <button
-          type="button"
-          className={`ghost message-copy-button${isCopied ? " is-copied" : ""}`}
-          onClick={() => onCopy(item, displayText || item.text)}
-          aria-label={t("messages.copyMessage")}
-          title={t("messages.copyMessage")}
-        >
-          <span className="message-copy-icon" aria-hidden>
-            <Copy className="message-copy-icon-copy" size={14} />
-            <Check className="message-copy-icon-check" size={14} />
-          </span>
-        </button>
-      )}
-    </div>
-  );
-
-  const agentBadgeNode = hasExternalAgentBadge ? (
-    <div className={`message-user-agent-rail${isAgentBadgeExpanded ? " is-open" : ""}`}>
-      <button
-        type="button"
-        className="message-agent-icon-button"
-        onClick={handleToggleAgentBadge}
-        aria-expanded={isAgentBadgeExpanded}
-        aria-label={selectedAgentName ? `显示智能体标签：${selectedAgentName}` : "显示智能体标记"}
-        title={selectedAgentName ?? undefined}
-      >
-        <AgentIcon
-          icon={selectedAgentIcon}
-          seed={selectedAgentName ?? item.id}
-          fallback="codicon-hubot"
-          className="message-agent-icon-glyph"
-          size={30}
-        />
-      </button>
-      {isAgentBadgeExpanded && selectedAgentName && (
-        <div className="message-agent-reveal is-visible" role="status">
-          <span className="message-agent-tag-text">{selectedAgentName}</span>
-        </div>
-      )}
-    </div>
-  ) : null;
-
-  return (
-    <div className={`message ${item.role}${agentTaskNotification ? " message-agent-task" : ""}`}>
-      {hasExternalAgentBadge ? (
-        <div className="message-user-layout">
-          {agentBadgeNode}
-          {bubbleNode}
-        </div>
-      ) : bubbleNode}
-    </div>
-  );
-}, areMessageRowPropsEqual);
-
-const ReasoningRow = memo(function ReasoningRow({
-  item,
-  workspaceId = null,
-  parsed,
-  isExpanded,
-  isLive,
-  activeEngine,
-  onToggle,
-  onOpenFileLink,
-  onOpenFileLinkMenu,
-}: ReasoningRowProps) {
-  const { t } = useTranslation();
-  const { bodyText } = parsed;
-  const shouldPreferRawClaudeContent =
-    activeEngine === "claude" &&
-    item.summary.trim().length > 0 &&
-    item.content.trim().length > 0 &&
-    item.summary.trim() === item.content.trim() &&
-    item.content.includes("\n");
-  const thinkingText = shouldPreferRawClaudeContent
-    ? item.content
-    : bodyText || item.content || item.summary || "";
-  const title = activeEngine === "claude"
-    ? t("messages.thinkingLabel")
-    : isLive
-    ? t("messages.thinkingProcess")
-    : t("messages.thinkingLabel");
-  const provenanceLabel = resolveProvenanceEngineLabel(item.engineSource);
-  return (
-    <div className={`thinking-block${isExpanded ? " is-expanded" : ""}${isLive ? " is-live" : ""}`}>
-      <button
-        type="button"
-        className="thinking-header"
-        onClick={() => onToggle(item.id)}
-      >
-        <span className="thinking-header-copy">
-          <span className="codicon codicon-thinking thinking-glyph" aria-hidden />
-          <span className="thinking-title">{title}</span>
-          {provenanceLabel ? (
-            <span className="message-provenance-badge thinking-provenance-badge">
-              {provenanceLabel}
-            </span>
-          ) : null}
-        </span>
-        <span
-          className={`codicon thinking-icon ${isExpanded ? "codicon-chevron-down" : "codicon-chevron-right"}`}
-          aria-hidden
-        />
-      </button>
-      <div
-        className="thinking-content"
-        style={{ display: isExpanded ? "block" : "none" }}
-      >
-        {thinkingText ? (
-          <div className="reasoning-markdown-surface">
-            <Markdown
-              value={thinkingText}
-              className={`markdown reasoning-markdown${isLive ? " markdown-live-streaming" : ""}`}
-              workspaceId={workspaceId}
-              codeBlockStyle="message"
-              streamingThrottleMs={isLive ? 180 : 80}
-              onOpenFileLink={onOpenFileLink}
-              onOpenFileLinkMenu={onOpenFileLinkMenu}
-            />
-          </div>
-        ) : (
-          <span>{t("messages.noThinkingContent")}</span>
-        )}
-      </div>
-    </div>
-  );
-});
-
-const ReviewRow = memo(function ReviewRow({
-  item,
-  workspaceId = null,
-  onOpenFileLink,
-  onOpenFileLinkMenu,
-}: ReviewRowProps) {
-  const title = item.state === "started" ? "Review started" : "Review completed";
-  return (
-    <div className="item-card review">
-      <div className="review-header">
-        <span className="review-title">{title}</span>
-        <span
-          className={`review-badge ${item.state === "started" ? "active" : "done"}`}
-        >
-          Review
-        </span>
-      </div>
-      {item.text && (
-        <Markdown
-          value={item.text}
-          className="item-text markdown"
-          workspaceId={workspaceId}
-          onOpenFileLink={onOpenFileLink}
-          onOpenFileLinkMenu={onOpenFileLinkMenu}
-        />
-      )}
-    </div>
-  );
-});
-
-const DiffRow = memo(function DiffRow({ item }: DiffRowProps) {
-  return (
-    <div className="item-card diff">
-      <div className="diff-header">
-        <span className="diff-title">{item.title}</span>
-        {item.status && <span className="item-status">{item.status}</span>}
-      </div>
-      <div className="diff-viewer-output">
-        <DiffBlock diff={item.diff} language={languageFromPath(item.title)} />
-      </div>
-    </div>
-  );
-});
-
-function exploreKindLabel(kind: ExploreRowProps["item"]["entries"][number]["kind"]) {
-  return (kind[0] ?? "").toUpperCase() + kind.slice(1);
-}
-
-const ExploreRow = memo(function ExploreRow({ item, isExpanded, onToggle }: ExploreRowProps) {
-  const { t } = useTranslation();
-  const title = item.title ?? (item.status === "exploring" ? "Exploring" : "Explored");
-  const isCollapsible =
-    item.collapsible ?? (item.status === "explored" && item.entries.length > 1);
-  const listCollapsed = isCollapsible && !isExpanded;
-  const handleToggle = () => {
-    if (!isCollapsible) {
-      return;
-    }
-    onToggle(item.id);
-  };
-  return (
-    <div className={`tool-inline explore-inline${isCollapsible ? " is-collapsible" : ""}`}>
-      <div className="tool-inline-content">
-        <div className="explore-inline-header">
-          {isCollapsible ? (
-            <button
-              type="button"
-              className="explore-inline-header-toggle"
-              onClick={handleToggle}
-              aria-expanded={isExpanded}
-              aria-label={t("messages.toggleDetails")}
-            >
-              <Terminal
-                className={`tool-inline-icon explore-inline-toggle-icon${
-                  isExpanded ? " is-expanded" : ""
-                } ${item.status === "exploring" ? "processing" : "completed"}`}
-                size={14}
-                aria-hidden
-              />
-              <span className="explore-inline-title">{title}</span>
-            </button>
-          ) : (
-            <>
-              <Terminal
-                className={`tool-inline-icon ${
-                  item.status === "exploring" ? "processing" : "completed"
-                }`}
-                size={14}
-                aria-hidden
-              />
-              <span className="explore-inline-title">{title}</span>
-            </>
-          )}
-        </div>
-        <div className={`explore-inline-list${listCollapsed ? " is-collapsed" : ""}`}>
-          {item.entries.map((entry, index) => (
-            <div key={`${entry.kind}-${entry.label}-${index}`} className="explore-inline-item">
-              <span className="explore-inline-kind">{exploreKindLabel(entry.kind)}</span>
-              <span className="explore-inline-label">{entry.label}</span>
-              {entry.detail && entry.detail !== entry.label && (
-                <span className="explore-inline-detail">{entry.detail}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-});
 
 export const Messages = memo(function Messages({
   items: legacyItems,
@@ -1305,7 +216,9 @@ export const Messages = memo(function Messages({
   onRecoverThreadRuntimeAndResend,
 }: MessagesProps) {
   const { t } = useTranslation();
-  const isWorking = legacyIsThinking || isContextCompacting;
+  const isWindowsDesktop = useMemo(() => isWindowsPlatform(), []);
+  const isMacDesktop = useMemo(() => isMacPlatform(), []);
+  const legacyIsWorking = legacyIsThinking || isContextCompacting;
   const fallbackConversationState = useMemo<ConversationState>(
     () => ({
       items: legacyItems,
@@ -1316,7 +229,7 @@ export const Messages = memo(function Messages({
         threadId: legacyThreadId ?? "",
         engine: toConversationEngine(legacyActiveEngine),
         activeTurnId: null,
-        isThinking: isWorking,
+        isThinking: legacyIsWorking,
         heartbeatPulse: legacyHeartbeatPulse,
         historyRestoredAtMs: null,
       },
@@ -1328,7 +241,7 @@ export const Messages = memo(function Messages({
       legacyWorkspaceId,
       legacyThreadId,
       legacyActiveEngine,
-      isWorking,
+      legacyIsWorking,
       legacyHeartbeatPulse,
     ],
   );
@@ -1346,6 +259,19 @@ export const Messages = memo(function Messages({
   const userInputRequests = effectiveState.userInputQueue;
   const workspaceId = effectiveState.meta.workspaceId || legacyWorkspaceId;
   const threadId = effectiveState.meta.threadId || legacyThreadId;
+  const activeEngine = toConversationEngine(effectiveState.meta.engine);
+  const isThinking = conversationState
+    ? effectiveState.meta.isThinking
+    : legacyIsThinking;
+  const isWorking = isThinking || isContextCompacting;
+  const heartbeatPulse = conversationState
+    ? (effectiveState.meta.heartbeatPulse ?? legacyHeartbeatPulse ?? 0)
+    : legacyHeartbeatPulse ?? 0;
+  const threadStreamLatencySnapshot = useThreadStreamLatencySnapshot(threadId);
+  const activeStreamMitigation = useMemo(
+    () => resolveActiveThreadStreamMitigation(threadStreamLatencySnapshot),
+    [threadStreamLatencySnapshot],
+  );
   const latestRuntimeReconnectItemId = useMemo(() => {
     for (let index = items.length - 1; index >= 0; index -= 1) {
       const item = items[index];
@@ -1367,17 +293,12 @@ export const Messages = memo(function Messages({
     () => resolveRetryMessageForReconnectItem(items, latestRuntimeReconnectItemId),
     [items, latestRuntimeReconnectItemId],
   );
-  const activeEngine = toConversationEngine(effectiveState.meta.engine);
-  const isThinking = conversationState
-    ? effectiveState.meta.isThinking
-    : legacyIsThinking;
-  const heartbeatPulse = conversationState
-    ? (effectiveState.meta.heartbeatPulse ?? legacyHeartbeatPulse ?? 0)
-    : legacyHeartbeatPulse ?? 0;
   const renderStartedAt =
     typeof performance === "undefined" ? 0 : performance.now();
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const pendingHistoryExpansionScrollSnapshotRef =
+    useRef<HistoryExpansionScrollSnapshot | null>(null);
   const messageNodeByIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const agentTaskNodeByTaskIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const agentTaskNodeByToolUseIdRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -1399,7 +320,7 @@ export const Messages = memo(function Messages({
   >({});
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
   const [activeAnchorId, setActiveAnchorId] = useState<string | null>(null);
-  const [activeHistoryStickyMessageId, setActiveHistoryStickyMessageId] = useState<string | null>(null);
+  const [activeStickyMessageId, setActiveStickyMessageId] = useState<string | null>(null);
   const [showAllHistoryItems, setShowAllHistoryItems] = useState(false);
   const [liveAutoFollowEnabled, setLiveAutoFollowEnabled] = useState(() =>
     readLocalBooleanFlag(MESSAGES_LIVE_AUTO_FOLLOW_FLAG_KEY, true),
@@ -1535,6 +456,7 @@ export const Messages = memo(function Messages({
     setExpandedItems(new Set());
     setIsSelectionFrozen(false);
     frozenItemsRef.current = null;
+    pendingHistoryExpansionScrollSnapshotRef.current = null;
   }, [threadId]);
   useEffect(() => {
     scrollToAgentTaskCard(agentTaskScrollRequest);
@@ -1630,6 +552,7 @@ export const Messages = memo(function Messages({
     const currentFirstId = effectiveItems[0]?.id ?? null;
     if (currentFirstId !== firstItemIdRef.current) {
       setShowAllHistoryItems(false);
+      pendingHistoryExpansionScrollSnapshotRef.current = null;
     }
     firstItemIdRef.current = currentFirstId;
   }, [effectiveItems]);
@@ -1883,7 +806,7 @@ export const Messages = memo(function Messages({
   }, [effectiveItems, lastUserMessageIndex]);
 
   const waitingForFirstChunk = useMemo(() => {
-    if (!legacyIsThinking || effectiveItems.length === 0) {
+    if (!isThinking || effectiveItems.length === 0) {
       return false;
     }
     let lastUserIndex = -1;
@@ -1904,16 +827,20 @@ export const Messages = memo(function Messages({
       }
     }
     return true;
-  }, [legacyIsThinking, effectiveItems]);
+  }, [isThinking, effectiveItems]);
   const streamActivityPhase = useStreamActivityPhase({
     isProcessing:
-      legacyIsThinking &&
+      isThinking &&
       (activeEngine === "codex" || activeEngine === "claude" || activeEngine === "gemini"),
     items: effectiveItems,
   });
   const primaryWorkingLabel = isContextCompacting
     ? t("chat.contextDualViewCompacting")
     : approvalResumeWorkingLabel;
+  const enableClaudeRenderSafeMode =
+    (isWindowsDesktop || isMacDesktop) &&
+    activeEngine === "claude" &&
+    isThinking;
 
   const visibleItems = useMemo(() => {
     const filtered = effectiveItems.filter((item) => {
@@ -2087,8 +1014,6 @@ export const Messages = memo(function Messages({
     ? timelineItems.length - VISIBLE_MESSAGE_WINDOW
     : 0;
   const enableCollaborationBadge = activeEngine === "codex";
-  const historyStickyEnabled =
-    !isThinking || Boolean(conversationState?.meta.historyRestoredAtMs);
   const latestLiveStickyUserMessageId = useMemo(
     () =>
       isThinking && !conversationState?.meta.historyRestoredAtMs
@@ -2112,9 +1037,6 @@ export const Messages = memo(function Messages({
     ],
   );
   const historyStickyCandidates = useMemo(() => {
-    if (!historyStickyEnabled) {
-      return [] as HistoryStickyCandidate[];
-    }
     const candidates: HistoryStickyCandidate[] = [];
     for (const item of renderedItems) {
       if (!isOrdinaryUserQuestionItem(item, enableCollaborationBadge)) {
@@ -2132,17 +1054,17 @@ export const Messages = memo(function Messages({
       });
     }
     return candidates;
-  }, [enableCollaborationBadge, historyStickyEnabled, renderedItems]);
-  const historyStickyCandidateById = useMemo(
+  }, [enableCollaborationBadge, renderedItems]);
+  const stickyCandidateById = useMemo(
     () => new Map(historyStickyCandidates.map((candidate) => [candidate.id, candidate])),
     [historyStickyCandidates],
   );
-  const activeHistoryStickyCandidate = useMemo(
+  const activeStickyHeaderCandidate = useMemo(
     () =>
-      activeHistoryStickyMessageId
-        ? historyStickyCandidateById.get(activeHistoryStickyMessageId) ?? null
+      activeStickyMessageId
+        ? stickyCandidateById.get(activeStickyMessageId) ?? null
         : null,
-    [activeHistoryStickyMessageId, historyStickyCandidateById],
+    [activeStickyMessageId, stickyCandidateById],
   );
   const messageAnchors = useMemo(() => {
     const messageItems = renderedItems.filter(
@@ -2163,7 +1085,7 @@ export const Messages = memo(function Messages({
     });
   }, [renderedItems]);
   const hasAnchorRail = showMessageAnchors && messageAnchors.length > 1;
-  const computeActiveHistoryStickyMessageId = useCallback(
+  const computeActiveStickyMessageId = useCallback(
     (candidates: HistoryStickyCandidate[]) => {
       const container = containerRef.current;
       if (!container || candidates.length === 0) {
@@ -2217,9 +1139,9 @@ export const Messages = memo(function Messages({
     },
     [computeActiveAnchor, hasAnchorRail, messageAnchors, threadId],
   );
-  const scheduleHistoryStickyUpdate = useCallback(
+  const scheduleStickyHeaderUpdate = useCallback(
     (reason: "scroll" | "sync") => {
-      if (!historyStickyEnabled || historyStickyCandidates.length === 0) {
+      if (historyStickyCandidates.length === 0) {
         return;
       }
       if (historyStickyUpdateRafRef.current !== null) {
@@ -2229,31 +1151,59 @@ export const Messages = memo(function Messages({
         historyStickyUpdateRafRef.current = null;
         const stickyStartedAt =
           typeof performance === "undefined" ? 0 : performance.now();
-        const nextStickyId = computeActiveHistoryStickyMessageId(historyStickyCandidates);
+        const nextStickyId = computeActiveStickyMessageId(historyStickyCandidates);
         const elapsedMs =
           typeof performance === "undefined"
             ? 0
             : performance.now() - stickyStartedAt;
         if (elapsedMs >= MESSAGES_SLOW_ANCHOR_WARN_MS) {
-          logMessagesPerf("history-sticky.compute", {
+          logMessagesPerf("sticky-header.compute", {
             ms: Number(elapsedMs.toFixed(2)),
             reason,
             candidateCount: historyStickyCandidates.length,
             threadId,
           });
         }
-        setActiveHistoryStickyMessageId((previous) =>
+        setActiveStickyMessageId((previous) =>
           previous === nextStickyId ? previous : nextStickyId,
         );
       });
     },
     [
-      computeActiveHistoryStickyMessageId,
+      computeActiveStickyMessageId,
       historyStickyCandidates,
-      historyStickyEnabled,
       threadId,
     ],
   );
+  const handleShowAllHistoryItems = useCallback(() => {
+    pendingHistoryExpansionScrollSnapshotRef.current =
+      collapsedHistoryItemCount > 0
+        ? readHistoryExpansionScrollSnapshot(containerRef.current)
+        : null;
+    setShowAllHistoryItems(true);
+  }, [collapsedHistoryItemCount]);
+  useLayoutEffect(() => {
+    if (!showAllHistoryItems) {
+      pendingHistoryExpansionScrollSnapshotRef.current = null;
+      return;
+    }
+    const pendingSnapshot = pendingHistoryExpansionScrollSnapshotRef.current;
+    const container = containerRef.current;
+    if (!pendingSnapshot || !container) {
+      return;
+    }
+    pendingHistoryExpansionScrollSnapshotRef.current = null;
+    if (!restoreHistoryExpansionScrollPosition(container, pendingSnapshot)) {
+      return;
+    }
+    scheduleAnchorUpdate("sync");
+    scheduleStickyHeaderUpdate("sync");
+  }, [
+    renderedItems,
+    scheduleAnchorUpdate,
+    scheduleStickyHeaderUpdate,
+    showAllHistoryItems,
+  ]);
   const updateAutoScroll = useCallback(() => {
     const container = containerRef.current;
     if (!container) {
@@ -2262,12 +1212,12 @@ export const Messages = memo(function Messages({
     const nearBottom = isNearBottom(container);
     autoScrollRef.current = liveAutoFollowEnabled ? true : nearBottom;
     scheduleAnchorUpdate("scroll");
-    scheduleHistoryStickyUpdate("scroll");
+    scheduleStickyHeaderUpdate("scroll");
   }, [
     isNearBottom,
     liveAutoFollowEnabled,
     scheduleAnchorUpdate,
-    scheduleHistoryStickyUpdate,
+    scheduleStickyHeaderUpdate,
   ]);
   const clearTransientUiState = useCallback(() => {
     if (copyTimeoutRef.current) {
@@ -2354,6 +1304,15 @@ export const Messages = memo(function Messages({
     };
   });
 
+  useEffect(() => {
+    if (activeEngine !== "claude" || !isThinking || !threadId) {
+      return;
+    }
+    noteThreadVisibleRender(threadId, {
+      visibleItemCount: renderedItems.length,
+    });
+  }, [activeEngine, isThinking, renderedItems, threadId]);
+
   useEffect(() => clearTransientUiState, [clearTransientUiState]);
 
   useEffect(() => {
@@ -2369,19 +1328,18 @@ export const Messages = memo(function Messages({
   }, [hasAnchorRail, messageAnchors, scheduleAnchorUpdate, scrollKey, threadId]);
 
   useEffect(() => {
-    if (!historyStickyEnabled || historyStickyCandidates.length === 0) {
+    if (historyStickyCandidates.length === 0) {
       if (historyStickyUpdateRafRef.current !== null) {
         window.cancelAnimationFrame(historyStickyUpdateRafRef.current);
         historyStickyUpdateRafRef.current = null;
       }
-      setActiveHistoryStickyMessageId(null);
+      setActiveStickyMessageId(null);
       return;
     }
-    scheduleHistoryStickyUpdate("sync");
+    scheduleStickyHeaderUpdate("sync");
   }, [
     historyStickyCandidates,
-    historyStickyEnabled,
-    scheduleHistoryStickyUpdate,
+    scheduleStickyHeaderUpdate,
     scrollKey,
     threadId,
   ]);
@@ -2579,233 +1537,6 @@ export const Messages = memo(function Messages({
       )
       : null;
 
-  const renderSingleItem = (item: ConversationItem) => {
-    if (item.kind === "message") {
-      const itemRenderKey = `message:${item.id}`;
-      const isCopied = copiedMessageId === item.id;
-      const agentTaskNotification = parseAgentTaskNotification(item.text);
-      const shouldRenderFinalBoundary =
-        item.role === "assistant" &&
-        item.isFinal === true &&
-        assistantFinalBoundarySet.has(item.id) &&
-        !assistantLiveTurnFinalBoundarySuppressedSet.has(item.id);
-      const shouldRenderReasoningBoundary =
-        shouldRenderFinalBoundary && assistantFinalWithVisibleProcessSet.has(item.id);
-      const finalMetaParts: string[] = [];
-      if (typeof item.finalCompletedAt === "number" && item.finalCompletedAt > 0) {
-        finalMetaParts.push(formatCompletedTimeMs(item.finalCompletedAt));
-      }
-      const finalMetaText = finalMetaParts.join(" · ");
-      const bindMessageNode = (node: HTMLDivElement | null) => {
-        if (item.role === "user" && node) {
-          messageNodeByIdRef.current.set(item.id, node);
-        } else {
-          messageNodeByIdRef.current.delete(item.id);
-        }
-        if (agentTaskNotification?.taskId && node) {
-          agentTaskNodeByTaskIdRef.current.set(agentTaskNotification.taskId, node);
-        } else if (agentTaskNotification?.taskId) {
-          agentTaskNodeByTaskIdRef.current.delete(agentTaskNotification.taskId);
-        }
-        if (agentTaskNotification?.toolUseId && node) {
-          agentTaskNodeByToolUseIdRef.current.set(agentTaskNotification.toolUseId, node);
-        } else if (agentTaskNotification?.toolUseId) {
-          agentTaskNodeByToolUseIdRef.current.delete(agentTaskNotification.toolUseId);
-        }
-      };
-      return (
-        <Fragment key={itemRenderKey}>
-          {shouldRenderReasoningBoundary && (
-            <div className="messages-turn-boundary messages-reasoning-boundary" role="separator">
-              <span className="messages-turn-boundary-label">
-                <span className="messages-turn-boundary-label-content">
-                  <Bell className="messages-turn-boundary-icon" size={13} aria-hidden />
-                  <span>推理过程</span>
-                </span>
-              </span>
-              {finalMetaText && (
-                <span
-                  className="messages-turn-boundary-meta messages-turn-boundary-meta-placeholder"
-                  aria-hidden="true"
-                >
-                  {finalMetaText}
-                </span>
-              )}
-            </div>
-          )}
-          <div
-            ref={bindMessageNode}
-            className={[
-              item.id === latestLiveStickyUserMessageId
-                ? "messages-live-sticky-user-message"
-                : "",
-            ]
-              .filter(Boolean)
-              .join(" ") || undefined}
-            data-message-anchor-id={item.id}
-            data-agent-task-id={agentTaskNotification?.taskId ?? undefined}
-            data-agent-tool-use-id={agentTaskNotification?.toolUseId ?? undefined}
-          >
-            <MessageRow
-              item={item}
-              workspaceId={workspaceId}
-              threadId={threadId}
-              isStreaming={
-                activeEngine === "claude" &&
-                isThinking &&
-                item.role === "assistant" &&
-                item.id === latestAssistantMessageId
-              }
-              activeEngine={activeEngine}
-              activeCollaborationModeId={activeCollaborationModeId}
-              enableCollaborationBadge={activeEngine === "codex"}
-              presentationProfile={presentationProfile}
-              showRuntimeReconnectCard={item.id === latestRuntimeReconnectItemId}
-              onRecoverThreadRuntime={onRecoverThreadRuntime}
-              onRecoverThreadRuntimeAndResend={onRecoverThreadRuntimeAndResend}
-              retryMessage={
-                item.id === latestRuntimeReconnectItemId
-                  ? latestRetryMessage
-                  : null
-              }
-              isCopied={isCopied}
-              onCopy={handleCopyMessage}
-              codeBlockCopyUseModifier={codeBlockCopyUseModifier}
-              onOpenFileLink={openFileLink}
-              onOpenFileLinkMenu={showFileLinkMenu}
-            />
-          </div>
-          {shouldRenderFinalBoundary && (
-            <div className="messages-turn-boundary messages-final-boundary" role="separator">
-              <span className="messages-turn-boundary-label">
-                <span className="messages-turn-boundary-label-content">
-                  <Flag className="messages-turn-boundary-icon" size={13} aria-hidden />
-                  <span>最终消息</span>
-                </span>
-              </span>
-              {finalMetaText && (
-                <span className="messages-turn-boundary-meta">{finalMetaText}</span>
-              )}
-            </div>
-          )}
-        </Fragment>
-      );
-    }
-    if (item.kind === "reasoning") {
-      const itemRenderKey = `reasoning:${item.id}`;
-      const isExpanded = expandedItems.has(item.id);
-      const parsed = reasoningMetaById.get(item.id) ?? parseReasoning(item);
-      const isLiveReasoning =
-        isThinking && latestReasoningId === item.id;
-      return (
-        <ReasoningRow
-          key={itemRenderKey}
-          item={item}
-          workspaceId={workspaceId}
-          parsed={parsed}
-          isExpanded={isExpanded}
-          isLive={isLiveReasoning}
-          activeEngine={activeEngine}
-          onToggle={toggleExpanded}
-          onOpenFileLink={openFileLink}
-          onOpenFileLinkMenu={showFileLinkMenu}
-        />
-      );
-    }
-    if (item.kind === "review") {
-      return (
-        <ReviewRow
-          key={`review:${item.id}`}
-          item={item}
-          workspaceId={workspaceId}
-          onOpenFileLink={openFileLink}
-          onOpenFileLinkMenu={showFileLinkMenu}
-        />
-      );
-    }
-    if (item.kind === "diff") {
-      return <DiffRow key={`diff:${item.id}`} item={item} />;
-    }
-    if (item.kind === "tool") {
-      if (shouldHideCodexCanvasCommandCard(item, activeEngine)) {
-        return null;
-      }
-      const isExpanded = expandedItems.has(item.id);
-      const selectedExitPlanExecutionMode =
-        selectedExitPlanExecutionByItemKey[`${threadId ?? "no-thread"}:${item.id}`] ?? null;
-      const provenanceLabel = resolveProvenanceEngineLabel(item.engineSource);
-      return (
-        <div key={`tool:${item.id}`} className="message-tool-block-shell">
-          {provenanceLabel ? (
-            <div className="message-provenance-row">
-              <span className="message-provenance-badge">{provenanceLabel}</span>
-            </div>
-          ) : null}
-          <ToolBlockRenderer
-            item={item}
-            workspaceId={workspaceId}
-            isExpanded={isExpanded}
-            onToggle={toggleExpanded}
-            onRequestAutoScroll={requestAutoScroll}
-            activeCollaborationModeId={activeCollaborationModeId}
-            activeEngine={activeEngine}
-            hasPendingUserInputRequest={activeUserInputRequestId !== null}
-            onOpenDiffPath={onOpenDiffPath}
-            selectedExitPlanExecutionMode={selectedExitPlanExecutionMode}
-            onExitPlanModeExecute={handleExitPlanModeExecuteForItem}
-          />
-        </div>
-      );
-    }
-    if (item.kind === "explore") {
-      const isExpanded = liveAutoExpandedExploreId === item.id || expandedItems.has(item.id);
-      return (
-        <ExploreRow
-          key={`explore:${item.id}`}
-          item={item}
-          isExpanded={isExpanded}
-          onToggle={toggleExpanded}
-        />
-      );
-    }
-    return null;
-  };
-
-  const renderEntry = (entry: GroupedEntry, _index: number) => {
-    if (entry.kind === "readGroup") {
-      const firstItem = entry.items[0];
-      return <ReadToolGroupBlock key={`rg-${firstItem?.id ?? "read-group"}`} items={entry.items} />;
-    }
-    if (entry.kind === "editGroup") {
-      const firstItem = entry.items[0];
-      return (
-        <EditToolGroupBlock
-          key={`eg-${firstItem?.id ?? "edit-group"}`}
-          items={entry.items}
-          onOpenDiffPath={onOpenDiffPath}
-        />
-      );
-    }
-    if (entry.kind === "bashGroup") {
-      if (activeEngine === "codex" || activeEngine === "claude") {
-        return null;
-      }
-      const firstItem = entry.items[0];
-      return (
-        <BashToolGroupBlock
-          key={`bg-${firstItem?.id ?? "bash-group"}`}
-          items={entry.items}
-          onRequestAutoScroll={requestAutoScroll}
-        />
-      );
-    }
-    if (entry.kind === "searchGroup") {
-      const firstItem = entry.items[0];
-      return <SearchToolGroupBlock key={`sg-${firstItem?.id ?? "search-group"}`} items={entry.items} />;
-    }
-    return renderSingleItem(entry.item);
-  };
-
   const scrollToAnchor = useCallback((messageId: string) => {
     const node = messageNodeByIdRef.current.get(messageId);
     const container = containerRef.current;
@@ -2825,7 +1556,9 @@ export const Messages = memo(function Messages({
   }, []);
 
   return (
-    <div className={`messages-shell${hasAnchorRail ? " has-anchor-rail" : ""}`}>
+    <div
+      className={`messages-shell${hasAnchorRail ? " has-anchor-rail" : ""}${enableClaudeRenderSafeMode ? " claude-render-safe" : ""}`}
+    >
       {hasAnchorRail && (
         <div
           className="messages-anchor-rail"
@@ -2861,77 +1594,63 @@ export const Messages = memo(function Messages({
         ref={containerRef}
         onScroll={updateAutoScroll}
       >
-        {activeHistoryStickyCandidate && (
-          <div
-            className="messages-history-sticky-header"
-            data-history-sticky-message-id={activeHistoryStickyCandidate.id}
-            aria-hidden="true"
-          >
-            <div className="messages-history-sticky-header-inner">
-              <div className="messages-history-sticky-header-content">
-                <div className="messages-history-sticky-header-bubble">
-                  <div className="messages-history-sticky-header-text">
-                    {activeHistoryStickyCandidate.text}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-        <div className="messages-full">
-          {visibleCollapsedHistoryItemCount > 0 && (
-            <div
-              className="messages-collapsed-indicator"
-              data-collapsed-count={visibleCollapsedHistoryItemCount}
-              onClick={() => setShowAllHistoryItems(true)}
-            >
-              {t("messages.showEarlierMessages", { count: visibleCollapsedHistoryItemCount })}
-            </div>
-          )}
-          {groupedEntries.map(renderEntry)}
-          {claudeDockedReasoningItems.map(({ item, parsed }) => (
-            <ReasoningRow
-              key={`claude-live-${item.id}`}
-              item={item}
-              workspaceId={workspaceId}
-              parsed={parsed}
-              isExpanded={isThinking && latestReasoningId === item.id ? true : expandedItems.has(item.id)}
-              isLive={isThinking && latestReasoningId === item.id}
-              onToggle={toggleExpanded}
-              onOpenFileLink={openFileLink}
-              onOpenFileLinkMenu={showFileLinkMenu}
-            />
-          ))}
-          {userInputNode}
-          {isThinking && collapseLiveMiddleStepsEnabled && collapsedMiddleStepCount > 0 && (
-            <div className="messages-live-middle-collapsed-indicator" role="status">
-              {t("messages.middleStepsCollapsedHint", { count: collapsedMiddleStepCount })}
-            </div>
-          )}
-          <WorkingIndicator
-            isThinking={isWorking}
-            proxyEnabled={proxyEnabled}
-            proxyUrl={proxyUrl}
-            processingStartedAt={processingStartedAt}
-            lastDurationMs={lastDurationMs}
-            heartbeatPulse={heartbeatPulse}
-            hasItems={effectiveItems.length > 0}
-            reasoningLabel={latestReasoningLabel}
-            activityLabel={latestWorkingActivityLabel}
-            primaryLabel={primaryWorkingLabel}
-            activeEngine={activeEngine}
-            waitingForFirstChunk={waitingForFirstChunk}
-            presentationProfile={presentationProfile}
-            streamActivityPhase={streamActivityPhase}
-          />
-          {!effectiveItems.length && !userInputNode && (
-            <div className="empty messages-empty">
-              {t("messages.emptyThread")}
-            </div>
-          )}
-          {approvalNode}
-          <div ref={bottomRef} />
-        </div>
+        <MessagesTimeline
+          activeCollaborationModeId={activeCollaborationModeId}
+          activeEngine={activeEngine}
+          activeStickyHeaderCandidate={activeStickyHeaderCandidate}
+          activeUserInputRequestId={activeUserInputRequestId}
+          agentTaskNodeByTaskIdRef={agentTaskNodeByTaskIdRef}
+          agentTaskNodeByToolUseIdRef={agentTaskNodeByToolUseIdRef}
+          approvalNode={approvalNode}
+          assistantFinalBoundarySet={assistantFinalBoundarySet}
+          assistantFinalWithVisibleProcessSet={assistantFinalWithVisibleProcessSet}
+          assistantLiveTurnFinalBoundarySuppressedSet={assistantLiveTurnFinalBoundarySuppressedSet}
+          bottomRef={bottomRef}
+          claudeDockedReasoningItems={claudeDockedReasoningItems}
+          collapseLiveMiddleStepsEnabled={collapseLiveMiddleStepsEnabled}
+          collapsedMiddleStepCount={collapsedMiddleStepCount}
+          codeBlockCopyUseModifier={codeBlockCopyUseModifier}
+          copiedMessageId={copiedMessageId}
+          effectiveItemsCount={effectiveItems.length}
+          expandedItems={expandedItems}
+          groupedEntries={groupedEntries}
+          handleCopyMessage={handleCopyMessage}
+          handleExitPlanModeExecuteForItem={handleExitPlanModeExecuteForItem}
+          heartbeatPulse={heartbeatPulse}
+          isThinking={isThinking}
+          isWorking={isWorking}
+          lastDurationMs={lastDurationMs}
+          latestAssistantMessageId={latestAssistantMessageId}
+          latestReasoningLabel={latestReasoningLabel}
+          latestReasoningId={latestReasoningId}
+          latestRetryMessage={latestRetryMessage}
+          latestRuntimeReconnectItemId={latestRuntimeReconnectItemId}
+          latestWorkingActivityLabel={latestWorkingActivityLabel}
+          liveAutoExpandedExploreId={liveAutoExpandedExploreId}
+          messageNodeByIdRef={messageNodeByIdRef}
+          onOpenDiffPath={onOpenDiffPath}
+          onRecoverThreadRuntime={onRecoverThreadRuntime}
+          onRecoverThreadRuntimeAndResend={onRecoverThreadRuntimeAndResend}
+          onShowAllHistoryItems={handleShowAllHistoryItems}
+          openFileLink={openFileLink}
+          presentationProfile={presentationProfile}
+          primaryWorkingLabel={primaryWorkingLabel}
+          processingStartedAt={processingStartedAt}
+          proxyEnabled={proxyEnabled}
+          proxyUrl={proxyUrl}
+          reasoningMetaById={reasoningMetaById}
+          requestAutoScroll={requestAutoScroll}
+          selectedExitPlanExecutionByItemKey={selectedExitPlanExecutionByItemKey}
+          showFileLinkMenu={showFileLinkMenu}
+          streamMitigationProfile={activeStreamMitigation}
+          streamActivityPhase={streamActivityPhase}
+          threadId={threadId}
+          toggleExpanded={toggleExpanded}
+          userInputNode={userInputNode}
+          visibleCollapsedHistoryItemCount={visibleCollapsedHistoryItemCount}
+          waitingForFirstChunk={waitingForFirstChunk}
+          workspaceId={workspaceId}
+        />
       </div>
     </div>
   );

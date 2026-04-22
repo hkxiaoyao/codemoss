@@ -21,11 +21,16 @@ use tokio::process::Command;
 use tokio::time::timeout;
 
 use crate::backend::events::AppServerEvent;
+use crate::remote_backend;
 use crate::state::AppState;
 use crate::types::WorkspaceEntry;
 
 use super::codex_prompt_service::{normalize_custom_spec_root, run_codex_prompt_sync};
 use super::events::{engine_event_to_app_server_event, EngineEvent};
+use super::remote_bridge::{
+    call_remote_typed, remote_detect_engines_request, remote_engine_interrupt_request,
+    remote_engine_send_message_sync_request,
+};
 use super::status::{detect_gemini_status, detect_opencode_status};
 use super::{EngineConfig, EngineStatus, EngineType};
 
@@ -797,14 +802,27 @@ async fn fetch_opencode_provider_catalog_from_auth_picker(
 
 /// Detect all installed engines and their capabilities
 #[tauri::command]
-pub async fn detect_engines(state: State<'_, AppState>) -> Result<Vec<EngineStatus>, String> {
+pub async fn detect_engines(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<Vec<EngineStatus>, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let (method, params) = remote_detect_engines_request();
+        return call_remote_typed(&*state, &app, method, params).await;
+    }
     let manager = &state.engine_manager;
     Ok(manager.detect_engines().await)
 }
 
 /// Get the currently active engine
 #[tauri::command]
-pub async fn get_active_engine(state: State<'_, AppState>) -> Result<EngineType, String> {
+pub async fn get_active_engine(
+    state: State<'_, AppState>,
+    app: AppHandle,
+) -> Result<EngineType, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        return call_remote_typed(&*state, &app, "get_active_engine", json!({})).await;
+    }
     let manager = &state.engine_manager;
     Ok(manager.get_active_engine().await)
 }
@@ -814,7 +832,18 @@ pub async fn get_active_engine(state: State<'_, AppState>) -> Result<EngineType,
 pub async fn switch_engine(
     engine_type: EngineType,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<(), String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let _: Value = call_remote_typed(
+            &*state,
+            &app,
+            "switch_engine",
+            json!({ "engineType": engine_type }),
+        )
+        .await?;
+        return Ok(());
+    }
     let manager = &state.engine_manager;
     manager.set_active_engine(engine_type).await
 }
@@ -824,7 +853,17 @@ pub async fn switch_engine(
 pub async fn get_engine_status(
     engine_type: EngineType,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<Option<EngineStatus>, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        return call_remote_typed(
+            &*state,
+            &app,
+            "get_engine_status",
+            json!({ "engineType": engine_type }),
+        )
+        .await;
+    }
     let manager = &state.engine_manager;
     Ok(manager.get_engine_status(engine_type).await)
 }
@@ -882,7 +921,17 @@ pub async fn get_available_engines(state: State<'_, AppState>) -> Result<Vec<Eng
 pub async fn get_engine_models(
     engine_type: EngineType,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<Vec<super::ModelInfo>, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        return call_remote_typed(
+            &*state,
+            &app,
+            "get_engine_models",
+            json!({ "engineType": engine_type }),
+        )
+        .await;
+    }
     let manager = &state.engine_manager;
 
     match engine_type {
@@ -1871,6 +1920,36 @@ pub async fn engine_send_message(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let images = images.map(|paths| {
+            paths
+                .into_iter()
+                .map(remote_backend::normalize_path_for_remote)
+                .collect::<Vec<_>>()
+        });
+        return remote_backend::call_remote(
+            &*state,
+            app,
+            "engine_send_message",
+            json!({
+                "workspaceId": workspace_id,
+                "text": text,
+                "engine": engine,
+                "model": model,
+                "effort": effort,
+                "accessMode": access_mode,
+                "images": images,
+                "continueSession": continue_session,
+                "threadId": thread_id,
+                "sessionId": session_id,
+                "agent": agent,
+                "variant": variant,
+                "customSpecRoot": custom_spec_root,
+            }),
+        )
+        .await;
+    }
+
     let manager = &state.engine_manager;
     let active_engine = manager.get_active_engine().await;
     let requested_engine = engine;
@@ -2550,13 +2629,30 @@ pub async fn engine_send_message_sync(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let manager = &state.engine_manager;
-    let active_engine = manager.get_active_engine().await;
-    let effective_engine = engine.unwrap_or(active_engine);
-
     if text.trim().is_empty() {
         return Err("Prompt text cannot be empty".to_string());
     }
+    if remote_backend::is_remote_mode(&*state).await {
+        let (method, params) = remote_engine_send_message_sync_request(
+            workspace_id,
+            text,
+            engine,
+            model,
+            effort,
+            access_mode,
+            images,
+            continue_session,
+            session_id,
+            agent,
+            variant,
+            custom_spec_root,
+        );
+        return remote_backend::call_remote(&*state, app, method, params).await;
+    }
+
+    let manager = &state.engine_manager;
+    let active_engine = manager.get_active_engine().await;
+    let effective_engine = engine.unwrap_or(active_engine);
     let normalized_custom_spec_root = normalize_custom_spec_root(custom_spec_root.as_deref());
 
     match effective_engine {
@@ -2781,7 +2877,13 @@ pub async fn engine_send_message_sync(
 pub async fn engine_interrupt(
     workspace_id: String,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<(), String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let (method, params) = remote_engine_interrupt_request(workspace_id);
+        let _: Value = call_remote_typed(&*state, &app, method, params).await?;
+        return Ok(());
+    }
     let manager = &state.engine_manager;
     let active_engine = manager.get_active_engine().await;
 
@@ -2823,7 +2925,22 @@ pub async fn engine_interrupt_turn(
     turn_id: String,
     engine: Option<EngineType>,
     state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<(), String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let _: Value = call_remote_typed(
+            &*state,
+            &app,
+            "engine_interrupt_turn",
+            json!({
+                "workspaceId": workspace_id,
+                "turnId": turn_id,
+                "engine": engine,
+            }),
+        )
+        .await?;
+        return Ok(());
+    }
     let manager = &state.engine_manager;
     let active_engine = manager.get_active_engine().await;
     let target_engine = engine.unwrap_or(active_engine);
@@ -2852,111 +2969,6 @@ pub async fn engine_interrupt_turn(
             Ok(())
         }
     }
-}
-
-/// List Claude Code session history for a workspace path.
-/// Reads JSONL files from ~/.claude/projects/{encoded-path}/.
-#[tauri::command]
-pub async fn list_claude_sessions(
-    workspace_path: String,
-    limit: Option<usize>,
-) -> Result<Value, String> {
-    let path = std::path::PathBuf::from(&workspace_path);
-    let sessions = super::claude_history::list_claude_sessions(&path, limit).await?;
-    serde_json::to_value(sessions).map_err(|e| e.to_string())
-}
-
-/// Load full message history for a specific Claude Code session.
-#[tauri::command]
-pub async fn load_claude_session(
-    workspace_path: String,
-    session_id: String,
-) -> Result<Value, String> {
-    let path = std::path::PathBuf::from(&workspace_path);
-    let result = super::claude_history::load_claude_session(&path, &session_id).await?;
-    serde_json::to_value(result).map_err(|e| e.to_string())
-}
-
-/// Fork a Claude Code session by cloning its JSONL history into a new session id.
-#[tauri::command]
-pub async fn fork_claude_session(
-    workspace_path: String,
-    session_id: String,
-) -> Result<Value, String> {
-    let path = std::path::PathBuf::from(&workspace_path);
-    let forked_session_id = super::claude_history::fork_claude_session(&path, &session_id).await?;
-    Ok(json!({
-        "thread": {
-            "id": format!("claude:{}", forked_session_id)
-        },
-        "sessionId": forked_session_id
-    }))
-}
-
-/// Delete a Claude Code session (remove JSONL file from disk).
-#[tauri::command]
-pub async fn delete_claude_session(
-    workspace_path: String,
-    session_id: String,
-) -> Result<(), String> {
-    let path = std::path::PathBuf::from(&workspace_path);
-    super::claude_history::delete_claude_session(&path, &session_id).await
-}
-
-/// List Gemini CLI session history for a workspace path.
-#[tauri::command]
-pub async fn list_gemini_sessions(
-    workspace_path: String,
-    limit: Option<usize>,
-    state: State<'_, AppState>,
-) -> Result<Value, String> {
-    let path = std::path::PathBuf::from(&workspace_path);
-    let manager = &state.engine_manager;
-    let config = manager.get_engine_config(EngineType::Gemini).await;
-    let sessions = super::gemini_history::list_gemini_sessions(
-        &path,
-        limit,
-        config.as_ref().and_then(|item| item.home_dir.as_deref()),
-    )
-    .await?;
-    serde_json::to_value(sessions).map_err(|e| e.to_string())
-}
-
-/// Load full message history for a specific Gemini CLI session.
-#[tauri::command]
-pub async fn load_gemini_session(
-    workspace_path: String,
-    session_id: String,
-    state: State<'_, AppState>,
-) -> Result<Value, String> {
-    let path = std::path::PathBuf::from(&workspace_path);
-    let manager = &state.engine_manager;
-    let config = manager.get_engine_config(EngineType::Gemini).await;
-    let result = super::gemini_history::load_gemini_session(
-        &path,
-        &session_id,
-        config.as_ref().and_then(|item| item.home_dir.as_deref()),
-    )
-    .await?;
-    serde_json::to_value(result).map_err(|e| e.to_string())
-}
-
-/// Delete a Gemini CLI session.
-#[tauri::command]
-pub async fn delete_gemini_session(
-    workspace_path: String,
-    session_id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let path = std::path::PathBuf::from(&workspace_path);
-    let manager = &state.engine_manager;
-    let config = manager.get_engine_config(EngineType::Gemini).await;
-    super::gemini_history::delete_gemini_session(
-        &path,
-        &session_id,
-        config.as_ref().and_then(|item| item.home_dir.as_deref()),
-    )
-    .await
 }
 
 #[cfg(test)]

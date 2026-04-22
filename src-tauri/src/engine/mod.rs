@@ -20,13 +20,16 @@ pub mod gemini_history;
 pub(crate) mod gemini_proxy_guard;
 pub mod manager;
 pub mod opencode;
+pub(crate) mod remote_bridge;
 pub mod rewind_commands;
+pub mod session_history_commands;
 pub mod status;
 
 // Re-exports for convenience
 pub use commands::*;
 pub use manager::EngineManager;
 pub use rewind_commands::*;
+pub use session_history_commands::*;
 pub use status::resolve_engine_type;
 
 /// Supported engine types

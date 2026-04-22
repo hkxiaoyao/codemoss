@@ -5,7 +5,6 @@ import type {
   AgentImportApplyResult,
   AgentImportPreviewResult,
   AppSettings,
-  CodexDoctorResult,
   DictationModelStatus,
   DictationSessionState,
   LocalUsageSnapshot,
@@ -47,6 +46,9 @@ export {
   restoreCodexUnifiedExecOfficialDefault,
   setCodexUnifiedExecOfficialOverride,
 } from "./tauri/settings";
+export { getComputerUseBridgeStatus } from "./tauri/computerUse";
+export { runClaudeDoctor, runCodexDoctor } from "./tauri/doctor";
+export type { ComputerUseBridgeStatus } from "../types";
 
 function isMissingTauriInvokeError(error: unknown) {
   return (
@@ -516,6 +518,8 @@ export async function sendUserMessage(
     collaborationMode?: Record<string, unknown> | null;
     preferredLanguage?: string | null;
     customSpecRoot?: string | null;
+    resumeSource?: "queue-fusion-cutover" | null;
+    resumeTurnId?: string | null;
   },
 ) {
   const payload: Record<string, unknown> = {
@@ -527,6 +531,8 @@ export async function sendUserMessage(
     accessMode: options?.accessMode ?? null,
     images: options?.images ?? null,
     preferredLanguage: options?.preferredLanguage ?? null,
+    resumeSource: options?.resumeSource ?? null,
+    resumeTurnId: options?.resumeTurnId ?? null,
   };
   if (options?.customSpecRoot !== undefined) {
     payload.customSpecRoot = options.customSpecRoot;
@@ -1477,13 +1483,6 @@ export async function updateMenuLabels(
   updates: MenuLabelUpdate[],
 ): Promise<void> {
   return invoke("menu_update_labels", { updates });
-}
-
-export async function runCodexDoctor(
-  codexBin: string | null,
-  codexArgs: string | null,
-): Promise<CodexDoctorResult> {
-  return invoke<CodexDoctorResult>("codex_doctor", { codexBin, codexArgs });
 }
 
 export type WorkspaceFilesResponse = {

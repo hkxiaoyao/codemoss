@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { AccessMode, EngineType, ReviewTarget } from "../../../types";
 import { isValidModelId } from "../../composer/types/provider";
+import { primeThreadStreamLatencyContext } from "../utils/streamLatencyDiagnostics";
 import {
   classifyNetworkError,
   parseFirstPacketTimeoutSeconds,
@@ -181,6 +182,20 @@ export function mapNetworkErrorToUserMessage(
     message: stripBackendErrorPrefix(rawMessage),
     isNetwork: false,
   };
+}
+
+export function primeThreadStreamLatencyForSend(
+  workspaceId: string,
+  threadId: string,
+  engine: EngineType,
+  model?: string | null,
+) {
+  void primeThreadStreamLatencyContext({
+    workspaceId,
+    threadId,
+    engine,
+    model: model ?? null,
+  });
 }
 
 function normalizeSessionIdCandidate(value: unknown): string | null {

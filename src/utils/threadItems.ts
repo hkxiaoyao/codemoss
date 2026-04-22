@@ -1,4 +1,8 @@
 import type { ConversationItem } from "../types";
+import {
+  normalizeOutsideMarkdownCode,
+  normalizeOutsideMarkdownCodeStableInlineRegions,
+} from "./markdownCodeRegions";
 import { normalizeAgentIcon } from "./agentIcons";
 import {
   formatCollabAgentStates,
@@ -12,6 +16,7 @@ import {
   normalizeFileChangeKind,
   shouldPreferExplicitFileChangeOutput,
 } from "./threadItemsFileChanges";
+import { collapseNearDuplicateParagraphRepeats } from "./assistantDuplicateParagraphs";
 
 const MAX_ITEM_TEXT = 20000;
 const TOOL_OUTPUT_RECENT_ITEMS = 12;
@@ -79,14 +84,12 @@ const assistantReadabilityScoreCache = new Map<
 function asString(value: unknown) {
   return typeof value === "string" ? value : value ? String(value) : "";
 }
-
 export type ClaudeApprovalResumeEntry = {
   summary: string;
   path: string | null;
   kind: string | null;
   status: string | null;
 };
-
 export function extractClaudeApprovalResumeEntries(
   text: string,
 ): ClaudeApprovalResumeEntry[] {
@@ -140,7 +143,6 @@ function normalizeCollaborationMode(value: unknown): "plan" | "code" | null {
     ? normalized
     : null;
 }
-
 function parseCollaborationModeValue(value: unknown): "plan" | "code" | null {
   const direct = normalizeCollaborationMode(value);
   if (direct) {
@@ -1239,17 +1241,18 @@ function normalizeAssistantMessageText(text: string) {
     return text;
   }
   let normalized = stripClaudeApprovalResumeArtifacts(text);
-  normalized = collapseRepeatedAssistantParagraphBlocks(normalized);
-  normalized = collapseRepeatedAssistantFullText(normalized);
+  normalized = normalizeOutsideMarkdownCodeStableInlineRegions(normalized, collapseRepeatedAssistantParagraphBlocks);
+  normalized = normalizeOutsideMarkdownCodeStableInlineRegions(normalized, collapseNearDuplicateParagraphRepeats);
+  normalized = normalizeOutsideMarkdownCodeStableInlineRegions(normalized, collapseRepeatedAssistantFullText);
   if (isLikelyFragmentedAssistantText(normalized)) {
-    normalized = normalizeAssistantFragmentedParagraphs(normalized);
-    normalized = normalizeAssistantFragmentedLines(normalized);
+    normalized = normalizeOutsideMarkdownCode(normalized, normalizeAssistantFragmentedParagraphs);
+    normalized = normalizeOutsideMarkdownCode(normalized, normalizeAssistantFragmentedLines);
   }
-  normalized = dedupeRepeatedAssistantSentences(normalized);
-  normalized = collapseNearDuplicateAssistantSentenceBlocks(normalized);
-  normalized = dedupeAdjacentAssistantParagraphs(normalized);
-  normalized = collapseRepeatedAssistantParagraphBlocks(normalized);
-  normalized = collapseRepeatedAssistantFullText(normalized);
+  normalized = normalizeOutsideMarkdownCodeStableInlineRegions(normalized, dedupeRepeatedAssistantSentences);
+  normalized = normalizeOutsideMarkdownCodeStableInlineRegions(normalized, collapseNearDuplicateAssistantSentenceBlocks);
+  normalized = normalizeOutsideMarkdownCodeStableInlineRegions(normalized, dedupeAdjacentAssistantParagraphs);
+  normalized = normalizeOutsideMarkdownCodeStableInlineRegions(normalized, collapseRepeatedAssistantParagraphBlocks);
+  normalized = normalizeOutsideMarkdownCodeStableInlineRegions(normalized, collapseRepeatedAssistantFullText);
   return normalized.trim();
 }
 
@@ -1373,12 +1376,15 @@ function shouldNormalizeAssistantText(text: string) {
   if (stripClaudeApprovalResumeArtifacts(text) !== text.trim()) {
     return true;
   }
-  const hasRepeatedPattern = hasRepeatedAssistantTextPattern(text);
-  if (hasRepeatedPattern) {
+  if (hasRepeatedAssistantTextPattern(text)) {
     return true;
   }
   const collapsedNearDuplicate = collapseNearDuplicateAssistantSentenceBlocks(text);
   if (collapsedNearDuplicate.trim() !== text.trim()) {
+    return true;
+  }
+  const collapsedNearDuplicateParagraphs = collapseNearDuplicateParagraphRepeats(text);
+  if (collapsedNearDuplicateParagraphs.trim() !== text.trim()) {
     return true;
   }
   if (hasRichAssistantMarkdownStructure(text)) {

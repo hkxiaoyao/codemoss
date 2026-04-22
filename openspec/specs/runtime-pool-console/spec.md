@@ -15,33 +15,21 @@ The system MUST provide a settings surface that exposes the current runtime pool
 - **THEN** each row MUST display workspace identity, engine, lifecycle state, and lease source information
 
 ### Requirement: Runtime pool console MUST surface process diagnostics for managed runtimes
-The runtime pool console MUST expose the key process diagnostics needed to understand why a runtime exists, whether it is protected by active work or only retained while idle, how it was launched, and why it ended or remains retained.
 
-#### Scenario: runtime row includes process identity
-- **WHEN** the runtime pool console renders a managed runtime row
-- **THEN** the row MUST include pid, wrapper kind, started time, and last-used time
+The runtime pool console MUST expose enough continuity diagnostics to explain whether a Codex runtime is truly executing resumed work, merely retained, or stalled while waiting for fusion continuation to settle.
 
-#### Scenario: runtime row distinguishes active lease from idle retention
+#### Scenario: runtime row distinguishes stalled fusion continuation from retained idle
 
-- **WHEN** the runtime pool console renders a managed runtime row
-- **THEN** the row MUST expose active turn or stream lease source information separately from idle retention state such as pinned or warm
-- **AND** the user MUST be able to tell whether the runtime is protected by active work or only by retention policy
+- **WHEN** a runtime has no current turn or stream lease
+- **AND** the same `workspace + engine` still has a queue-fusion continuation in pending or stalled foreground continuity
+- **THEN** the runtime pool console MUST expose that row as stalled foreground continuation rather than plain idle or generic retained busy
+- **AND** the row MUST show the stalled continuation reason separately from pinned / warm retention metadata
 
-#### Scenario: runtime row shows active-work protection as the primary survival reason
+#### Scenario: runtime row clears stalled fusion continuity after terminal settlement
 
-- **WHEN** a managed runtime has both active work and warm or pinned retention flags
-- **THEN** the console MUST present active-work protection as the primary reason the runtime cannot be evicted
-- **AND** warm or pinned state MUST appear as secondary idle-retention metadata
-
-#### Scenario: runtime row shows abnormal exit context
-
-- **WHEN** the most recent managed runtime for a workspace ended unexpectedly
-- **THEN** the runtime pool console MUST expose the normalized exit reason and any available terminal metadata
-- **AND** that diagnostic MUST remain visible long enough for issue triage after the row is refreshed
-
-#### Scenario: recent cleanup diagnostics remain visible
-- **WHEN** the system has recorded orphan sweep, force-kill, or shutdown cleanup results
-- **THEN** the runtime pool console MUST expose those recent cleanup outcomes in a diagnosable summary
+- **WHEN** the corresponding fusion continuation later receives completed, error, runtime-ended, or equivalent terminal settlement
+- **THEN** the runtime pool console MUST clear the stalled fusion continuity marker
+- **AND** the row MUST converge to the ordinary settled runtime state without stale busy residue
 
 ### Requirement: Runtime pool console MUST allow controlled manual intervention
 The system MUST allow users to manually intervene in idle or retained managed runtimes from the runtime pool console.

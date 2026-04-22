@@ -370,9 +370,7 @@ async fn ensure_shared_session_native_binding(
         return Ok(current_native_thread_id);
     }
 
-    codex::ensure_codex_session(workspace_id, state, app).await?;
-    let started =
-        codex_core::start_thread_core(&state.sessions, workspace_id.to_string(), None).await?;
+    let started = codex::start_thread_with_runtime_retry(workspace_id, None, state, app).await?;
     let result = started
         .get("result")
         .cloned()

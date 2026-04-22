@@ -1,4 +1,47 @@
 const enPart2 = {
+  runtimeNotice: {
+    title: "Runtime Notice",
+    open: "Open runtime notices",
+    minimize: "Minimize",
+    clear: "Clear",
+    emptyTitle: "No runtime notices yet",
+    emptyDescription: "Initialization progress and key errors will appear here.",
+    statusIdle: "Idle",
+    statusStreaming: "Running",
+    statusError: "Error",
+    severityInfo: "Info",
+    severityWarning: "Warning",
+    severityError: "Error",
+    bootstrap: {
+      start: "Initializing local state...",
+      storageMigrationCheck: "Checking local state migration...",
+      inputHistoryRestore: "Restoring input history...",
+      interfaceResources: "Loading interface resources...",
+      mountShell: "Mounting the client shell...",
+      localStorageMigrationFailed:
+        "Local state migration failed. Startup continues in degraded mode.",
+      ready: "Client initialization completed.",
+      failed: "Client initialization failed. Reload and try again.",
+    },
+    runtime: {
+      startupPending: "{{workspace}}: {{engine}} runtime is connecting...",
+      resumePending: "{{workspace}}: Runtime health check failed. Trying recovery.",
+      ready: "{{workspace}}: {{engine}} runtime is connected",
+      suspectStale: "{{workspace}}: Runtime health check failed. Trying recovery.",
+      cooldown: "{{workspace}}: Runtime recovery failed. Cooldown is active.",
+      quarantined: "{{workspace}}: Runtime recovery failed and needs attention.",
+    },
+    engine: {
+      checking: "Checking {{engine}} status...",
+      ready: "{{engine}} is ready",
+      unavailable: "{{engine}} is not installed. Install it first.",
+      requiresLogin: "{{engine}} requires sign-in",
+    },
+    error: {
+      createSessionRecoveryRequired:
+        "{{workspace}}: Session creation failed while runtime recovery is in progress",
+    },
+  },
   // Workspace
   workspace: {
     connect: "Connect",

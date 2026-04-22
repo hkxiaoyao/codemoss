@@ -82,6 +82,7 @@ import {
   mapNetworkErrorToUserMessage,
   normalizeAccessMode,
   pickLikelyGeminiSessionId,
+  primeThreadStreamLatencyForSend,
   resolveCollaborationModeIdFromPayload,
   resolveRecoverableCodexFirstPacketTimeout,
 } from "./threadMessagingHelpers";
@@ -95,6 +96,8 @@ type SendMessageOptions = {
   effort?: string | null;
   collaborationMode?: Record<string, unknown> | null;
   accessMode?: AccessMode;
+  resumeSource?: "queue-fusion-cutover" | null;
+  resumeTurnId?: string | null;
   selectedMemoryIds?: string[];
   selectedMemoryInjectionMode?: MemoryContextInjectionMode;
   selectedAgent?: {
@@ -108,6 +111,10 @@ type SendMessageOptions = {
 
 type InterruptTurnOptions = {
   reason?: "user-stop" | "queue-fusion" | "plan-handoff";
+};
+
+type HandleFusionStalledOptions = {
+  message?: string | null;
 };
 
 type RunWithCreateSessionLoading = <T>(
@@ -713,6 +720,7 @@ export function useThreadMessaging({
       }
       markProcessing(threadId, true);
       safeMessageActivity();
+      primeThreadStreamLatencyForSend(workspace.id, threadId, effectiveResolvedEngine, modelForSend);
       onDebug?.({
         id: `${Date.now()}-client-turn-start`,
         timestamp: Date.now(),
@@ -815,6 +823,8 @@ export function useThreadMessaging({
           effort: resolvedEffort,
           collaborationMode: sanitizedCollaborationMode,
           accessMode: resolvedAccessMode,
+          resumeSource: options?.resumeSource,
+          resumeTurnId: options?.resumeTurnId,
           codexInvalidThreadRetryAttempted: true,
         });
         return true;
@@ -1166,6 +1176,8 @@ export function useThreadMessaging({
                 accessMode: resolvedAccessMode,
                 images,
                 preferredLanguage,
+                resumeSource: options?.resumeSource,
+                resumeTurnId: options?.resumeTurnId,
                 ...(customSpecRoot ? { customSpecRoot } : {}),
               },
             )) as Record<string, unknown>;
@@ -1498,6 +1510,43 @@ export function useThreadMessaging({
       await sendMessageToThread(workspace, threadId, text, images, options);
     },
     [sendMessageToThread],
+  );
+
+  const handleFusionStalled = useCallback(
+    (threadId: string, options?: HandleFusionStalledOptions) => {
+      if (!activeWorkspace || !threadId) {
+        return;
+      }
+      dispatch({
+        type: "settleThreadPlanInProgress",
+        threadId,
+        targetStatus: "pending",
+      });
+      dispatch({
+        type: "markContextCompacting",
+        threadId,
+        isCompacting: false,
+        timestamp: Date.now(),
+      });
+      markProcessing(threadId, false);
+      markReviewing(threadId, false);
+      setActiveTurnId(threadId, null);
+      pushThreadErrorMessage(
+        threadId,
+        options?.message?.trim() || t("threads.fusionTurnStalled"),
+      );
+      safeMessageActivity();
+    },
+    [
+      activeWorkspace,
+      dispatch,
+      markProcessing,
+      markReviewing,
+      pushThreadErrorMessage,
+      safeMessageActivity,
+      setActiveTurnId,
+      t,
+    ],
   );
 
   const interruptTurn = useCallback(async (options?: InterruptTurnOptions) => {
@@ -2905,6 +2954,7 @@ export function useThreadMessaging({
   );
 
   return {
+    handleFusionStalled,
     interruptTurn,
     sendUserMessage,
     sendUserMessageToThread,

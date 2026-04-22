@@ -10,7 +10,7 @@ export function useErrorToasts() {
 
   const dismissToast = useCallback((id: string) => {
     const timeoutId = timeoutByIdRef.current.get(id);
-    if (timeoutId) {
+    if (timeoutId !== undefined) {
       window.clearTimeout(timeoutId);
       timeoutByIdRef.current.delete(id);
     }
@@ -20,8 +20,22 @@ export function useErrorToasts() {
   useEffect(() => {
     const timeouts = timeoutByIdRef.current;
     const unsubscribe = subscribeErrorToasts((toast) => {
-      setToasts((prev) => [...prev, toast]);
+      const existingTimeoutId = timeouts.get(toast.id);
+      if (existingTimeoutId !== undefined) {
+        window.clearTimeout(existingTimeoutId);
+        timeouts.delete(toast.id);
+      }
+      setToasts((prev) => {
+        const next = prev.filter((entry) => entry.id !== toast.id);
+        return [...next, toast];
+      });
+      if (toast.sticky) {
+        return;
+      }
       const durationMs = toast.durationMs ?? DEFAULT_ERROR_TOAST_DURATION_MS;
+      if (durationMs <= 0) {
+        return;
+      }
       const timeoutId = window.setTimeout(() => {
         dismissToast(toast.id);
       }, durationMs);

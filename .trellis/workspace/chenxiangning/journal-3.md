@@ -1079,3 +1079,894 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 87: archive completed openspec changes
+
+**Date**: 2026-04-21
+**Task**: archive completed openspec changes
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 归档已完成并已验证的 OpenSpec changes，确保主 specs 与 archive 状态一致。
+
+主要改动:
+- 使用 openspec archive 归档 3 个 completed changes：mitigate-windows-codex-runtime-churn、fix-codex-stale-thread-binding-recovery、add-unified-exec-official-config-actions。
+- 同步主 specs，更新 conversation-runtime-stability、runtime-orchestrator、runtime-pool-console、conversation-lifecycle-contract、codex-external-config-runtime-reload、codex-unified-exec-override-governance。
+- 新增主 specs：codex-stale-thread-binding-recovery、windows-runtime-churn-diagnostics。
+- 将对应变更目录移动到 openspec/changes/archive/2026-04-21-*。
+
+涉及模块:
+- openspec/changes/
+- openspec/changes/archive/
+- openspec/specs/
+- .trellis/workspace/
+
+验证结果:
+- openspec status --change <name> --json: 三个 change 的 artifacts 全部 done。
+- tasks.md 检查：14/14、16/16、7/7 全部完成。
+- openspec archive -y <change>: 三个 change 均成功同步主 specs 并归档。
+- openspec list --json: 这三个 change 已不再出现在 active changes 列表。
+- git commit: 业务提交 007c3b9d chore(openspec): archive completed changes 已生成。
+
+后续事项:
+- 如需发布或评审，可基于当前分支继续推送/开 PR。
+- 后续归档其他 change 时，优先沿用 openspec archive CLI，避免手工同步 specs。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `007c3b9d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 88: Archive Codex stalled recovery change
+
+**Date**: 2026-04-21
+**Task**: Archive Codex stalled recovery change
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 任务目标
+- 基于已落地实现，回写并收口 OpenSpec change `fix-codex-stalled-user-input-and-runtime-idle-mismatch`
+- 同步主 specs，勾选 tasks，并完成 change archive
+
+## 主要改动
+- 新增主 spec：`openspec/specs/codex-stalled-recovery-contract/spec.md`
+- 同步 stalled recovery 相关 requirement 到：
+  - `openspec/specs/codex-chat-canvas-user-input-elicitation/spec.md`
+  - `openspec/specs/conversation-runtime-stability/spec.md`
+  - `openspec/specs/conversation-lifecycle-contract/spec.md`
+  - `openspec/specs/runtime-pool-console/spec.md`
+- 将 `openspec/changes/fix-codex-stalled-user-input-and-runtime-idle-mismatch/tasks.md` 全部回写为完成态
+- 将该 change 归档到 `openspec/changes/archive/2026-04-21-fix-codex-stalled-user-input-and-runtime-idle-mismatch/`
+
+## 涉及模块
+- OpenSpec change artifacts
+- OpenSpec main specs
+- Trellis workspace journal
+
+## 验证结果
+- `openspec validate fix-codex-stalled-user-input-and-runtime-idle-mismatch --strict` 通过
+- `openspec status --change "fix-codex-stalled-user-input-and-runtime-idle-mismatch" --json` 显示 artifacts 全部 `done`
+- 任务清单统计：15/15 完成
+- `openspec list --json` 确认该 change 已不在活跃列表中
+
+## 后续事项
+- 当前工作区仍有未提交的前端改动：
+  - `src/features/messages/components/Messages.tsx`
+  - `src/styles/layout-swapped-platform-guard.test.ts`
+  - `src/styles/messages.css`
+  - `src/features/messages/components/Messages.windows-render-mitigation.test.tsx`
+- 本次 session record 未归档任何 Trellis task，避免误归档与本次归档无直接映射的任务
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e6ad9549` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 89: 修复 Windows 下 Claude 对话幕布闪烁止血补丁
+
+**Date**: 2026-04-21
+**Task**: 修复 Windows 下 Claude 对话幕布闪烁止血补丁
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 任务目标
+- 对当前工作区改动做全面 review，重点检查边界条件、Windows/macOS 兼容性和大文件治理约束。
+- 为 Windows 下 Claude 对话幕布闪烁问题提交一个无损止血补丁。
+
+## 主要改动
+- 在 `src/features/messages/components/Messages.tsx` 中引入 Windows 平台判断，仅在 `Windows + Claude + isThinking` 场景挂载 `windows-claude-processing` class。
+- 修复 `conversationState` 覆盖 legacy props 时的边界条件，统一使用归一化 `isThinking` 驱动 `waitingForFirstChunk`、`useStreamActivityPhase` 和 mitigation class，避免状态源不一致导致漏触发。
+- 在 `src/styles/messages.css` 中为上述场景定向关闭 ingress 重特效，并禁用消息行的 `content-visibility:auto`，降低 WebView2 合成抖动风险。
+- 新增 `src/features/messages/components/Messages.windows-render-mitigation.test.tsx`，补齐 Windows / 非 Windows / 非 Claude / stale prop + normalized state 覆盖测试。
+- 强化 `src/styles/layout-swapped-platform-guard.test.ts` 的样式作用域断言，确保该降级只对 desktop Windows 生效。
+
+## 涉及模块
+- 会话消息幕布：`src/features/messages/components/Messages.tsx`
+- 消息样式：`src/styles/messages.css`
+- 平台样式守卫测试：`src/styles/layout-swapped-platform-guard.test.ts`
+- Windows 定向止血测试：`src/features/messages/components/Messages.windows-render-mitigation.test.tsx`
+
+## 验证结果
+- `npm run lint -- --quiet` ✅
+- `npm run typecheck` ✅
+- `npm exec vitest run src/features/messages/components/Messages.windows-render-mitigation.test.tsx src/features/messages/components/Messages.test.tsx src/features/messages/components/Messages.live-behavior.test.tsx src/styles/layout-swapped-platform-guard.test.ts` ✅
+- `npm run check:large-files:near-threshold` ✅（命中 near-threshold 警告，但本次触达文件未超过 hard gate）
+- `npm run check:large-files:gate` ✅
+
+## 后续事项
+- 让真实 Windows 物理机用户验证闪烁是否明显下降。
+- 若仍有残留，可继续收敛 Claude live reasoning 可见重排频率，但无需先动 runtime contract。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `747751b5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 90: 拆分 messages 时间线渲染层并瘦身主组件
+
+**Date**: 2026-04-21
+**Task**: 拆分 messages 时间线渲染层并瘦身主组件
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标
+- 对 src/features/messages/components/Messages.tsx 做纯结构瘦身，降低主文件体积，提升可维护性。
+- 控制改动边界，只做模块切割，不改变消息展示行为、DOM contract 和 runtime contract。
+
+主要改动
+- 从 Messages.tsx 中抽离 row 级展示组件到 src/features/messages/components/MessagesRows.tsx。
+- 从 Messages.tsx 中抽离 timeline 渲染编排到 src/features/messages/components/MessagesTimeline.tsx。
+- 从 Messages.tsx 中抽离纯 helper 到 src/features/messages/components/messagesRenderUtils.ts。
+- 让 Messages.tsx 回归 orchestration/container 角色，保留 state、refs、effects、visible items derive 与外层 shell。
+
+涉及模块
+- src/features/messages/components/Messages.tsx
+- src/features/messages/components/MessagesRows.tsx
+- src/features/messages/components/MessagesTimeline.tsx
+- src/features/messages/components/messagesRenderUtils.ts
+
+验证结果
+- npx eslint src/features/messages/components/Messages.tsx src/features/messages/components/MessagesTimeline.tsx src/features/messages/components/MessagesRows.tsx src/features/messages/components/messagesRenderUtils.ts
+- npm run typecheck
+- npx vitest run src/features/messages/components/Messages.test.tsx src/features/messages/components/Messages.live-behavior.test.tsx src/features/messages/components/Messages.windows-render-mitigation.test.tsx
+- npm run check:large-files
+- 结果：消息相关 101 条测试通过，large-file threshold 检查通过，Messages.tsx 从 2944 行降到 1564 行。
+
+后续事项
+- 可继续收敛 MessagesTimeline.tsx 的 prop surface，降低后续维护时的漏传风险。
+- 如后续处理 issue #389，可在当前拆分后的结构上补 scroll restoration 回归修复，风险会更低。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `36049224b002c0bf9d0488912cdc435d69300508` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 91: 修复历史展开后的消息视口跳动
+
+**Date**: 2026-04-22
+**Task**: 修复历史展开后的消息视口跳动
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标
+- 修复消息幕布中点击“显示之前的 N 条消息”后视口跳到更早历史顶部的问题。
+- 为 collapsed history reveal 补齐 scroll restoration 行为，并保持 history sticky / live sticky 语义不变。
+- 同步补齐 OpenSpec change 与 Trellis task 记录。
+
+主要改动
+- 在 src/features/messages/components/Messages.tsx 中新增 history reveal 前的滚动快照记录与 layout 阶段恢复逻辑。
+- 为滚动恢复补充非有限数值保护，异常 scrollTop / scrollHeight 场景下跳过恢复，避免污染滚动状态。
+- 将“显示之前的消息”入口收口到专用 handler，只在 collapsed history reveal 路径触发恢复逻辑。
+- 在 src/features/messages/components/Messages.live-behavior.test.tsx 中扩展 scroller metrics mock，新增正常恢复与异常指标跳过恢复两条回归测试。
+- 新建 openspec/changes/fix-history-expansion-scroll-restoration/ proposal、spec、design、tasks，并创建/归档对应 Trellis task。
+
+涉及模块
+- src/features/messages/components/Messages.tsx
+- src/features/messages/components/Messages.live-behavior.test.tsx
+- openspec/changes/fix-history-expansion-scroll-restoration/*
+- .trellis/tasks/04-21-fix-history-expansion-scroll-restoration/task.json
+
+验证结果
+- pnpm vitest run src/features/messages/components/Messages.live-behavior.test.tsx src/features/messages/components/Messages.test.tsx
+- npx eslint src/features/messages/components/Messages.tsx src/features/messages/components/Messages.live-behavior.test.tsx
+- npm run typecheck
+- npm run check:large-files
+- openspec validate fix-history-expansion-scroll-restoration --type change --strict --no-interactive
+- 结果：消息相关 99 条测试通过，typecheck 通过，large-file threshold 检查通过，OpenSpec strict validate 通过。
+
+后续事项
+- 如需继续推进，可执行 openspec-archive-change 归档 fix-history-expansion-scroll-restoration。
+- 工作区仍有其他未完成的 planning change 未提交，本次 session 未包含它们。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8a2c6450eac0675890e36aab6b1cdb2b46a3638a` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 92: 统一消息吸顶并补齐会话恢复重试
+
+**Date**: 2026-04-22
+**Task**: 统一消息吸顶并补齐会话恢复重试
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 将 realtime 用户问题吸顶统一到 history condensed sticky header 语义。
+- 修复 Codex 会话创建在 manual shutdown race 下的恢复缺口，并覆盖 shared session native binding。
+
+主要改动:
+- 重构 Messages sticky candidate 计算，让 realtime/history 共用 rendered ordinary user sections 的 sticky header handoff。
+- 保留 live window trimming 对最新问题 source row 的 render-window 保底，并更新对应行为测试与 OpenSpec 提案。
+- 在 codex::start_thread 路径抽取 runtime retry helper，让 shared_sessions 也复用同一恢复逻辑；补充 recoverable error 与 targeted tests。
+
+涉及模块:
+- src/features/messages/components
+- src/styles/messages.css
+- src-tauri/src/codex
+- src-tauri/src/shared_sessions.rs
+- src-tauri/src/bin/cc_gui_daemon
+- openspec/changes/align-live-sticky-with-history-header
+- openspec/changes/fix-codex-session-create-shutdown-race
+
+验证结果:
+- pnpm vitest run src/features/messages/components/Messages.live-behavior.test.tsx
+- openspec validate align-live-sticky-with-history-header --type change --strict --no-interactive
+- cargo test --manifest-path src-tauri/Cargo.toml start_thread_retry_ -- --nocapture
+- cargo test --manifest-path src-tauri/Cargo.toml --no-run
+
+后续事项:
+- 工作区仍保留未提交的 create-session recovery toast / global runtime notice 相关改动，需要单独整理与提交。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `daab536b8115d8e84f66c0d306d7207fafa7c8f6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 93: 完善会话恢复 toast 链路并修复边界问题
+
+**Date**: 2026-04-22
+**Task**: 完善会话恢复 toast 链路并修复边界问题
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+## 任务目标
+- 为 create-session recoverable error 提供显性的 UI 恢复动作
+- 在恢复链路中补齐运行时恢复后的用户反馈
+- 对当前工作区相关改动做边界条件 review，并直接修复发现的问题
+
+## 主要改动
+- 在 `useWorkspaceActions` 中将 recoverable create-session failure 改为 action toast，支持“重连并重试创建”
+- 在 `ensureRuntimeReady` 成功后追加短暂的 recovery-progress info toast，提示运行时已恢复且正在重新创建会话
+- 扩展 `ErrorToast` contract，支持 `variant`、async action、pending 文案和 inline action error
+- 为 toast 增加 `instanceId`，解决同一业务 id 重发时旧错误残留的问题
+- 将 toast action 的 pending 控制改为 action 级别，避免一个 toast 的恢复动作锁死其他 toast
+- 统一 create-session retry 的错误明细映射，确保 `SESSION_CREATION_EMPTY_THREAD_ID` 等边界场景返回本地化文案
+- 新增并更新 Vitest 用例，覆盖 stale error 清理、并发 action、recoverable retry 和 info toast 反馈
+- 新增 OpenSpec change `add-create-session-recovery-toast-action`，补齐 proposal/design/tasks/spec
+
+## 涉及模块
+- `src/features/app/hooks/useWorkspaceActions.ts`
+- `src/features/notifications/components/ErrorToasts.tsx`
+- `src/features/notifications/hooks/useErrorToasts.ts`
+- `src/services/toasts.ts`
+- `src/i18n/locales/en.part1.ts`
+- `src/i18n/locales/zh.part1.ts`
+- `openspec/changes/add-create-session-recovery-toast-action/**`
+
+## 验证结果
+- `npx vitest run src/features/notifications/components/ErrorToasts.test.tsx src/features/app/hooks/useWorkspaceActions.test.tsx src/services/toasts.test.ts`
+- `npm run typecheck`
+- `npm run check:large-files`
+- `npm run lint`（仅存在仓库既有 warnings，无新增 error）
+- `openspec validate add-create-session-recovery-toast-action --strict`
+
+## 后续事项
+- 可继续做真实 UI 手测，重点确认 recoverable toast -> pending -> recovery-progress toast 的反馈节奏
+- 如需后续发布，可考虑再补“会话创建最终成功”的轻提示或更统一的 toast 基础设施抽象
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `01632817` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 94: Checkpoint fusion stalled continuity
+
+**Date**: 2026-04-22
+**Task**: Checkpoint fusion stalled continuity
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 为 codex queue-fusion stalled continuity 建立第一版最小闭环，避免切换后长期假 loading。
+- 将 queue-fusion cutover 的 stalled source 从前端一路透传到 backend/runtime pool，便于后续继续补齐 same-run 和 terminal cleanup。
+
+主要改动:
+- 将 fusion 切换文案改为待确认语义，不再在 continuation 证据出现前宣称“内容正在继续生成”。
+- 在 queued cutover fusion 发送链路中新增 resumeSource/resumeTurnId，并在 frontend 侧增加 bounded settlement 与 fusion-specific stalled 提示。
+- backend app_server / codex command / runtime continuity 新增 queue-fusion-cutover source，turn/stalled payload 与 runtime pool row 共享 source/stage 诊断信息。
+- 更新 OpenSpec change fix-codex-fusion-stalled-continuity 的 proposal/design/spec/tasks，并勾选本轮已完成的阶段任务。
+
+涉及模块:
+- frontend: src/features/threads/hooks/useQueuedSend.ts, useThreadMessaging.ts, useThreadTurnEvents.ts, useAppServerEvents.ts, RuntimePoolSection.tsx
+- service/types: src/services/tauri.ts, src/types.ts, i18n locales, vitest setup
+- backend/runtime: src-tauri/src/backend/app_server.rs, app_server_event_helpers.rs, app_server_runtime_lifecycle.rs, src-tauri/src/codex/mod.rs, src-tauri/src/runtime/mod.rs
+- spec: openspec/changes/fix-codex-fusion-stalled-continuity/**
+
+验证结果:
+- npm run typecheck
+- npx vitest run src/features/threads/hooks/useQueuedSend.test.tsx src/features/threads/hooks/useThreadMessaging.test.tsx src/features/threads/hooks/useThreadTurnEvents.test.tsx src/features/app/hooks/useAppServerEvents.turn-stalled.test.tsx
+- cargo test --manifest-path src-tauri/Cargo.toml runtime::tests::record_runtime_ended_clears_leases_and_persists_exit_diagnostics -- --nocapture
+
+后续事项:
+- 继续补齐 same-run continuation 的 bounded settlement。
+- 补齐 late event / runtime-ended / terminal cleanup 的更完整回归与收口。
+- 在不影响现有 global runtime notice 工作区改动的前提下，继续推进该 OpenSpec change 到可归档状态。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `486cf0388c6fd9dadc1836d3650e05cea50e87fd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 95: 增强运行时提示与融合续跑收口
+
+**Date**: 2026-04-22
+**Task**: 增强运行时提示与融合续跑收口
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：完善全局 runtime notice dock、Codex fusion continuation 收口语义，并在 review 中修复 engine/sidebar/workspace 相关边界条件与跨平台兼容问题。
+
+主要改动：
+- 新增 global runtime notice 服务、dock 组件、runtime pool 轮询 hook、样式与 OpenSpec change，统一展示 bootstrap、runtime、workspace、diagnostic 提示。
+- 完成 fix-codex-fusion-stalled-continuity 变更，实现 same-run 与 cutover fusion 的 bounded settlement，补齐 continuation/terminal pulse 收口与 runtime continuity 测试。
+- 修复 app-shell layout section 中遗漏的 refreshEngines 作用域问题，避免前端运行时 ReferenceError。
+- 修复 opencode detect fallback 在 detectEngines 缺失状态行时无法补全 installed 状态的问题。
+- 修复 workspace session create 在 Windows CLI not found 场景下的错误本地化，并改进单独刷新 engine 后基于最新快照继续判定 provider health。
+
+涉及模块：
+- frontend app shell / layout / sidebar / workspace actions / engine controller / notifications / bootstrap
+- threads fusion continuity hooks 与 reducer
+- runtime Rust tests
+- OpenSpec changes: add-global-runtime-notice-dock, fix-codex-fusion-stalled-continuity
+
+验证结果：
+- npx vitest run src/features/app/hooks/useSidebarMenus.test.tsx src/features/engine/hooks/useEngineController.test.tsx src/features/app/hooks/useWorkspaceActions.test.tsx src/bootstrapApp.test.tsx
+- npx vitest run src/features/threads/hooks/useQueuedSend.test.tsx src/features/threads/hooks/useThreadTurnEvents.test.tsx src/features/app/hooks/useAppServerEvents.turn-stalled.test.tsx
+- cargo test --manifest-path src-tauri/Cargo.toml terminal_turn_events_clear_foreground_resume_pending_continuity -- --nocapture
+- cargo test --manifest-path src-tauri/Cargo.toml record_runtime_ended_clears_leases_and_persists_exit_diagnostics -- --nocapture
+- npm run typecheck
+- npm run check:large-files
+
+后续事项：
+- 如需发布前进一步收口，可追加一次更广覆盖的 targeted suite 或人工验证 global runtime notice dock 的交互态。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `292147259ed56c835ffefb2c5556b2185ddea4f0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 96: OpenSpec 归档六个已完成 change 并回写提案状态
+
+**Date**: 2026-04-22
+**Task**: OpenSpec 归档六个已完成 change 并回写提案状态
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 盘点当前未归档 OpenSpec change，基于代码核对 proposal/tasks/spec 的真实完成状态。
+- 将已完成 change 同步到主 specs 并归档，同时保留未完成 change 的提案基线。
+
+主要改动:
+- 回写 3 个仍在进行中的 proposal 代码核对状态：claude-code-mode-progressive-rollout、add-codex-structured-launch-profile、project-memory-refactor。
+- 归档 6 个已完成 change：fix-codex-fusion-stalled-continuity、add-global-runtime-notice-dock、add-create-session-recovery-toast-action、align-live-sticky-with-history-header、fix-codex-session-create-shutdown-race、fix-history-expansion-scroll-restoration。
+- 同步主 specs，并处理两处 delta/main spec header drift：conversation-runtime-stability、conversation-live-user-bubble-pinning。
+- 新增/更新主 spec capability：global-runtime-notice-dock、conversation-history-expansion-scroll-restoration，以及相关 runtime/collaboration capabilities。
+
+涉及模块:
+- openspec/changes/**
+- openspec/changes/archive/**
+- openspec/specs/**
+- .trellis/workspace/chenxiangning/**
+
+验证结果:
+- openspec validate claude-code-mode-progressive-rollout --type change --strict --no-interactive
+- openspec validate add-codex-structured-launch-profile --type change --strict --no-interactive
+- openspec validate project-memory-refactor --type change --strict --no-interactive
+- openspec archive -y <change> 成功归档 6 个已完成 change
+- git diff --check 通过
+- openspec list 归档后仅剩 3 个活动 change
+
+后续事项:
+- claude-code-mode-progressive-rollout 继续收口 E.1.c / E.3 / V.4。
+- add-codex-structured-launch-profile 仍待 preview contract 与 settings UI 实现。
+- project-memory-refactor 仍待 Batch A 契约冻结，尚未进入 V2 实现。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `708ddc6f77d28abf4dac91b602178d2e52667280` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 97: Harden Claude desktop render-safe mode
+
+**Date**: 2026-04-22
+**Task**: Harden Claude desktop render-safe mode
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+将 Claude 聊天幕布的 render-safe 保护从 Windows-only patch 升级为跨 Windows/macOS 的 desktop contract，并补齐对应的 OpenSpec/Trellis 记录与验证闭环。
+
+### Main Changes
+
+任务目标：将 #392 对应的 Claude 聊天幕布空白回归从 Windows-only patch 收敛为跨平台 desktop render-safe mode，并补齐 OpenSpec/Trellis 交付闭环。
+
+主要改动：
+- 在 Messages.tsx 中把 render-safe 判定从 windows-claude-processing 升级为 claude-render-safe，并让 isWorking 对齐 normalized conversationState。
+- 在 messages.css 中把高风险 ingress 动画与 content-visibility 降级从 Windows 扩展到 macOS desktop surface。
+- 更新 Messages.windows-render-mitigation.test.tsx 与 layout-swapped-platform-guard.test.ts，补齐 macOS 与 Claude/Codex 对照验证。
+- 新增 OpenSpec change fix-claude-chat-canvas-cross-platform-blanking 的 proposal/design/specs/tasks。
+- 新建 Trellis task 04-22-fix-claude-chat-canvas-cross-platform-blanking，并补 prd/context。
+
+涉及模块：messages chat canvas、styles/messages.css、OpenSpec artifacts、Trellis task workspace。
+
+验证结果：
+- npm exec vitest run src/features/messages/components/Messages.test.tsx src/features/messages/components/Messages.live-behavior.test.tsx src/features/messages/components/Messages.windows-render-mitigation.test.tsx src/styles/layout-swapped-platform-guard.test.ts
+- npm run typecheck
+- npm run check:large-files
+- openspec validate fix-claude-chat-canvas-cross-platform-blanking --type change --strict --no-interactive
+- npm run lint 通过，但仓库仍存在既有 react-hooks/exhaustive-deps warnings（非本次新增错误）。
+
+后续事项：
+- 建议在真实 Windows/macOS 机器上补一轮手测，重点覆盖 Claude 第二轮发送消息后的幕布稳定性。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `41a12c7b1a3486da89fac055e3169ae8e757c633` | `fix(messages): harden claude desktop render-safe mode` |
+
+### Testing
+
+- [OK] `npm exec vitest run src/features/messages/components/Messages.test.tsx src/features/messages/components/Messages.live-behavior.test.tsx src/features/messages/components/Messages.windows-render-mitigation.test.tsx src/styles/layout-swapped-platform-guard.test.ts`
+- [OK] `npm run typecheck`
+- [OK] `npm run check:large-files`
+- [OK] `openspec validate fix-claude-chat-canvas-cross-platform-blanking --type change --strict --no-interactive`
+- [OK] `npm run lint`（仅存在仓库既有 `react-hooks/exhaustive-deps` warnings，非本次新增）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 98: 拆分消息样式并补强桌面渲染守卫
+
+**Date**: 2026-04-22
+**Task**: 拆分消息样式并补强桌面渲染守卫
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：对 messages.css 进行大文件拆分，同时补齐桌面 render-safe 边界回归，并保持 OpenSpec/Trellis 记录与实现一致。
+
+主要改动：
+- 将 src/styles/messages.css 拆分为聚合入口、messages.part1.css、messages.part2.css，保留 selector contract 与导入顺序。
+- 更新 src/styles/layout-swapped-platform-guard.test.ts，使样式守卫测试支持递归展开 @import 后再进行断言。
+- 在 src/features/messages/components/Messages.windows-render-mitigation.test.tsx 中补充 normalized conversationState 停止 processing 后移除 claude-render-safe 的退出态回归测试。
+- 修正 openspec/changes/fix-claude-chat-canvas-cross-platform-blanking/design.md 中旧的 windows-claude-processing 文案。
+- 补全 .trellis/workspace/chenxiangning/journal-3.md 中 Session 97 的 summary / testing / commit 记录。
+
+涉及模块：messages chat canvas、src/styles/messages*.css、messages render-safe regression tests、OpenSpec change 文档、Trellis workspace journal。
+
+验证结果：
+- npm run lint 通过（仅存在仓库既有 react-hooks/exhaustive-deps warnings，非本次新增）
+- npm run typecheck 通过
+- npm run test 通过（336 test files 全部通过）
+- npm run check:large-files 通过
+- openspec validate fix-claude-chat-canvas-cross-platform-blanking --type change --strict --no-interactive 通过
+
+后续事项：
+- messages.part1.css 仍有 2208 行，后续若消息区继续扩展，可在真正新增样式时再按 shell / working / card 三个块继续细拆。
+- CHANGELOG.md 当前仍有未提交改动，本次未纳入业务提交。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7619db05` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 99: 补强运行时提示启动链路与边界回写
+
+**Date**: 2026-04-22
+**Task**: 补强运行时提示启动链路与边界回写
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+细化运行时提示启动链路，修复首次 ready 回写与多引擎/空元数据边界。
+
+### Main Changes
+
+任务目标
+- 补强运行时提示框启动链路与边界回写，让客户端启动过程对用户更可见。
+
+主要改动
+- 细化 bootstrap notice 序列，补充本地状态迁移、输入历史恢复、界面资源加载与 shell 挂载提示。
+- 修复 runtime 首次快照为 ready 时未写回 notice 的问题，保证初始化完成后有后续状态闭环。
+- 按 engine 动态生成 runtime notice 文案，避免 Claude/OpenCode 场景被误报为 Codex runtime。
+- 为 workspaceName/workspacePath 为空的场景补充稳定 fallback，兼容 Windows 反斜杠路径解析。
+- 补充启动序列、多引擎回写、空元数据与去重场景测试，并同步更新中英文 locale 与测试字典。
+
+涉及模块
+- src/bootstrapApp.tsx
+- src/features/notifications/hooks/useGlobalRuntimeNoticeDock.ts
+- src/bootstrapApp.test.tsx
+- src/features/notifications/hooks/useGlobalRuntimeNoticeDock.test.tsx
+- src/i18n/locales/zh.part2.ts
+- src/i18n/locales/en.part2.ts
+- src/test/vitest.setup.ts
+
+验证结果
+- 通过：npx vitest run src/bootstrapApp.test.tsx src/features/notifications/hooks/useGlobalRuntimeNoticeDock.test.tsx
+- 通过：npm run typecheck
+- 通过：npm run check:large-files
+- 通过（仅既有 warning）：npm run lint
+  当前仓库仍存在既有 react-hooks/exhaustive-deps warnings 112 条，无新增 lint error。
+
+后续事项
+- useGlobalRuntimeNoticeDock.test.tsx 仍会输出 React act warning，后续可继续整理异步测试 harness。
+- 本次提交未包含 CHANGELOG.md 与其他未跟踪文件。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f616a615afb3b7898b48478b4df43ae0cbf4618f` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 100: 修正空闲态最小化提示图标语义
+
+**Date**: 2026-04-22
+**Task**: 修正空闲态最小化提示图标语义
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+修复运行时提示框在空闲态仍显示叹号的问题，并补充最小化图标状态测试。
+
+### Main Changes
+
+任务目标
+- 修正运行时提示框在头部状态已回到空闲时，外部最小化气泡仍显示叹号的状态错位问题。
+
+主要改动
+- 调整 GlobalRuntimeNoticeDock 最小化气泡状态映射逻辑。
+- 修复 status 为 idle 时仍因历史 notice 存在而显示叹号的问题。
+- 保持 streaming 与 has-error 场景继续显示叹号提醒。
+- 补充组件测试，覆盖 idle 且存在历史 notice 时应显示绿点。
+- 补充错误态最小化图标测试，防止后续状态回归。
+
+涉及模块
+- src/features/notifications/components/GlobalRuntimeNoticeDock.tsx
+- src/features/notifications/components/GlobalRuntimeNoticeDock.test.tsx
+
+验证结果
+- 通过：npx vitest run src/features/notifications/components/GlobalRuntimeNoticeDock.test.tsx
+- 通过：npm run typecheck
+
+后续事项
+- 本次提交未包含 CHANGELOG.md、.trellis/tasks 新目录与其他未跟踪文件。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6373bd82c7111a6614d56c938ebb150f360e6ebc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 101: fix(messages): 修复实时对话中 inline code 的流式渲染错位
+
+**Date**: 2026-04-22
+**Task**: fix(messages): 修复实时对话中 inline code 的流式渲染错位
+**Branch**: `feature/v-0.4.7`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：落实 OpenSpec change `fix-live-inline-code-markdown-rendering`，修复实时对话阶段 inline code 在 streaming 中偶发渲染错位、边界漂移、live/history 不一致的问题。
+
+主要改动：
+- 在 `src/utils/markdownCodeRegions.ts` 新增 markdown code-region 保护层，使用 placeholder 保护 inline code span，避免 normalizer 穿透 code span，同时保持外层 list/paragraph 结构稳定。
+- 在 `src/features/messages/components/Markdown.tsx` 接入 protected-region aware 的 markdown normalization。
+- 在 `src/features/messages/components/MessagesRows.tsx` 收敛 live assistant markdown flush 策略，去掉 zero-buffer 风险窗口，改为 bounded throttle。
+- 在 `src/features/threads/hooks/threadReducerTextMerge.ts` 收紧 backtick 场景下的 delta/snapshot merge，避免 partial snapshot、echo cleanup 与 readable rewrite 破坏 code span 边界。
+- 在 `src/utils/threadItems.ts` 让 assistant 文本 normalize 对 inline code 保持边界安全。
+- 回填 OpenSpec change `openspec/changes/fix-live-inline-code-markdown-rendering/` 的 tasks 完成状态。
+
+涉及模块：
+- message markdown render path
+- assistant live merge path
+- assistant text normalization path
+- OpenSpec change artifacts
+
+验证结果：
+- `npm run check:large-files` 通过
+- `npm run typecheck` 通过
+- `npm run test` 通过，338 个 test files 全绿
+- `openspec validate "fix-live-inline-code-markdown-rendering" --type change --strict --no-interactive` 通过
+
+后续事项：
+- 当前提交只包含 live inline-code 修复范围；工作区仍存在其他未提交改动，需后续按各自任务边界单独整理。
+- 如需继续推进，可在后续提交中归档该 OpenSpec change，或补充更细的 streaming diagnostics 文档化。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4f74ea65` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

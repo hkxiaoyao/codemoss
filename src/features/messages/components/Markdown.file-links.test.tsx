@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Markdown } from "./Markdown";
 
 describe("Markdown file links", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("routes absolute file links to the file opener callback", () => {
     const onOpenFileLink = vi.fn();
 
@@ -47,5 +51,58 @@ describe("Markdown file links", () => {
     expect(
       screen.getByText("<image>https://example.com/a.png</image>"),
     ).toBeTruthy();
+  });
+
+  it("does not transform <image> tag inside inline code spans", () => {
+    const { container } = render(
+      <Markdown
+        value={"路径是 `<image>https://example.com/a.png</image>`"}
+      />,
+    );
+
+    expect(container.querySelector("img")).toBeNull();
+    expect(
+      screen.getByText("<image>https://example.com/a.png</image>"),
+    ).toBeTruthy();
+  });
+
+  it("preserves fragmented inline code content during markdown normalization", () => {
+    const { container } = render(
+      <Markdown value={"命令是 `pnpm\nrun\nlint`，执行后继续。"} />,
+    );
+
+    const code = container.querySelector("code");
+    expect(code?.textContent ?? "").toBe("pnpm run lint");
+    expect(container.textContent ?? "").not.toContain("pnpmrunlint");
+  });
+
+  it("flushes the latest content immediately when streaming throttle changes", () => {
+    vi.useFakeTimers();
+    const { rerender, container } = render(
+      <Markdown
+        value="draft"
+        streamingThrottleMs={120}
+      />,
+    );
+
+    rerender(
+      <Markdown
+        value="draft update"
+        streamingThrottleMs={120}
+      />,
+    );
+    expect(container.textContent ?? "").toContain("draft");
+    expect(container.textContent ?? "").not.toContain("draft update");
+
+    act(() => {
+      rerender(
+        <Markdown
+          value="final answer"
+          streamingThrottleMs={80}
+        />,
+      );
+    });
+
+    expect(container.textContent ?? "").toContain("final answer");
   });
 });

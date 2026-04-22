@@ -3,24 +3,22 @@
 ## Purpose
 
 Define how desktop-managed Codex unified_exec handling follows official defaults, exposes explicit official config actions, and repairs legacy global config mutations safely.
-
 ## Requirements
-
 ### Requirement: Desktop unified_exec policy MUST follow official defaults unless user explicitly overrides
 
-桌面端在没有显式 official `unified_exec` key 时 MUST 跟随官方平台默认行为，而不是再使用产品自定义的全平台布尔默认值。
+桌面端在没有显式 official `unified_exec` key 时 MUST 跟随官方平台默认行为；桌面端 UI MUST 将这种状态表述为官方默认，而不是本地 override。
 
 #### Scenario: official default remains enabled on non-Windows
 
 - **WHEN** 用户运行在 macOS 或 Linux，且 official config 中没有显式 `unified_exec`
 - **THEN** 桌面端 MUST 将 unified_exec 视为 official default enabled
-- **AND** 设置 UI MUST 明确该状态来自 official default，而不是本地 override
+- **AND** 设置 UI MUST 明确该状态来自 official default
 
 #### Scenario: official default remains disabled on Windows
 
 - **WHEN** 用户运行在 Windows，且 official config 中没有显式 `unified_exec`
 - **THEN** 桌面端 MUST 将 unified_exec 视为 official default disabled
-- **AND** 设置 UI MUST 明确该状态来自 official default，而不是本地 override
+- **AND** 设置 UI MUST 明确该状态来自 official default
 
 ### Requirement: Desktop MUST expose unified_exec as official config actions only
 
@@ -59,3 +57,4 @@ Define how desktop-managed Codex unified_exec handling follows official defaults
 - **WHEN** 用户选择 “restore official default”
 - **THEN** 桌面端 MUST 仅在显式用户动作后才修改 global config
 - **AND** 修改结果 MUST 让后续 Codex 行为重新跟随官方默认或 external config 剩余内容
+

@@ -323,6 +323,25 @@ pub fn find_cli_binary(name: &str, custom_bin: Option<&str>) -> Option<PathBuf> 
     }
 }
 
+fn matching_custom_bin<'a>(custom_bin: Option<&'a str>, cli_name: &str) -> Option<&'a str> {
+    let candidate = custom_bin?.trim();
+    if candidate.is_empty() {
+        return None;
+    }
+
+    let path = Path::new(candidate);
+    let file_stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(candidate);
+
+    if file_stem.eq_ignore_ascii_case(cli_name) {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
 #[cfg(windows)]
 fn prefer_windows_executable_variant(path: PathBuf) -> PathBuf {
     let ext = path
@@ -491,8 +510,8 @@ pub fn get_cli_debug_info(custom_bin: Option<&str>) -> serde_json::Value {
     debug.insert("extraSearchPaths".to_string(), json!(extra_paths_info));
 
     // Try to find claude and codex binaries
-    let claude_found = find_cli_binary("claude", custom_bin);
-    let codex_found = find_cli_binary("codex", custom_bin);
+    let claude_found = find_cli_binary("claude", matching_custom_bin(custom_bin, "claude"));
+    let codex_found = find_cli_binary("codex", matching_custom_bin(custom_bin, "codex"));
     debug.insert(
         "claudeFound".to_string(),
         json!(claude_found.map(|p| p.to_string_lossy().to_string())),
@@ -566,7 +585,10 @@ pub(crate) fn build_codex_command_with_bin(codex_bin: Option<String>) -> Command
 }
 
 /// Check if a specific CLI binary is available and return its version
-async fn check_cli_binary(bin: &str, path_env: Option<String>) -> Result<Option<String>, String> {
+pub(crate) async fn check_cli_binary(
+    bin: &str,
+    path_env: Option<String>,
+) -> Result<Option<String>, String> {
     async fn run_cli_version_check_once(
         launch_context: &CodexLaunchContext,
         hide_console: bool,
@@ -920,6 +942,20 @@ mod tests {
 
         let _ = fs::remove_file(&script_path);
         let _ = fs::remove_dir_all(script_path.parent().unwrap_or(Path::new("")));
+    }
+
+    #[test]
+    fn matching_custom_bin_only_applies_to_same_cli_name() {
+        assert_eq!(
+            matching_custom_bin(Some("/tmp/codex.cmd"), "codex"),
+            Some("/tmp/codex.cmd")
+        );
+        assert_eq!(matching_custom_bin(Some("/tmp/codex.cmd"), "claude"), None);
+        assert_eq!(
+            matching_custom_bin(Some("/tmp/Claude"), "claude"),
+            Some("/tmp/Claude")
+        );
+        assert_eq!(matching_custom_bin(Some(""), "claude"), None);
     }
 
     #[cfg(unix)]

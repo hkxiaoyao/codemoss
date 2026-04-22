@@ -1,6 +1,5 @@
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
-use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,6 +11,7 @@ use tokio::time::timeout;
 pub(crate) mod args;
 pub(crate) mod collaboration_policy;
 pub(crate) mod config;
+mod doctor;
 pub(crate) mod home;
 mod mcp_config;
 pub(crate) mod rewind;
@@ -20,16 +20,14 @@ mod thread_listing;
 pub(crate) mod thread_mode_state;
 
 use self::args::resolve_workspace_codex_args;
+pub(crate) use self::doctor::{run_claude_doctor_with_settings, run_codex_doctor_with_settings};
 pub(crate) use self::home::resolve_workspace_codex_home;
 use self::mcp_config::{
     list_global_mcp_servers as list_global_mcp_servers_impl, GlobalMcpServerEntry,
 };
 use self::thread_listing::{build_unified_codex_thread_page, resolve_workspace_fallback_model};
-pub(crate) use crate::backend::app_server::WorkspaceSession;
-use crate::backend::app_server::{
-    build_codex_path_env, check_codex_installation, get_cli_debug_info, probe_codex_app_server,
-    resolve_codex_launch_context, spawn_workspace_session as spawn_workspace_session_inner,
-};
+use crate::backend::app_server::spawn_workspace_session as spawn_workspace_session_inner;
+pub(crate) use crate::backend::app_server::{ResumePendingSource, WorkspaceSession};
 use crate::backend::events::AppServerEvent;
 use crate::engine::SendMessageParams;
 use crate::event_sink::TauriEventSink;
@@ -41,6 +39,9 @@ use crate::state::AppState;
 use crate::types::WorkspaceEntry;
 
 pub(crate) use self::session_runtime::ensure_codex_session;
+pub(crate) use self::session_runtime::{
+    create_session_runtime_recovering_error, is_stopping_runtime_race_error,
+};
 
 const DELETE_ARCHIVE_TIMEOUT_MS: u64 = 2_000;
 const CLAUDE_MANUAL_COMPACT_TIMEOUT_SECS: u64 = 120;
@@ -49,6 +50,66 @@ fn normalize_model_id(candidate: Option<String>) -> Option<String> {
     candidate
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+async fn run_start_thread_with_retry<FEnsure, FEnsureFuture, FStart, FStartFuture>(
+    workspace_id: &str,
+    ensure_runtime: FEnsure,
+    start_thread: FStart,
+) -> Result<Value, String>
+where
+    FEnsure: Fn() -> FEnsureFuture,
+    FEnsureFuture: std::future::Future<Output = Result<(), String>>,
+    FStart: Fn() -> FStartFuture,
+    FStartFuture: std::future::Future<Output = Result<Value, String>>,
+{
+    ensure_runtime().await?;
+    let first_attempt = start_thread().await;
+    match first_attempt {
+        Ok(response) => Ok(response),
+        Err(error) if is_stopping_runtime_race_error(&error) => {
+            log::warn!(
+                "[start_thread] retrying after stopping runtime race for workspace {}: {}",
+                workspace_id,
+                error
+            );
+            ensure_runtime().await?;
+            match start_thread().await {
+                Ok(response) => Ok(response),
+                Err(retry_error) if is_stopping_runtime_race_error(&retry_error) => {
+                    log::warn!(
+                        "[start_thread] stopping runtime race retry exhausted for workspace {}: {}",
+                        workspace_id,
+                        retry_error
+                    );
+                    Err(create_session_runtime_recovering_error())
+                }
+                Err(retry_error) => Err(retry_error),
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
+pub(crate) async fn start_thread_with_runtime_retry(
+    workspace_id: &str,
+    model: Option<String>,
+    state: &AppState,
+    app: &AppHandle,
+) -> Result<Value, String> {
+    let normalized_model = normalize_model_id(model);
+    run_start_thread_with_retry(
+        workspace_id,
+        || ensure_codex_session(workspace_id, state, app),
+        || {
+            codex_core::start_thread_core(
+                &state.sessions,
+                workspace_id.to_string(),
+                normalized_model.clone(),
+            )
+        },
+    )
+    .await
 }
 
 fn emit_manual_compaction_event(
@@ -224,135 +285,46 @@ pub(crate) async fn spawn_workspace_session(
 pub(crate) async fn codex_doctor(
     codex_bin: Option<String>,
     codex_args: Option<String>,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    let (default_bin, default_args) = {
-        let settings = state.app_settings.lock().await;
-        (settings.codex_bin.clone(), settings.codex_args.clone())
-    };
-    let resolved = codex_bin
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .or(default_bin);
-    let resolved_args = codex_args
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-        .or(default_args);
-    let path_env = build_codex_path_env(resolved.as_deref());
+    if remote_backend::is_remote_mode(&*state).await {
+        let codex_bin = codex_bin.map(remote_backend::normalize_path_for_remote);
+        return remote_backend::call_remote(
+            &*state,
+            app,
+            "codex_doctor",
+            json!({ "codexBin": codex_bin, "codexArgs": codex_args }),
+        )
+        .await;
+    }
 
-    // Get debug info first (always collect this)
-    let debug_info = get_cli_debug_info(resolved.as_deref());
+    let settings = state.app_settings.lock().await.clone();
+    run_codex_doctor_with_settings(codex_bin, codex_args, &settings).await
+}
 
-    // Try to check installation - don't fail early, collect all info
-    let version_result = check_codex_installation(resolved.clone()).await;
-    let (version, cli_error) = match version_result {
-        Ok(v) => (v, None),
-        Err(e) => (None, Some(e)),
-    };
+pub(crate) fn remote_claude_doctor_request(claude_bin: Option<String>) -> (&'static str, Value) {
+    (
+        "claude_doctor",
+        json!({
+            "claudeBin": claude_bin.map(remote_backend::normalize_path_for_remote),
+        }),
+    )
+}
 
-    let launch_context = resolve_codex_launch_context(resolved.as_deref());
+#[tauri::command]
+pub(crate) async fn claude_doctor(
+    claude_bin: Option<String>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Value, String> {
+    if remote_backend::is_remote_mode(&*state).await {
+        let (method, params) = remote_claude_doctor_request(claude_bin);
+        return remote_backend::call_remote(&*state, app, method, params).await;
+    }
 
-    // Try app-server check only if version check passed
-    let probe_status = if version.is_some() {
-        Some(probe_codex_app_server(resolved.clone(), resolved_args.as_deref()).await?)
-    } else {
-        None
-    };
-    let app_server_ok = probe_status
-        .as_ref()
-        .map(|status| status.ok)
-        .unwrap_or(false);
-
-    let (node_ok, node_version, node_details) = {
-        let mut node_command = crate::utils::async_command("node");
-        if let Some(ref path_env) = path_env {
-            node_command.env("PATH", path_env);
-        }
-        node_command.arg("--version");
-        node_command.stdout(std::process::Stdio::piped());
-        node_command.stderr(std::process::Stdio::piped());
-        match timeout(Duration::from_secs(5), node_command.output()).await {
-            Ok(result) => match result {
-                Ok(output) => {
-                    if output.status.success() {
-                        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                        (
-                            !version.is_empty(),
-                            if version.is_empty() {
-                                None
-                            } else {
-                                Some(version)
-                            },
-                            None,
-                        )
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        let stdout = String::from_utf8_lossy(&output.stdout);
-                        let detail = if stderr.trim().is_empty() {
-                            stdout.trim()
-                        } else {
-                            stderr.trim()
-                        };
-                        (
-                            false,
-                            None,
-                            Some(if detail.is_empty() {
-                                "Node failed to start.".to_string()
-                            } else {
-                                detail.to_string()
-                            }),
-                        )
-                    }
-                }
-                Err(err) => {
-                    if err.kind() == ErrorKind::NotFound {
-                        (false, None, Some("Node not found on PATH.".to_string()))
-                    } else {
-                        (false, None, Some(err.to_string()))
-                    }
-                }
-            },
-            Err(_) => (
-                false,
-                None,
-                Some("Timed out while checking Node.".to_string()),
-            ),
-        }
-    };
-
-    let details = if let Some(ref err) = cli_error {
-        Some(err.clone())
-    } else if let Some(status) = probe_status.as_ref() {
-        if status.ok {
-            None
-        } else {
-            status
-                .details
-                .clone()
-                .or_else(|| Some("Failed to run `codex app-server --help`.".to_string()))
-        }
-    } else {
-        None
-    };
-
-    Ok(json!({
-        "ok": version.is_some() && app_server_ok,
-        "codexBin": resolved,
-        "version": version,
-        "appServerOk": app_server_ok,
-        "details": details,
-        "path": path_env,
-        "nodeOk": node_ok,
-        "nodeVersion": node_version,
-        "nodeDetails": node_details,
-        "resolvedBinaryPath": launch_context.resolved_bin,
-        "wrapperKind": launch_context.wrapper_kind,
-        "pathEnvUsed": launch_context.path_env,
-        "proxyEnvSnapshot": debug_info.get("proxyEnvSnapshot").cloned().unwrap_or(Value::Null),
-        "appServerProbeStatus": probe_status.as_ref().map(|status| status.status.clone()),
-        "fallbackRetried": probe_status.as_ref().map(|status| status.fallback_retried).unwrap_or(false),
-        "debug": debug_info,
-    }))
+    let settings = state.app_settings.lock().await.clone();
+    run_claude_doctor_with_settings(claude_bin, &settings).await
 }
 
 #[tauri::command]
@@ -371,11 +343,8 @@ pub(crate) async fn start_thread(
         .await;
     }
 
-    // Ensure Codex session exists before starting thread
-    ensure_codex_session(&workspace_id, &state, &app).await?;
     let resolved_model = resolve_workspace_fallback_model(&state, &workspace_id).await;
-
-    codex_core::start_thread_core(&state.sessions, workspace_id, resolved_model).await
+    start_thread_with_runtime_retry(&workspace_id, resolved_model, &state, &app).await
 }
 
 #[tauri::command]
@@ -729,6 +698,8 @@ pub(crate) async fn send_user_message(
     collaboration_mode: Option<Value>,
     preferred_language: Option<String>,
     custom_spec_root: Option<String>,
+    resume_source: Option<String>,
+    resume_turn_id: Option<String>,
     state: State<'_, AppState>,
     app: AppHandle,
 ) -> Result<Value, String> {
@@ -771,6 +742,8 @@ pub(crate) async fn send_user_message(
         payload.insert("accessMode".to_string(), json!(access_mode));
         payload.insert("images".to_string(), json!(images));
         payload.insert("preferredLanguage".to_string(), json!(preferred_language));
+        payload.insert("resumeSource".to_string(), json!(resume_source));
+        payload.insert("resumeTurnId".to_string(), json!(resume_turn_id));
         if let Some(spec_root) = custom_spec_root.clone() {
             if !spec_root.trim().is_empty() {
                 payload.insert("customSpecRoot".to_string(), json!(spec_root));
@@ -818,6 +791,27 @@ pub(crate) async fn send_user_message(
         mode_enforcement_enabled,
     )
     .await?;
+
+    if resume_source.as_deref() == Some("queue-fusion-cutover") {
+        let session = {
+            let sessions = state.sessions.lock().await;
+            sessions.get(&workspace_id).cloned()
+        };
+        if let Some(session) = session {
+            session
+                .start_resume_pending_watch(
+                    app.clone(),
+                    thread_id.clone(),
+                    None,
+                    ResumePendingSource::QueueFusionCutover {
+                        previous_turn_id: resume_turn_id
+                            .map(|value| value.trim().to_string())
+                            .filter(|value| !value.is_empty()),
+                    },
+                )
+                .await;
+        }
+    }
 
     let session = {
         let sessions = state.sessions.lock().await;
@@ -1247,7 +1241,12 @@ pub(crate) async fn respond_to_server_request(
             };
             if let Some(session) = session {
                 session
-                    .start_resume_pending_watch(app, thread_id, normalized_turn_id)
+                    .start_resume_pending_watch(
+                        app,
+                        thread_id,
+                        normalized_turn_id,
+                        ResumePendingSource::UserInputResume,
+                    )
                     .await;
             }
         }
@@ -2134,10 +2133,15 @@ mod tests {
         build_local_codex_session_preview, build_thread_list_empty_response,
         codex_session_identifier_candidates, merge_unified_codex_thread_entries,
     };
-    use super::{normalize_model_id, pick_model_from_model_list_response};
+    use super::{
+        create_session_runtime_recovering_error, normalize_model_id,
+        pick_model_from_model_list_response, run_start_thread_with_retry,
+    };
     use crate::types::{LocalUsageSessionSummary, LocalUsageUsageData};
     use serde_json::json;
     use std::collections::HashSet;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
     #[test]
     fn normalize_model_id_trims_and_filters_empty() {
@@ -2448,5 +2452,123 @@ mod tests {
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0]["id"], "rollout-2026-04-10T10-00-00-session-123");
         assert_eq!(merged[0]["cwd"], "/tmp/workspace");
+    }
+
+    #[tokio::test]
+    async fn start_thread_retry_reacquires_after_manual_shutdown_race() {
+        let ensure_calls = Arc::new(AtomicUsize::new(0));
+        let start_calls = Arc::new(AtomicUsize::new(0));
+
+        let result = run_start_thread_with_retry(
+            "ws-1",
+            {
+                let ensure_calls = Arc::clone(&ensure_calls);
+                move || {
+                    let ensure_calls = Arc::clone(&ensure_calls);
+                    async move {
+                        ensure_calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    }
+                }
+            },
+            {
+                let start_calls = Arc::clone(&start_calls);
+                move || {
+                    let start_calls = Arc::clone(&start_calls);
+                    async move {
+                        let attempt = start_calls.fetch_add(1, Ordering::SeqCst);
+                        if attempt == 0 {
+                            Err(
+                                "[RUNTIME_ENDED] Managed runtime stopped after manual shutdown."
+                                    .to_string(),
+                            )
+                        } else {
+                            Ok(json!({ "result": { "threadId": "thread-recovered" } }))
+                        }
+                    }
+                }
+            },
+        )
+        .await
+        .expect("manual shutdown race should retry once");
+
+        assert_eq!(result["result"]["threadId"], "thread-recovered");
+        assert_eq!(ensure_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(start_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn start_thread_retry_does_not_retry_non_runtime_shutdown_errors() {
+        let ensure_calls = Arc::new(AtomicUsize::new(0));
+        let start_calls = Arc::new(AtomicUsize::new(0));
+
+        let error = run_start_thread_with_retry(
+            "ws-1",
+            {
+                let ensure_calls = Arc::clone(&ensure_calls);
+                move || {
+                    let ensure_calls = Arc::clone(&ensure_calls);
+                    async move {
+                        ensure_calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    }
+                }
+            },
+            {
+                let start_calls = Arc::clone(&start_calls);
+                move || {
+                    let start_calls = Arc::clone(&start_calls);
+                    async move {
+                        start_calls.fetch_add(1, Ordering::SeqCst);
+                        Err("workspace not connected".to_string())
+                    }
+                }
+            },
+        )
+        .await
+        .expect_err("non-runtime errors should surface directly");
+
+        assert_eq!(error, "workspace not connected");
+        assert_eq!(ensure_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(start_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn start_thread_retry_returns_recoverable_error_when_stopping_race_persists() {
+        let ensure_calls = Arc::new(AtomicUsize::new(0));
+        let start_calls = Arc::new(AtomicUsize::new(0));
+
+        let error = run_start_thread_with_retry(
+            "ws-1",
+            {
+                let ensure_calls = Arc::clone(&ensure_calls);
+                move || {
+                    let ensure_calls = Arc::clone(&ensure_calls);
+                    async move {
+                        ensure_calls.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    }
+                }
+            },
+            {
+                let start_calls = Arc::clone(&start_calls);
+                move || {
+                    let start_calls = Arc::clone(&start_calls);
+                    async move {
+                        start_calls.fetch_add(1, Ordering::SeqCst);
+                        Err(
+                            "[RUNTIME_ENDED] Managed runtime stopped after manual shutdown."
+                                .to_string(),
+                        )
+                    }
+                }
+            },
+        )
+        .await
+        .expect_err("persistent stopping race should surface recoverable error");
+
+        assert_eq!(error, create_session_runtime_recovering_error());
+        assert_eq!(ensure_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(start_calls.load(Ordering::SeqCst), 2);
     }
 }

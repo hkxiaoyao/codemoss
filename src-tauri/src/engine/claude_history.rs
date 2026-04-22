@@ -21,6 +21,7 @@ const LOCAL_SESSION_SCAN_TIMEOUT: Duration = Duration::from_secs(60);
 fn normalize_session_id(session_id: &str) -> Result<String, String> {
     let normalized = session_id.trim();
     if normalized.is_empty()
+        || normalized == "."
         || normalized.contains('/')
         || normalized.contains('\\')
         || normalized.contains("..")
@@ -1372,6 +1373,15 @@ mod tests {
         let error = delete_claude_session(&workspace_path, "..\\secrets")
             .await
             .expect_err("invalid session id should fail");
+        assert!(error.contains("Invalid Claude session id"));
+    }
+
+    #[tokio::test]
+    async fn delete_claude_session_rejects_current_directory_session_id() {
+        let workspace_path = std::env::temp_dir();
+        let error = delete_claude_session(&workspace_path, ".")
+            .await
+            .expect_err("dot session id should fail");
         assert!(error.contains("Invalid Claude session id"));
     }
 }

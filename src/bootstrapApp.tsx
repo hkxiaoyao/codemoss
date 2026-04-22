@@ -1,6 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { preloadClientStores } from "./services/clientStorage";
+import {
+  pushGlobalRuntimeNotice,
+  type GlobalRuntimeNoticeSeverity,
+} from "./services/globalRuntimeNotices";
 import { migrateLocalStorageToFileStore } from "./services/migrateLocalStorage";
 import { initInputHistoryStore } from "./features/composer/hooks/useInputHistoryStore";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -80,6 +84,18 @@ function resolveRootElement() {
   return root;
 }
 
+function pushBootstrapNotice(
+  messageKey: string,
+  severity: GlobalRuntimeNoticeSeverity = "info",
+) {
+  pushGlobalRuntimeNotice({
+    severity,
+    category: "bootstrap",
+    messageKey,
+    dedupeKey: `bootstrap:${messageKey}`,
+  });
+}
+
 async function markRendererReady() {
   try {
     const { invoke, isTauri } = await import("@tauri-apps/api/core");
@@ -97,21 +113,27 @@ async function markRendererReady() {
 
 async function bootstrap() {
   appendRendererDiagnostic("bootstrap/start");
+  pushBootstrapNotice("runtimeNotice.bootstrap.start");
   await preloadClientStores();
   flushRendererDiagnosticsBuffer();
   appendRendererDiagnostic("bootstrap/preload-complete");
+  pushBootstrapNotice("runtimeNotice.bootstrap.storageMigrationCheck");
   try {
     migrateLocalStorageToFileStore();
   } catch (error) {
     appendRendererDiagnostic("bootstrap/local-storage-migration-failed", {
       error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
     });
+    pushBootstrapNotice("runtimeNotice.bootstrap.localStorageMigrationFailed", "warning");
     console.error("[bootstrap] localStorage migration failed, continue startup:", error);
   }
+  pushBootstrapNotice("runtimeNotice.bootstrap.inputHistoryRestore");
   await initInputHistoryStore();
   appendRendererDiagnostic("bootstrap/input-history-ready");
+  pushBootstrapNotice("runtimeNotice.bootstrap.interfaceResources");
   await import("./i18n");
   appendRendererDiagnostic("bootstrap/i18n-ready");
+  pushBootstrapNotice("runtimeNotice.bootstrap.mountShell");
   const { default: App } = await import("./App");
   const root = resolveRootElement();
   ReactDOM.createRoot(root).render(
@@ -122,6 +144,7 @@ async function bootstrap() {
     </React.StrictMode>,
   );
   appendRendererDiagnostic("bootstrap/render-committed");
+  pushBootstrapNotice("runtimeNotice.bootstrap.ready");
   void markRendererReady();
 }
 
@@ -132,6 +155,7 @@ export async function startApp() {
     appendRendererDiagnostic("bootstrap/failed", {
       error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
     });
+    pushBootstrapNotice("runtimeNotice.bootstrap.failed", "error");
     flushRendererDiagnosticsBuffer();
     console.error("[bootstrap] Startup failed:", error);
     renderBootstrapFallback(error);

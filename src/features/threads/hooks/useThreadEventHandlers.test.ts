@@ -2,6 +2,11 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useThreadEventHandlers } from "./useThreadEventHandlers";
+import {
+  noteThreadVisibleRender,
+  primeThreadStreamLatencyContext,
+  resetThreadStreamLatencyDiagnosticsForTests,
+} from "../utils/streamLatencyDiagnostics";
 
 const turnHookFactory = vi.hoisted(() => {
   let latestOptions: Record<string, unknown> | null = null;
@@ -14,6 +19,13 @@ const turnHookFactory = vi.hoisted(() => {
     },
   };
 });
+
+const streamLatencyMocks = vi.hoisted(() => ({
+  getCurrentClaudeConfig: vi.fn(),
+  appendRendererDiagnostic: vi.fn(),
+  isWindowsPlatform: vi.fn(),
+  isMacPlatform: vi.fn(),
+}));
 
 vi.mock("./useThreadApprovalEvents", () => ({
   useThreadApprovalEvents: vi.fn(() => vi.fn()),
@@ -33,6 +45,19 @@ vi.mock("../utils/claudeMcpRuntimeSnapshot", () => ({
 
 vi.mock("../utils/realtimePerfFlags", () => ({
   isDebugLightPathEnabled: vi.fn(() => false),
+}));
+
+vi.mock("../../../services/tauri", () => ({
+  getCurrentClaudeConfig: streamLatencyMocks.getCurrentClaudeConfig,
+}));
+
+vi.mock("../../../services/rendererDiagnostics", () => ({
+  appendRendererDiagnostic: streamLatencyMocks.appendRendererDiagnostic,
+}));
+
+vi.mock("../../../utils/platform", () => ({
+  isWindowsPlatform: streamLatencyMocks.isWindowsPlatform,
+  isMacPlatform: streamLatencyMocks.isMacPlatform,
 }));
 
 vi.mock("./useThreadTurnEvents", () => ({
@@ -165,6 +190,13 @@ describe("useThreadEventHandlers diagnostics", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-18T10:00:00.000Z"));
     window.localStorage.removeItem("ccgui.debug.turnDiagnosticsVerbose");
+    streamLatencyMocks.getCurrentClaudeConfig.mockReset();
+    streamLatencyMocks.appendRendererDiagnostic.mockReset();
+    streamLatencyMocks.isWindowsPlatform.mockReset();
+    streamLatencyMocks.isMacPlatform.mockReset();
+    streamLatencyMocks.isWindowsPlatform.mockReturnValue(false);
+    streamLatencyMocks.isMacPlatform.mockReturnValue(false);
+    resetThreadStreamLatencyDiagnosticsForTests();
   });
 
   afterEach(() => {
@@ -199,6 +231,23 @@ describe("useThreadEventHandlers diagnostics", () => {
     expect(stalledEntry?.payload.isProcessing).toBe(true);
     expect(stalledEntry?.payload.activeTurnId).toBe("turn-1");
     expect(stalledEntry?.payload.hasExecutionItem).toBe(false);
+  });
+
+  it("emits a waiting-for-first-delta diagnostic when no chunk arrives", () => {
+    const onDebug = vi.fn();
+    const { result } = renderHook(() => useThreadEventHandlers(makeOptions(onDebug)));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-1");
+      vi.advanceTimersByTime(6_000);
+    });
+
+    const waitingEntry = collectDiagnosticCalls(onDebug).find(
+      (entry) => entry.label === "thread/session:turn-diagnostic:waiting-for-first-delta",
+    );
+
+    expect(waitingEntry?.payload.diagnosticCategory).toBe("first-token-delay");
+    expect(waitingEntry?.payload.latencyCategory).toBe("upstream-pending");
   });
 
   it("cancels the stall warning once the first execution item arrives", () => {
@@ -310,5 +359,59 @@ describe("useThreadEventHandlers diagnostics", () => {
     expect(labels).toContain("thread/session:turn-diagnostic:first-delta");
     expect(labels).toContain("thread/session:turn-diagnostic:first-execution-item");
     expect(labels).toContain("thread/session:turn-diagnostic:completed");
+  });
+
+  it("includes correlated provider fingerprint and mitigation evidence on completion", async () => {
+    window.localStorage.setItem("ccgui.debug.turnDiagnosticsVerbose", "1");
+    streamLatencyMocks.isWindowsPlatform.mockReturnValue(true);
+    streamLatencyMocks.getCurrentClaudeConfig.mockResolvedValue({
+      apiKey: "",
+      baseUrl: "https://dashscope.aliyuncs.com/apps/anthropic",
+      providerId: "qwen",
+      providerName: "Qwen",
+    });
+    await primeThreadStreamLatencyContext({
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      engine: "claude",
+      model: "qwen3.6-plus",
+    });
+
+    const onDebug = vi.fn();
+    const { result } = renderHook(() => useThreadEventHandlers(makeOptions(onDebug)));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-1");
+    });
+    act(() => {
+      vi.setSystemTime(new Date("2026-04-18T10:00:00.100Z"));
+      result.current.onAgentMessageDelta({
+        workspaceId: "ws-1",
+        threadId: "thread-1",
+        itemId: "msg-1",
+        delta: "hello",
+      });
+    });
+    act(() => {
+      vi.setSystemTime(new Date("2026-04-18T10:00:00.340Z"));
+      noteThreadVisibleRender("thread-1", {
+        visibleItemCount: 2,
+        renderAt: Date.now(),
+      });
+      result.current.onTurnCompleted("ws-1", "thread-1", "turn-1");
+    });
+
+    const completedEntry = collectDiagnosticCalls(onDebug).find(
+      (entry) => entry.label === "thread/session:turn-diagnostic:completed",
+    );
+
+    expect(completedEntry?.payload.providerId).toBe("qwen");
+    expect(completedEntry?.payload.model).toBe("qwen3.6-plus");
+    expect(completedEntry?.payload.platform).toBe("windows");
+    expect(completedEntry?.payload.latencyCategory).toBe("render-amplification");
+    expect(completedEntry?.payload.firstVisibleRenderAfterDeltaMs).toBe(240);
+    expect(completedEntry?.payload.mitigationProfile).toBe(
+      "claude-qwen-windows-render-safe",
+    );
   });
 });

@@ -71,6 +71,51 @@ async fn recovery_guard_resets_after_success() {
 }
 
 #[tokio::test]
+async fn stale_session_rejection_records_pre_probe_diagnostics() {
+    let manager = RuntimeManager::new(&std::env::temp_dir());
+    let entry = workspace_entry("ws-pre-probe");
+    manager
+        .record_starting(&entry, "codex", "ensure-runtime-ready")
+        .await;
+    {
+        let mut entries = manager.entries.lock().await;
+        let runtime = entries
+            .get_mut("codex::ws-pre-probe")
+            .expect("runtime entry should exist");
+        runtime.session_exists = true;
+        runtime.starting = false;
+        runtime.startup_state = Some(RuntimeStartupState::Ready);
+    }
+
+    manager
+        .note_stale_session_rejection(
+            "codex",
+            "ws-pre-probe",
+            "ensure-runtime-ready",
+            "manual-shutdown-requested",
+        )
+        .await;
+
+    let snapshot = manager.snapshot(&AppSettings::default()).await;
+    let row = snapshot
+        .rows
+        .iter()
+        .find(|item| item.workspace_id == "ws-pre-probe")
+        .expect("runtime row should exist");
+
+    assert_eq!(row.startup_state, Some(RuntimeStartupState::SuspectStale));
+    assert_eq!(row.last_guard_state.as_deref(), Some("pre-probe-rejected"));
+    assert_eq!(
+        row.last_probe_failure.as_deref(),
+        Some("manual-shutdown-requested"),
+    );
+    assert_eq!(
+        row.last_probe_failure_source.as_deref(),
+        Some("ensure-runtime-ready"),
+    );
+}
+
+#[tokio::test]
 async fn explicit_acquire_resets_quarantine_for_fresh_retry_cycle() {
     let manager = RuntimeManager::new(&std::env::temp_dir());
 

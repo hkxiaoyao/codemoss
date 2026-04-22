@@ -4,9 +4,12 @@ use tauri::AppHandle;
 use tokio::time::Duration;
 
 const SESSION_HEALTH_PROBE_TIMEOUT_SECS: u64 = 3;
+pub(crate) const CREATE_SESSION_RUNTIME_RECOVERING_ERROR_PREFIX: &str =
+    "[SESSION_CREATE_RUNTIME_RECOVERING]";
 
 async fn reuse_existing_session_if_healthy<FProbe, FutProbe, FTouch, FutTouch, FStop, FutStop>(
     workspace_id: &str,
+    stale_reason: Option<&str>,
     probe: FProbe,
     touch: FTouch,
     stop: FStop,
@@ -19,6 +22,22 @@ where
     FStop: FnOnce() -> FutStop,
     FutStop: std::future::Future<Output = Result<(), String>>,
 {
+    if let Some(reason) = stale_reason {
+        log::warn!(
+            "[ensure_codex_session] stale session rejected before probe for workspace {}: {}",
+            workspace_id,
+            reason
+        );
+        if let Err(stop_error) = stop().await {
+            log::warn!(
+                "[ensure_codex_session] failed to stop stale session for workspace {}: {}",
+                workspace_id,
+                stop_error
+            );
+        }
+        return false;
+    }
+
     match probe().await {
         Ok(()) => {
             touch().await;
@@ -40,6 +59,19 @@ where
             false
         }
     }
+}
+
+pub(crate) fn is_stopping_runtime_race_error(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("manual shutdown")
+        || normalized.contains("manual_shutdown")
+        || (normalized.contains("[runtime_ended]") && normalized.contains("stopped after"))
+}
+
+pub(crate) fn create_session_runtime_recovering_error() -> String {
+    format!(
+        "{CREATE_SESSION_RUNTIME_RECOVERING_ERROR_PREFIX} Managed runtime was restarting while creating this session. The app retried automatically but could not acquire a healthy runtime yet. Reconnect the workspace and try again."
+    )
 }
 
 async fn load_workspace_entries_for_runtime_start(
@@ -93,8 +125,16 @@ async fn ensure_codex_session_with_mode(
             sessions.get(workspace_id).cloned()
         };
         if let Some(session) = existing_session {
+            let stale_reason = session.stale_reuse_reason().map(str::to_owned);
+            if let Some(reason) = stale_reason.as_deref() {
+                state
+                    .runtime_manager
+                    .note_stale_session_rejection("codex", workspace_id, recovery_source, reason)
+                    .await;
+            }
             if reuse_existing_session_if_healthy(
                 workspace_id,
+                stale_reason.as_deref(),
                 || session.probe_health(Duration::from_secs(SESSION_HEALTH_PROBE_TIMEOUT_SECS)),
                 || async {
                     state
@@ -119,15 +159,14 @@ async fn ensure_codex_session_with_mode(
                     .await;
                 return Ok(());
             }
-            state
-                .runtime_manager
-                .note_probe_failure(
-                    "codex",
-                    workspace_id,
-                    recovery_source,
-                    "stale existing session failed health probe",
-                )
-                .await;
+            let stale_failure = stale_reason
+                .unwrap_or_else(|| "stale existing session failed health probe".to_string());
+            if stale_failure == "stale existing session failed health probe" {
+                state
+                    .runtime_manager
+                    .note_probe_failure("codex", workspace_id, recovery_source, &stale_failure)
+                    .await;
+            }
             if automatic_recovery {
                 if let Err(quarantine_error) = state
                     .runtime_manager
@@ -135,7 +174,7 @@ async fn ensure_codex_session_with_mode(
                         "codex",
                         workspace_id,
                         recovery_source,
-                        "stale existing session failed health probe",
+                        &stale_failure,
                     )
                     .await
                 {
@@ -273,7 +312,11 @@ async fn ensure_codex_session_with_mode(
 
 #[cfg(test)]
 mod tests {
-    use super::{load_workspace_entries_for_runtime_start, reuse_existing_session_if_healthy};
+    use super::{
+        create_session_runtime_recovering_error, is_stopping_runtime_race_error,
+        load_workspace_entries_for_runtime_start, reuse_existing_session_if_healthy,
+        CREATE_SESSION_RUNTIME_RECOVERING_ERROR_PREFIX,
+    };
     use crate::runtime::{RuntimeAcquireGate, RuntimeManager};
     use crate::types::WorkspaceEntry;
     use std::collections::HashMap;
@@ -289,6 +332,7 @@ mod tests {
 
         let reused = reuse_existing_session_if_healthy(
             "ws-1",
+            None,
             || async { Ok(()) },
             {
                 let touched = Arc::clone(&touched);
@@ -318,6 +362,7 @@ mod tests {
 
         let reused = reuse_existing_session_if_healthy(
             "ws-1",
+            None,
             || async { Err("Broken pipe (os error 32)".to_string()) },
             {
                 let touched = Arc::clone(&touched);
@@ -338,6 +383,62 @@ mod tests {
         assert!(!reused);
         assert!(!touched.load(Ordering::SeqCst));
         assert!(stopped.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn stops_stale_session_before_probe_when_already_marked_stopping() {
+        let probe_called = Arc::new(AtomicBool::new(false));
+        let touched = Arc::new(AtomicBool::new(false));
+        let stopped = Arc::new(AtomicBool::new(false));
+
+        let reused = reuse_existing_session_if_healthy(
+            "ws-1",
+            Some("manual-shutdown-requested"),
+            {
+                let probe_called = Arc::clone(&probe_called);
+                move || async move {
+                    probe_called.store(true, Ordering::SeqCst);
+                    Ok(())
+                }
+            },
+            {
+                let touched = Arc::clone(&touched);
+                move || async move {
+                    touched.store(true, Ordering::SeqCst);
+                }
+            },
+            {
+                let stopped = Arc::clone(&stopped);
+                move || async move {
+                    stopped.store(true, Ordering::SeqCst);
+                    Ok(())
+                }
+            },
+        )
+        .await;
+
+        assert!(!reused);
+        assert!(!probe_called.load(Ordering::SeqCst));
+        assert!(!touched.load(Ordering::SeqCst));
+        assert!(stopped.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn stopping_runtime_race_error_matches_manual_shutdown_messages() {
+        assert!(is_stopping_runtime_race_error(
+            "[RUNTIME_ENDED] Managed runtime stopped after manual shutdown."
+        ));
+        assert!(is_stopping_runtime_race_error(
+            "Managed runtime stopped after manual shutdown."
+        ));
+        assert!(!is_stopping_runtime_race_error("workspace not connected"));
+    }
+
+    #[test]
+    fn create_session_runtime_recovering_error_uses_stable_prefix() {
+        let error = create_session_runtime_recovering_error();
+        assert!(error.starts_with(CREATE_SESSION_RUNTIME_RECOVERING_ERROR_PREFIX));
+        assert!(error.contains("retried automatically"));
     }
 
     #[tokio::test]

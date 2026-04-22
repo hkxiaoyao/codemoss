@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationItem } from "../../../types";
 import type { ConversationState } from "../../threads/contracts/conversationCurtainContracts";
@@ -28,11 +28,18 @@ describe("Messages live behavior", () => {
     return scroller as HTMLDivElement;
   };
 
-  const setScrollerMetrics = (scroller: HTMLDivElement, scrollTop: number) => {
+  const setScrollerMetrics = (
+    scroller: HTMLDivElement,
+    scrollTop: number,
+    scrollHeight: number | (() => number) = 2400,
+  ) => {
+    let currentScrollTop = scrollTop;
     Object.defineProperty(scroller, "scrollTop", {
       configurable: true,
-      writable: true,
-      value: scrollTop,
+      get: () => currentScrollTop,
+      set: (value: number) => {
+        currentScrollTop = value;
+      },
     });
     Object.defineProperty(scroller, "clientHeight", {
       configurable: true,
@@ -40,7 +47,7 @@ describe("Messages live behavior", () => {
     });
     Object.defineProperty(scroller, "scrollHeight", {
       configurable: true,
-      value: 2400,
+      get: () => (typeof scrollHeight === "function" ? scrollHeight() : scrollHeight),
     });
   };
 
@@ -535,7 +542,7 @@ describe("Messages live behavior", () => {
     scrollSpy.mockRestore();
   });
 
-  it("pins only the latest ordinary user question during realtime processing", () => {
+  it("uses the shared condensed sticky header for the latest ordinary user question during realtime processing", async () => {
     const items: ConversationItem[] = [
       {
         id: "user-live-sticky-old",
@@ -575,20 +582,85 @@ describe("Messages live behavior", () => {
       />,
     );
 
-    const stickyNodes = container.querySelectorAll(".messages-live-sticky-user-message");
-    expect(stickyNodes).toHaveLength(1);
-    expect(container.querySelector(".messages-history-sticky-header")).toBeNull();
-    expect(stickyNodes[0]?.getAttribute("data-message-anchor-id")).toBe(
-      "user-live-sticky-latest",
-    );
-    expect(
-      container
-        .querySelector('[data-message-anchor-id="user-live-sticky-old"]')
-        ?.classList.contains("messages-live-sticky-user-message"),
-    ).toBe(false);
+    expect(container.querySelector(".messages-live-sticky-user-message")).toBeNull();
+    const scroller = getMessagesScroller(container);
+    setMessageOffsetTop(container, "user-live-sticky-old", 12);
+    setMessageOffsetTop(container, "user-live-sticky-latest", 24);
+
+    await scrollMessages(scroller, 24);
+    await waitFor(() => {
+      const stickyHeader = container.querySelector(".messages-history-sticky-header");
+      expect(stickyHeader?.getAttribute("data-history-sticky-message-id")).toBe(
+        "user-live-sticky-latest",
+      );
+      expect(stickyHeader?.textContent ?? "").toContain("当前实时问题");
+    });
   });
 
-  it("keeps the latest sticky user question rendered when realtime windowing trims the list", () => {
+  it("uses history-style sticky handoff when scrolling back to earlier sections during realtime processing", async () => {
+    const items: ConversationItem[] = [
+      {
+        id: "user-live-handoff-earlier",
+        kind: "message",
+        role: "user",
+        text: "更早的问题",
+      },
+      {
+        id: "assistant-live-handoff-earlier",
+        kind: "message",
+        role: "assistant",
+        text: "更早的回答",
+      },
+      {
+        id: "user-live-handoff-latest",
+        kind: "message",
+        role: "user",
+        text: "最新的问题",
+      },
+      {
+        id: "reasoning-live-handoff",
+        kind: "reasoning",
+        summary: "分析中",
+        content: "",
+      },
+    ];
+
+    const { container } = render(
+      <Messages
+        items={items}
+        threadId="thread-1"
+        workspaceId="ws-1"
+        isThinking
+        processingStartedAt={Date.now() - 1_000}
+        openTargets={[]}
+        selectedOpenAppId=""
+      />,
+    );
+
+    const scroller = getMessagesScroller(container);
+    setMessageOffsetTop(container, "user-live-handoff-earlier", 18);
+    setMessageOffsetTop(container, "user-live-handoff-latest", 260);
+
+    await scrollMessages(scroller, 18);
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector(".messages-history-sticky-header")
+          ?.getAttribute("data-history-sticky-message-id"),
+      ).toBe("user-live-handoff-earlier");
+    });
+
+    await scrollMessages(scroller, 260);
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector(".messages-history-sticky-header")
+          ?.getAttribute("data-history-sticky-message-id"),
+      ).toBe("user-live-handoff-latest");
+    });
+  });
+
+  it("keeps the latest sticky user question renderable when realtime windowing trims the list", async () => {
     const overflowingRealtimeItems: ConversationItem[] = [
       {
         id: "user-live-sticky-windowed",
@@ -616,14 +688,22 @@ describe("Messages live behavior", () => {
       />,
     );
 
-    const stickyNode = container.querySelector(".messages-live-sticky-user-message");
-    expect(stickyNode?.getAttribute("data-message-anchor-id")).toBe(
-      "user-live-sticky-windowed",
-    );
+    expect(container.querySelector(".messages-live-sticky-user-message")).toBeNull();
     expect(container.textContent ?? "").toContain("这个问题必须常驻");
+    const scroller = getMessagesScroller(container);
+    setMessageOffsetTop(container, "user-live-sticky-windowed", 30);
+
+    await scrollMessages(scroller, 30);
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector(".messages-history-sticky-header")
+          ?.getAttribute("data-history-sticky-message-id"),
+      ).toBe("user-live-sticky-windowed");
+    });
   });
 
-  it("does not keep a phantom collapsed-history indicator when the sticky question is the only trimmed item", () => {
+  it("does not keep a phantom collapsed-history indicator when the sticky question is the only trimmed item", async () => {
     const items: ConversationItem[] = [
       {
         id: "user-live-sticky-only-hidden",
@@ -651,11 +731,22 @@ describe("Messages live behavior", () => {
       />,
     );
 
-    expect(container.querySelector(".messages-live-sticky-user-message")).toBeTruthy();
+    expect(container.querySelector(".messages-live-sticky-user-message")).toBeNull();
     expect(container.querySelector(".messages-collapsed-indicator")).toBeNull();
+    const scroller = getMessagesScroller(container);
+    setMessageOffsetTop(container, "user-live-sticky-only-hidden", 18);
+
+    await scrollMessages(scroller, 18);
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector(".messages-history-sticky-header")
+          ?.getAttribute("data-history-sticky-message-id"),
+      ).toBe("user-live-sticky-only-hidden");
+    });
   });
 
-  it("restores normal user bubble scrolling when realtime processing ends", () => {
+  it("hands off from realtime sticky semantics to history sticky semantics when processing ends", async () => {
     const items: ConversationItem[] = [
       {
         id: "user-live-sticky-recover",
@@ -683,7 +774,16 @@ describe("Messages live behavior", () => {
       />,
     );
 
-    expect(container.querySelector(".messages-live-sticky-user-message")).toBeTruthy();
+    const scroller = getMessagesScroller(container);
+    setMessageOffsetTop(container, "user-live-sticky-recover", 20);
+    await scrollMessages(scroller, 20);
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector(".messages-history-sticky-header")
+          ?.getAttribute("data-history-sticky-message-id"),
+      ).toBe("user-live-sticky-recover");
+    });
 
     rerender(
       <Messages
@@ -696,7 +796,11 @@ describe("Messages live behavior", () => {
       />,
     );
 
-    expect(container.querySelector(".messages-live-sticky-user-message")).toBeNull();
+    expect(
+      container
+        .querySelector(".messages-history-sticky-header")
+        ?.getAttribute("data-history-sticky-message-id"),
+    ).toBe("user-live-sticky-recover");
   });
 
   it("uses a compact history sticky header that follows scroll position without early switching", async () => {
@@ -836,7 +940,7 @@ describe("Messages live behavior", () => {
     });
   });
 
-  it("does not pin memory-only injected user payloads as the latest live question", () => {
+  it("does not pin memory-only injected user payloads as the latest live question", async () => {
     const items: ConversationItem[] = [
       {
         id: "user-live-real-question",
@@ -870,12 +974,18 @@ describe("Messages live behavior", () => {
       />,
     );
 
-    expect(container.querySelector(".messages-live-sticky-user-message")).toBeTruthy();
-    expect(
-      container
-        .querySelector(".messages-live-sticky-user-message")
-        ?.getAttribute("data-message-anchor-id"),
-    ).toBe("user-live-real-question");
+    expect(container.querySelector(".messages-live-sticky-user-message")).toBeNull();
+    const scroller = getMessagesScroller(container);
+    setMessageOffsetTop(container, "user-live-real-question", 22);
+
+    await scrollMessages(scroller, 22);
+    await waitFor(() => {
+      expect(
+        container
+          .querySelector(".messages-history-sticky-header")
+          ?.getAttribute("data-history-sticky-message-id"),
+      ).toBe("user-live-real-question");
+    });
   });
 
   it("excludes pseudo-user rows from history sticky headers", async () => {
@@ -964,6 +1074,84 @@ describe("Messages live behavior", () => {
 
     expect(container.querySelector(".messages-history-sticky-header")).toBeNull();
     expect(container.querySelector(".messages-collapsed-indicator")).toBeTruthy();
+  });
+
+  it("preserves the current viewport position when revealing collapsed history", async () => {
+    const items: ConversationItem[] = Array.from({ length: 32 }, (_, index) => ({
+      id: `history-reveal-${index + 1}`,
+      kind: "message",
+      role: index % 2 === 0 ? "user" : "assistant",
+      text: `history reveal message ${index + 1}`,
+    }));
+
+    const { container } = render(
+      <Messages
+        items={items}
+        threadId="thread-history-reveal"
+        workspaceId="ws-1"
+        isThinking={false}
+        openTargets={[]}
+        selectedOpenAppId=""
+      />,
+    );
+
+    const scroller = getMessagesScroller(container);
+    setScrollerMetrics(
+      scroller,
+      420,
+      () => (container.querySelector(".messages-collapsed-indicator") ? 2400 : 2560),
+    );
+
+    const indicator = container.querySelector(".messages-collapsed-indicator");
+    expect(indicator).toBeTruthy();
+    if (!indicator) {
+      return;
+    }
+
+    fireEvent.click(indicator);
+
+    await waitFor(() => {
+      expect(container.querySelector(".messages-collapsed-indicator")).toBeNull();
+      expect(screen.getByText("history reveal message 1")).toBeTruthy();
+      expect(scroller.scrollTop).toBe(580);
+    });
+  });
+
+  it("skips scroll restoration when scroller metrics are non-finite", async () => {
+    const items: ConversationItem[] = Array.from({ length: 32 }, (_, index) => ({
+      id: `history-reveal-invalid-${index + 1}`,
+      kind: "message",
+      role: index % 2 === 0 ? "user" : "assistant",
+      text: `history reveal invalid message ${index + 1}`,
+    }));
+
+    const { container } = render(
+      <Messages
+        items={items}
+        threadId="thread-history-reveal-invalid"
+        workspaceId="ws-1"
+        isThinking={false}
+        openTargets={[]}
+        selectedOpenAppId=""
+      />,
+    );
+
+    const scroller = getMessagesScroller(container);
+    setScrollerMetrics(scroller, 420, Number.NaN);
+
+    const indicator = container.querySelector(".messages-collapsed-indicator");
+    expect(indicator).toBeTruthy();
+    if (!indicator) {
+      return;
+    }
+
+    fireEvent.click(indicator);
+
+    await waitFor(() => {
+      expect(container.querySelector(".messages-collapsed-indicator")).toBeNull();
+      expect(screen.getByText("history reveal invalid message 1")).toBeTruthy();
+      expect(scroller.scrollTop).toBe(420);
+    });
   });
 
   it("collapses live middle steps when enabled", () => {

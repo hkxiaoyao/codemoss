@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorkspaceInfo } from "../../../types";
+import type { EngineType, WorkspaceInfo } from "../../../types";
 import { useSidebarMenus } from "./useSidebarMenus";
-import { detectEngines, getOpenCodeProviderHealth } from "../../../services/tauri";
-import type { EngineDisplayInfo } from "../../engine/hooks/useEngineController";
+import { getOpenCodeProviderHealth } from "../../../services/tauri";
+import { pushGlobalRuntimeNotice } from "../../../services/globalRuntimeNotices";
+import type {
+  EngineDisplayInfo,
+  EngineRefreshResult,
+} from "../../engine/hooks/useEngineController";
 
 const mockMenuPopup = vi.fn<
   (items: Array<{ text: string; enabled?: boolean; action?: () => Promise<void> | void }>) => Promise<void>
@@ -77,12 +81,14 @@ vi.mock("@tauri-apps/api/dpi", () => ({
 }));
 
 vi.mock("../../../services/tauri", () => ({
-  detectEngines: vi.fn(),
   getOpenCodeProviderHealth: vi.fn(),
 }));
+vi.mock("../../../services/globalRuntimeNotices", () => ({
+  pushGlobalRuntimeNotice: vi.fn(),
+}));
 
-const detectEnginesMock = vi.mocked(detectEngines);
 const getOpenCodeProviderHealthMock = vi.mocked(getOpenCodeProviderHealth);
+const pushGlobalRuntimeNoticeMock = vi.mocked(pushGlobalRuntimeNotice);
 
 const workspace: WorkspaceInfo = {
   id: "ws-1",
@@ -143,6 +149,9 @@ function createHandlers() {
   return {
     onAddAgent: vi.fn(),
     engineOptions,
+    onRefreshEngineOptions: vi.fn<
+      () => Promise<EngineRefreshResult | void>
+    >(async () => undefined),
     onAddSharedAgent: vi.fn(),
     onDeleteThread: vi.fn(),
     onSyncThread: vi.fn(),
@@ -162,7 +171,8 @@ function createHandlers() {
 
 describe("useSidebarMenus", () => {
   beforeEach(() => {
-    detectEnginesMock.mockResolvedValue([]);
+    pushGlobalRuntimeNoticeMock.mockReset();
+    getOpenCodeProviderHealthMock.mockReset();
     getOpenCodeProviderHealthMock.mockResolvedValue({
       provider: "openai",
       connected: true,
@@ -242,25 +252,18 @@ describe("useSidebarMenus", () => {
   it("refreshes a single engine action without closing the menu", async () => {
     const handlers = createHandlers();
     handlers.engineOptions = [];
-    detectEnginesMock.mockResolvedValueOnce([
-      {
-        engineType: "claude",
-        installed: true,
-        version: "2.1.111",
-        binPath: null,
-        features: {
-          streaming: true,
-          reasoning: true,
-          toolUse: true,
-          imageInput: true,
-          sessionContinuation: true,
-        },
-        models: [],
-        error: null,
-      },
-    ]);
+    let rerenderHook:
+      | ((nextHandlers: ReturnType<typeof createHandlers>) => void)
+      | null = null;
+    handlers.onRefreshEngineOptions = vi.fn(async () => {
+      rerenderHook?.(createHandlers());
+    });
 
-    const { result } = renderHook(() => useSidebarMenus(handlers));
+    const { result, rerender } = renderHook(
+      (nextHandlers: ReturnType<typeof createHandlers>) => useSidebarMenus(nextHandlers),
+      { initialProps: handlers },
+    );
+    rerenderHook = rerender;
 
     act(() => {
       const event = {
@@ -283,26 +286,85 @@ describe("useSidebarMenus", () => {
       await initialClaudeAction?.onRefresh?.();
     });
 
-    const refreshedClaudeAction = result.current.workspaceMenuState?.groups
-      .find((group) => group.id === "new-session")
-      ?.actions.find((action) => action.id === "new-session-claude");
+    await waitFor(() => {
+      const refreshedClaudeAction = result.current.workspaceMenuState?.groups
+        .find((group) => group.id === "new-session")
+        ?.actions.find((action) => action.id === "new-session-claude");
 
-    expect(refreshedClaudeAction?.unavailable).toBe(false);
-    expect(refreshedClaudeAction?.statusLabel).toBeNull();
+      expect(refreshedClaudeAction?.unavailable).toBe(false);
+      expect(refreshedClaudeAction?.statusLabel).toBeNull();
+    });
+
+    expect(handlers.onRefreshEngineOptions).toHaveBeenCalledTimes(1);
+    expect(pushGlobalRuntimeNoticeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageKey: "runtimeNotice.engine.checking",
+        messageParams: { engine: "Claude Code" },
+      }),
+    );
     expect(result.current.workspaceMenuState?.workspaceId).toBe(workspace.id);
   });
 
-  it("refreshes opencode login state once engine availability becomes ready while the menu stays open", async () => {
+  it.each([
+    ["claude", "Claude Code", "new-session-claude"],
+    ["codex", "Codex", "new-session-codex"],
+    ["gemini", "Gemini", "new-session-gemini"],
+  ] as const)(
+    "keeps %s refresh result visible before parent engine props rerender",
+    async (engineType, expectedLabel, actionId) => {
+      const handlers = createHandlers();
+      handlers.engineOptions = [];
+      handlers.onRefreshEngineOptions = vi.fn(async () => ({
+        activeEngine: "claude",
+        availableEngines: [
+          {
+            type: engineType as EngineType,
+            displayName: expectedLabel,
+            shortName: expectedLabel,
+            installed: true,
+            version: "1.0.0",
+            error: null,
+            availabilityState: "ready" as const,
+            availabilityLabelKey: null,
+          },
+        ],
+      }));
+
+      const { result } = renderHook(() => useSidebarMenus(handlers));
+
+      act(() => {
+        const event = {
+          clientX: 160,
+          clientY: 120,
+          preventDefault: vi.fn(),
+          stopPropagation: vi.fn(),
+        } as unknown as Parameters<typeof result.current.showWorkspaceMenu>[0];
+        result.current.showWorkspaceMenu(event, workspace);
+      });
+
+      const engineAction = result.current.workspaceMenuState?.groups
+        .find((group) => group.id === "new-session")
+        ?.actions.find((action) => action.id === actionId);
+
+      expect(engineAction?.unavailable).toBe(true);
+
+      await act(async () => {
+        await engineAction?.onRefresh?.();
+      });
+
+      const refreshedAction = result.current.workspaceMenuState?.groups
+        .find((group) => group.id === "new-session")
+        ?.actions.find((action) => action.id === actionId);
+
+      expect(refreshedAction?.unavailable).toBe(false);
+      expect(refreshedAction?.statusLabel).toBeNull();
+      expect(handlers.onRefreshEngineOptions).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("does not auto-probe opencode login state when the menu opens or rerenders", async () => {
     const handlers = createHandlers();
     handlers.engineOptions = [];
-    getOpenCodeProviderHealthMock.mockResolvedValueOnce({
-      provider: "openai",
-      connected: false,
-      credentialCount: 0,
-      matched: false,
-      authenticatedProviders: [],
-      error: null,
-    });
 
     const { result, rerender } = renderHook(
       (nextHandlers: ReturnType<typeof createHandlers>) => useSidebarMenus(nextHandlers),
@@ -321,13 +383,13 @@ describe("useSidebarMenus", () => {
 
     rerender(createHandlers());
 
-    await waitFor(() => {
-      const opencodeAction = result.current.workspaceMenuState?.groups
-        .find((group) => group.id === "new-session")
-        ?.actions.find((action) => action.id === "new-session-opencode");
-      expect(opencodeAction?.unavailable).toBe(true);
-      expect(opencodeAction?.statusLabel).toBe("Sign in required");
-    });
+    const opencodeAction = result.current.workspaceMenuState?.groups
+      .find((group) => group.id === "new-session")
+      ?.actions.find((action) => action.id === "new-session-opencode");
+
+    expect(opencodeAction?.unavailable).toBe(false);
+    expect(opencodeAction?.statusLabel).toBeNull();
+    expect(getOpenCodeProviderHealthMock).not.toHaveBeenCalled();
   });
 
   it("shows Gemini entry as available in workspace plus menu", async () => {
@@ -447,7 +509,7 @@ describe("useSidebarMenus", () => {
     expect(handlers.onAddSharedAgent).toHaveBeenCalledWith(workspace);
   });
 
-  it("marks opencode as sign-in required when provider health is disconnected", async () => {
+  it("marks opencode as sign-in required only after manual refresh detects disconnection", async () => {
     getOpenCodeProviderHealthMock.mockResolvedValueOnce({
       provider: "openai",
       connected: false,
@@ -473,11 +535,76 @@ describe("useSidebarMenus", () => {
       .find((group) => group.id === "new-session")
       ?.actions.find((action) => action.id === "new-session-opencode");
 
-    expect(opencodeAction?.unavailable).toBe(true);
-    expect(opencodeAction?.statusLabel).toBe("Sign in required");
+    expect(opencodeAction?.unavailable).toBe(false);
+    expect(opencodeAction?.statusLabel).toBeNull();
+
+    await act(async () => {
+      await opencodeAction?.onRefresh?.();
+    });
+
+    await waitFor(() => {
+      const refreshedAction = result.current.workspaceMenuState?.groups
+        .find((group) => group.id === "new-session")
+        ?.actions.find((action) => action.id === "new-session-opencode");
+      expect(refreshedAction?.unavailable).toBe(true);
+      expect(refreshedAction?.statusLabel).toBe("Sign in required");
+    });
   });
 
-  it("does not leave opencode stuck in loading when provider health lookup fails", async () => {
+  it("manual opencode refresh probes login state once engine refresh reports it installed", async () => {
+    getOpenCodeProviderHealthMock.mockResolvedValueOnce({
+      provider: "openai",
+      connected: false,
+      credentialCount: 0,
+      matched: false,
+      authenticatedProviders: [],
+      error: null,
+    });
+    const handlers = createHandlers();
+    handlers.engineOptions = [];
+    let rerenderHook:
+      | ((nextHandlers: ReturnType<typeof createHandlers>) => void)
+      | null = null;
+    handlers.onRefreshEngineOptions = vi.fn(async () => {
+      rerenderHook?.(createHandlers());
+    });
+
+    const { result, rerender } = renderHook(
+      (nextHandlers: ReturnType<typeof createHandlers>) => useSidebarMenus(nextHandlers),
+      { initialProps: handlers },
+    );
+    rerenderHook = rerender;
+
+    act(() => {
+      const event = {
+        clientX: 160,
+        clientY: 120,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as Parameters<typeof result.current.showWorkspaceMenu>[0];
+      result.current.showWorkspaceMenu(event, workspace);
+    });
+
+    const opencodeAction = result.current.workspaceMenuState?.groups
+      .find((group) => group.id === "new-session")
+      ?.actions.find((action) => action.id === "new-session-opencode");
+
+    await act(async () => {
+      await opencodeAction?.onRefresh?.();
+    });
+
+    await waitFor(() => {
+      const refreshedAction = result.current.workspaceMenuState?.groups
+        .find((group) => group.id === "new-session")
+        ?.actions.find((action) => action.id === "new-session-opencode");
+      expect(refreshedAction?.unavailable).toBe(true);
+      expect(refreshedAction?.statusLabel).toBe("Sign in required");
+    });
+
+    expect(getOpenCodeProviderHealthMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not leave opencode stuck in loading when manual provider health lookup fails", async () => {
     getOpenCodeProviderHealthMock.mockRejectedValueOnce(new Error("probe failed"));
     const handlers = createHandlers();
     const { result } = renderHook(() => useSidebarMenus(handlers));
@@ -492,12 +619,20 @@ describe("useSidebarMenus", () => {
       result.current.showWorkspaceMenu(event, workspace);
     });
 
+    const opencodeAction = result.current.workspaceMenuState?.groups
+      .find((group) => group.id === "new-session")
+      ?.actions.find((action) => action.id === "new-session-opencode");
+
+    await act(async () => {
+      await opencodeAction?.onRefresh?.();
+    });
+
     await waitFor(() => {
-      const opencodeAction = result.current.workspaceMenuState?.groups
+      const refreshedAction = result.current.workspaceMenuState?.groups
         .find((group) => group.id === "new-session")
         ?.actions.find((action) => action.id === "new-session-opencode");
-      expect(opencodeAction?.unavailable).toBe(false);
-      expect(opencodeAction?.statusLabel).toBeNull();
+      expect(refreshedAction?.unavailable).toBe(false);
+      expect(refreshedAction?.statusLabel).toBeNull();
     });
   });
 
@@ -523,11 +658,19 @@ describe("useSidebarMenus", () => {
       result.current.showWorkspaceMenu(event, workspace);
     });
 
+    const opencodeAction = result.current.workspaceMenuState?.groups
+      .find((group) => group.id === "new-session")
+      ?.actions.find((action) => action.id === "new-session-opencode");
+
+    await act(async () => {
+      await opencodeAction?.onRefresh?.();
+    });
+
     await waitFor(() => {
-      const opencodeAction = result.current.workspaceMenuState?.groups
+      const refreshedAction = result.current.workspaceMenuState?.groups
         .find((group) => group.id === "new-session")
         ?.actions.find((action) => action.id === "new-session-opencode");
-      expect(opencodeAction?.unavailable).toBe(true);
+      expect(refreshedAction?.unavailable).toBe(true);
     });
 
     act(() => {
@@ -543,12 +686,35 @@ describe("useSidebarMenus", () => {
       });
     });
 
+    const disconnectedAction = result.current.workspaceMenuState?.groups
+      .find((group) => group.id === "new-session")
+      ?.actions.find((action) => action.id === "new-session-opencode");
+
+    expect(disconnectedAction?.unavailable).toBe(false);
+    expect(disconnectedAction?.statusLabel).toBeNull();
+  });
+
+  it("opens workspace menu without auto-probing opencode health", async () => {
+    const handlers = createHandlers();
+    const { result } = renderHook(() => useSidebarMenus(handlers));
+
+    await act(async () => {
+      const event = {
+        clientX: 180,
+        clientY: 180,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as Parameters<typeof result.current.showWorkspaceMenu>[0];
+      result.current.showWorkspaceMenu(event, workspace);
+    });
+
     const opencodeAction = result.current.workspaceMenuState?.groups
       .find((group) => group.id === "new-session")
       ?.actions.find((action) => action.id === "new-session-opencode");
 
     expect(opencodeAction?.unavailable).toBe(false);
     expect(opencodeAction?.statusLabel).toBeNull();
+    expect(getOpenCodeProviderHealthMock).not.toHaveBeenCalled();
   });
 
   it("shows session-only menu for worktree plus entry", async () => {

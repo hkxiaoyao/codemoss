@@ -1,8 +1,22 @@
+export type ErrorToastVariant = "error" | "info" | "success";
+
+export type ErrorToastAction = {
+  label: string;
+  pendingLabel?: string;
+  run: () => Promise<void> | void;
+  dismissOnSuccess?: boolean;
+  variant?: "primary" | "secondary";
+};
+
 export type ErrorToast = {
   id: string;
+  instanceId?: string;
   title: string;
   message: string;
-  durationMs?: number;
+  variant?: ErrorToastVariant;
+  durationMs?: number | null;
+  sticky?: boolean;
+  actions?: ErrorToastAction[];
 };
 
 export type ErrorToastInput = Omit<ErrorToast, "id"> & {
@@ -20,9 +34,13 @@ function makeToastId() {
 export function pushErrorToast(input: ErrorToastInput) {
   const toast: ErrorToast = {
     id: input.id ?? makeToastId(),
+    instanceId: makeToastId(),
     title: input.title,
     message: input.message,
+    variant: input.variant,
     durationMs: input.durationMs,
+    sticky: input.sticky,
+    actions: input.actions,
   };
 
   for (const listener of errorToastListeners) {

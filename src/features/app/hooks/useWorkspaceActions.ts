@@ -5,11 +5,43 @@ import { useTranslation } from "react-i18next";
 import { useNewAgentShortcut } from "./useNewAgentShortcut";
 import type { LoadingProgressDialogConfig } from "./useLoadingProgressDialogState";
 import { runWithLoadingProgress } from "../utils/loadingProgressActions";
-import { openNewWindow, pickWorkspacePath } from "../../../services/tauri";
+import { pushGlobalRuntimeNotice } from "../../../services/globalRuntimeNotices";
+import { ensureRuntimeReady, openNewWindow, pickWorkspacePath } from "../../../services/tauri";
+import { pushErrorToast } from "../../../services/toasts";
 import type { DebugEntry, EngineType, WorkspaceInfo } from "../../../types";
 
 type WorkspaceOpenMode = "current-window" | "new-window";
 const SESSION_CREATION_EMPTY_THREAD_ID = "SESSION_CREATION_EMPTY_THREAD_ID";
+const CREATE_SESSION_RUNTIME_RECOVERING_ERROR_PREFIX =
+  "[SESSION_CREATE_RUNTIME_RECOVERING]";
+const CREATE_SESSION_RECOVERY_TOAST_ID_PREFIX = "create-session-recovery";
+const CREATE_SESSION_RECOVERY_PROGRESS_TOAST_ID_PREFIX =
+  "create-session-recovery-progress";
+
+function isStoppingRuntimeCreateSessionError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    message.startsWith(CREATE_SESSION_RUNTIME_RECOVERING_ERROR_PREFIX) ||
+    normalized.includes("manual shutdown") ||
+    normalized.includes("manual_shutdown") ||
+    (normalized.includes("[runtime_ended]") && normalized.includes("stopped after"))
+  );
+}
+
+function isCliNotFoundError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return (
+    message.startsWith("CLI_NOT_FOUND:") ||
+    normalized.includes("no such file or directory") ||
+    normalized.includes("the system cannot find the file specified") ||
+    normalized.includes("is not recognized as an internal or external command") ||
+    normalized.includes("spawn") && normalized.includes("enoent") ||
+    normalized.includes("failed to execute claude") ||
+    normalized.includes("failed to execute codex") ||
+    normalized.includes("failed to execute gemini") ||
+    normalized.includes("failed to execute opencode")
+  );
+}
 
 type Params = {
   activeWorkspace: WorkspaceInfo | null;
@@ -95,19 +127,161 @@ export function useWorkspaceActions({
 
   const localizeErrorMessage = useCallback(
     (message: string): string => {
-      if (
-        message.startsWith("CLI_NOT_FOUND:") ||
-        message.includes("No such file or directory") ||
-        message.includes("Failed to execute claude") ||
-        message.includes("Failed to execute codex") ||
-        message.includes("Failed to execute gemini") ||
-        message.includes("Failed to execute opencode")
-      ) {
+      if (isCliNotFoundError(message)) {
         return `${t("errors.cliNotFound")}\n\n${t("errors.cliNotFoundHint")}`;
       }
       return message;
     },
     [t],
+  );
+
+  const localizeSessionCreationErrorMessage = useCallback(
+    (message: string): string => {
+      if (isStoppingRuntimeCreateSessionError(message)) {
+        return t("errors.failedToCreateSessionRuntimeRecovering");
+      }
+      return localizeErrorMessage(message);
+    },
+    [localizeErrorMessage, t],
+  );
+
+  const resolveSessionCreationErrorDetail = useCallback(
+    (message: string): string => {
+      if (message === SESSION_CREATION_EMPTY_THREAD_ID) {
+        return t("errors.failedToCreateSessionNoThreadId");
+      }
+      return localizeSessionCreationErrorMessage(message);
+    },
+    [localizeSessionCreationErrorMessage, t],
+  );
+
+  const runCreateSessionFlow = useCallback(
+    async (workspace: WorkspaceInfo, targetEngine: EngineType) => {
+      await runWithLoadingProgress(
+        { showLoadingProgressDialog, hideLoadingProgressDialog },
+        {
+          title: t("workspace.loadingProgressCreateSessionTitle"),
+          message: t("workspace.loadingProgressCreateSessionMessage", {
+            engine: resolveEngineLabel(targetEngine),
+            workspace: resolveWorkspaceLabel(workspace),
+          }),
+        },
+        async () => {
+          exitDiffView();
+          selectWorkspace(workspace.id);
+          if (!workspace.connected) {
+            await connectWorkspace(workspace);
+          }
+          if (targetEngine !== activeEngine) {
+            try {
+              await setActiveEngine?.(targetEngine);
+            } catch (error) {
+              onDebug({
+                id: `${Date.now()}-client-switch-engine-before-new-thread-error`,
+                timestamp: Date.now(),
+                source: "error",
+                label: "workspace/switch engine before new thread error",
+                payload: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+          const threadId = await startThreadForWorkspace(workspace.id, {
+            engine: targetEngine,
+          });
+          if (!threadId) {
+            throw new Error(SESSION_CREATION_EMPTY_THREAD_ID);
+          }
+          if (isCompact) {
+            setActiveTab("codex");
+          }
+          setTimeout(() => composerInputRef.current?.focus(), 0);
+        },
+      );
+    },
+    [
+      activeEngine,
+      composerInputRef,
+      connectWorkspace,
+      exitDiffView,
+      hideLoadingProgressDialog,
+      isCompact,
+      onDebug,
+      resolveEngineLabel,
+      resolveWorkspaceLabel,
+      selectWorkspace,
+      setActiveEngine,
+      setActiveTab,
+      showLoadingProgressDialog,
+      startThreadForWorkspace,
+      t,
+    ],
+  );
+
+  const retryCreateSessionAfterRuntimeRecovery = useCallback(
+    async (workspace: WorkspaceInfo, targetEngine: EngineType) => {
+      try {
+        await ensureRuntimeReady(workspace.id);
+        pushErrorToast({
+          id: `${CREATE_SESSION_RECOVERY_PROGRESS_TOAST_ID_PREFIX}-${workspace.id}-${targetEngine}`,
+          title: t("errors.runtimeRecovered"),
+          message: t("errors.retryingCreateSessionAfterRecovery"),
+          variant: "info",
+          durationMs: 2600,
+        });
+        await runCreateSessionFlow(workspace, targetEngine);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(resolveSessionCreationErrorDetail(message));
+      }
+    },
+    [resolveSessionCreationErrorDetail, runCreateSessionFlow, t],
+  );
+
+  const showRecoverableCreateSessionToast = useCallback(
+    (workspace: WorkspaceInfo, targetEngine: EngineType, message: string) => {
+      const detail = localizeSessionCreationErrorMessage(message);
+      pushGlobalRuntimeNotice({
+        severity: "error",
+        category: "workspace",
+        messageKey: "runtimeNotice.error.createSessionRecoveryRequired",
+        messageParams: {
+          workspace: resolveWorkspaceLabel(workspace),
+        },
+        dedupeKey: `workspace:create-session-recovery:${workspace.id}:${targetEngine}`,
+      });
+      pushErrorToast({
+        id: `${CREATE_SESSION_RECOVERY_TOAST_ID_PREFIX}-${workspace.id}-${targetEngine}`,
+        title: t("errors.failedToCreateSession"),
+        message: detail,
+        sticky: true,
+        actions: [
+          {
+            label: t("errors.reconnectAndRetryCreateSession"),
+            pendingLabel: t("errors.reconnectingAndRetryingCreateSession"),
+            run: async () => {
+              onDebug({
+                id: `${Date.now()}-client-create-session-recovery-toast-action`,
+                timestamp: Date.now(),
+                source: "client",
+                label: "workspace/create-session recovery toast action",
+                payload: {
+                  workspaceId: workspace.id,
+                  engine: targetEngine,
+                },
+              });
+              await retryCreateSessionAfterRuntimeRecovery(workspace, targetEngine);
+            },
+          },
+        ],
+      });
+    },
+    [
+      localizeSessionCreationErrorMessage,
+      onDebug,
+      resolveWorkspaceLabel,
+      retryCreateSessionAfterRuntimeRecovery,
+      t,
+    ],
   );
 
   const handleWorkspaceAdded = useCallback(
@@ -246,52 +420,25 @@ export function useWorkspaceActions({
     async (workspace: WorkspaceInfo, engine?: EngineType) => {
       const targetEngine = engine ?? activeEngine;
       try {
-        await runWithLoadingProgress(
-          { showLoadingProgressDialog, hideLoadingProgressDialog },
-          {
-            title: t("workspace.loadingProgressCreateSessionTitle"),
-            message: t("workspace.loadingProgressCreateSessionMessage", {
-              engine: resolveEngineLabel(targetEngine),
-              workspace: resolveWorkspaceLabel(workspace),
-            }),
-          },
-          async () => {
-            exitDiffView();
-            selectWorkspace(workspace.id);
-            if (!workspace.connected) {
-              await connectWorkspace(workspace);
-            }
-            if (engine && engine !== activeEngine) {
-              try {
-                await setActiveEngine?.(targetEngine);
-              } catch (error) {
-                onDebug({
-                  id: `${Date.now()}-client-switch-engine-before-new-thread-error`,
-                  timestamp: Date.now(),
-                  source: "error",
-                  label: "workspace/switch engine before new thread error",
-                  payload: error instanceof Error ? error.message : String(error),
-                });
-              }
-            }
-            const threadId = await startThreadForWorkspace(workspace.id, {
-              engine: targetEngine,
-            });
-            if (!threadId) {
-              throw new Error(SESSION_CREATION_EMPTY_THREAD_ID);
-            }
-            if (isCompact) {
-              setActiveTab("codex");
-            }
-            setTimeout(() => composerInputRef.current?.focus(), 0);
-          },
-        );
+        await runCreateSessionFlow(workspace, targetEngine);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        const detail =
-          message === SESSION_CREATION_EMPTY_THREAD_ID
-            ? t("errors.failedToCreateSessionNoThreadId")
-            : localizeErrorMessage(message);
+        if (isStoppingRuntimeCreateSessionError(message)) {
+          onDebug({
+            id: `${Date.now()}-client-create-session-recovery-toast`,
+            timestamp: Date.now(),
+            source: "client",
+            label: "workspace/create-session recovery toast",
+            payload: {
+              workspaceId: workspace.id,
+              engine: targetEngine,
+              error: message,
+            },
+          });
+          showRecoverableCreateSessionToast(workspace, targetEngine, message);
+          return;
+        }
+        const detail = resolveSessionCreationErrorDetail(message);
         onDebug({
           id: `${Date.now()}-client-create-session-error`,
           timestamp: Date.now(),
@@ -307,21 +454,11 @@ export function useWorkspaceActions({
       }
     },
     [
-      composerInputRef,
-      connectWorkspace,
-      exitDiffView,
-      isCompact,
       activeEngine,
-      hideLoadingProgressDialog,
-      localizeErrorMessage,
-      resolveEngineLabel,
-      resolveWorkspaceLabel,
-      setActiveEngine,
       onDebug,
-      selectWorkspace,
-      setActiveTab,
-      showLoadingProgressDialog,
-      startThreadForWorkspace,
+      resolveSessionCreationErrorDetail,
+      runCreateSessionFlow,
+      showRecoverableCreateSessionToast,
       t,
     ],
   );

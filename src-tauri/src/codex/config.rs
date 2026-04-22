@@ -176,7 +176,11 @@ fn inspect_feature_flag_contents(contents: &str, key: &str) -> FeatureFlagStatus
 fn remove_feature_flag_from_contents(contents: &str, key: &str) -> String {
     let mut lines = Vec::new();
     let mut in_features = false;
-    let line_ending = if contents.contains("\r\n") { "\r\n" } else { "\n" };
+    let line_ending = if contents.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let has_trailing_newline = contents.ends_with('\n');
 
     for line in contents.lines() {
@@ -205,7 +209,11 @@ fn remove_feature_flag_from_contents(contents: &str, key: &str) -> String {
 
 fn upsert_feature_flag_in_contents(contents: &str, key: &str, enabled: bool) -> String {
     let mut lines = contents.lines().map(str::to_string).collect::<Vec<_>>();
-    let line_ending = if contents.contains("\r\n") { "\r\n" } else { "\n" };
+    let line_ending = if contents.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
     let mut in_features = false;
     let mut insert_index = lines.len();
     let mut replace_index = None;

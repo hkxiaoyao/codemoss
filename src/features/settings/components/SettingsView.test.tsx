@@ -101,6 +101,7 @@ const workspaceB: WorkspaceInfo = {
 };
 
 const baseSettings: AppSettings = {
+  claudeBin: null,
   codexBin: null,
   codexArgs: null,
   backendMode: "local",
@@ -414,13 +415,13 @@ describe("SettingsView projects display", () => {
 });
 
 describe("SettingsView Display", () => {
-  it("keeps codex, dictation, git, and experimental sidebar entries hidden", async () => {
+  it("shows CLI Validation and keeps dictation, git, and experimental sidebar entries hidden", async () => {
     renderDisplaySection();
     await flushSettingsViewEffects();
 
     expect(screen.queryByRole("button", { name: "Dictation" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Git" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Codex" })).toBeNull();
+    expect(screen.getByRole("button", { name: "CLI Validation" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Experimental" })).toBeNull();
     expect(screen.getByRole("button", { name: "settings.sidebarWebService" })).toBeTruthy();
   });
@@ -603,6 +604,166 @@ describe("SettingsView Display", () => {
     expect(doctorBodyText).toContain("Wrapper Fallback Retry: attempted");
     expect(doctorBodyText).toContain("HTTP_PROXY=http://127.0.0.1:7890");
     expect(doctorBodyText).toContain("HTTPS_PROXY=Not set");
+  });
+
+  it("switches to the Claude Code tab and runs Claude doctor", async () => {
+    cleanup();
+    const onRunClaudeDoctor = vi.fn().mockResolvedValue({
+      ...createDoctorResult(),
+      version: "0.9.0",
+    });
+    render(
+      <SettingsView
+        reduceTransparency={false}
+        onToggleTransparency={vi.fn()}
+        appSettings={baseSettings}
+        openAppIconById={{}}
+        onUpdateAppSettings={vi.fn().mockResolvedValue(undefined)}
+        workspaceGroups={[]}
+        groupedWorkspaces={[]}
+        ungroupedLabel="Ungrouped"
+        onClose={vi.fn()}
+        onMoveWorkspace={vi.fn()}
+        onDeleteWorkspace={vi.fn()}
+        onCreateWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onRenameWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onMoveWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onDeleteWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onAssignWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onRunDoctor={vi.fn().mockResolvedValue(createDoctorResult())}
+        onRunClaudeDoctor={onRunClaudeDoctor}
+        activeWorkspace={null}
+        activeEngine="codex"
+        onUpdateWorkspaceCodexBin={vi.fn().mockResolvedValue(undefined)}
+        onUpdateWorkspaceSettings={vi.fn().mockResolvedValue(undefined)}
+        scaleShortcutTitle="Scale shortcut"
+        scaleShortcutText="Use Command +/-"
+        onTestNotificationSound={vi.fn()}
+        dictationModelStatus={null}
+        onDownloadDictationModel={vi.fn()}
+        onCancelDictationDownload={vi.fn()}
+        onRemoveDictationModel={vi.fn()}
+        initialSection="codex"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Claude Code" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run Claude Doctor" }));
+
+    await waitFor(() => {
+      expect(onRunClaudeDoctor).toHaveBeenCalled();
+    });
+  });
+
+  it("renders doctor results even when debug payload is partial", async () => {
+    cleanup();
+    const onRunDoctor = vi.fn().mockResolvedValue({
+      ...createDoctorResult(),
+      debug: {
+        platform: "darwin",
+        arch: "arm64",
+      },
+    });
+    render(
+      <SettingsView
+        reduceTransparency={false}
+        onToggleTransparency={vi.fn()}
+        appSettings={baseSettings}
+        openAppIconById={{}}
+        onUpdateAppSettings={vi.fn().mockResolvedValue(undefined)}
+        workspaceGroups={[]}
+        groupedWorkspaces={[]}
+        ungroupedLabel="Ungrouped"
+        onClose={vi.fn()}
+        onMoveWorkspace={vi.fn()}
+        onDeleteWorkspace={vi.fn()}
+        onCreateWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onRenameWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onMoveWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onDeleteWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onAssignWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onRunDoctor={onRunDoctor}
+        activeWorkspace={null}
+        activeEngine="codex"
+        onUpdateWorkspaceCodexBin={vi.fn().mockResolvedValue(undefined)}
+        onUpdateWorkspaceSettings={vi.fn().mockResolvedValue(undefined)}
+        scaleShortcutTitle="Scale shortcut"
+        scaleShortcutText="Use Command +/-"
+        onTestNotificationSound={vi.fn()}
+        dictationModelStatus={null}
+        onDownloadDictationModel={vi.fn()}
+        onCancelDictationDownload={vi.fn()}
+        onRemoveDictationModel={vi.fn()}
+        initialSection="codex"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Run doctor" }));
+
+    await waitFor(() => {
+      expect(onRunDoctor).toHaveBeenCalled();
+    });
+    await waitFor(() => {
+      expect(document.querySelector(".settings-doctor-body")?.textContent ?? "").toContain(
+        "Platform:",
+      );
+    });
+  });
+
+  it("keeps execution backend controls shared across Codex and Claude tabs", async () => {
+    cleanup();
+    const onUpdateAppSettings = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SettingsView
+        reduceTransparency={false}
+        onToggleTransparency={vi.fn()}
+        appSettings={{ ...baseSettings, backendMode: "remote" }}
+        openAppIconById={{}}
+        onUpdateAppSettings={onUpdateAppSettings}
+        workspaceGroups={[]}
+        groupedWorkspaces={[]}
+        ungroupedLabel="Ungrouped"
+        onClose={vi.fn()}
+        onMoveWorkspace={vi.fn()}
+        onDeleteWorkspace={vi.fn()}
+        onCreateWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onRenameWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onMoveWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onDeleteWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onAssignWorkspaceGroup={vi.fn().mockResolvedValue(null)}
+        onRunDoctor={vi.fn().mockResolvedValue(createDoctorResult())}
+        onRunClaudeDoctor={vi.fn().mockResolvedValue(createDoctorResult())}
+        activeWorkspace={null}
+        activeEngine="codex"
+        onUpdateWorkspaceCodexBin={vi.fn().mockResolvedValue(undefined)}
+        onUpdateWorkspaceSettings={vi.fn().mockResolvedValue(undefined)}
+        scaleShortcutTitle="Scale shortcut"
+        scaleShortcutText="Use Command +/-"
+        onTestNotificationSound={vi.fn()}
+        dictationModelStatus={null}
+        onDownloadDictationModel={vi.fn()}
+        onCancelDictationDownload={vi.fn()}
+        onRemoveDictationModel={vi.fn()}
+        initialSection="codex"
+      />,
+    );
+
+    expect(screen.getByText("Execution backend")).toBeTruthy();
+    expect(screen.getByLabelText("Remote backend host")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Claude Code" }));
+
+    expect(screen.getByLabelText("Remote backend host")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Backend mode"), {
+      target: { value: "local" },
+    });
+
+    await waitFor(() => {
+      expect(onUpdateAppSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ backendMode: "local" }),
+      );
+    });
   });
 
   it("updates the theme selection", async () => {
@@ -1242,69 +1403,6 @@ describe("SettingsView Session management", () => {
 
     fireEvent.click(toggleButton);
     expect(await screen.findByText("Session A")).toBeTruthy();
-  });
-});
-
-describe("SettingsView Codex overrides", () => {
-  it("updates workspace Codex args override on blur", async () => {
-    const onUpdateWorkspaceSettings = vi.fn().mockResolvedValue(undefined);
-    const workspace: WorkspaceInfo = {
-      id: "w1",
-      name: "Workspace",
-      path: "/tmp/workspace",
-      connected: false,
-      codex_bin: null,
-      kind: "main",
-      parentId: null,
-      worktree: null,
-      settings: { sidebarCollapsed: false, codexArgs: null },
-    };
-
-    render(
-      <SettingsView
-        workspaceGroups={[]}
-        groupedWorkspaces={[
-          { id: null, name: "Ungrouped", workspaces: [workspace] },
-        ]}
-        ungroupedLabel="Ungrouped"
-        onClose={vi.fn()}
-        onMoveWorkspace={vi.fn()}
-        onDeleteWorkspace={vi.fn()}
-        onCreateWorkspaceGroup={vi.fn().mockResolvedValue(null)}
-        onRenameWorkspaceGroup={vi.fn().mockResolvedValue(null)}
-        onMoveWorkspaceGroup={vi.fn().mockResolvedValue(null)}
-        onDeleteWorkspaceGroup={vi.fn().mockResolvedValue(null)}
-        onAssignWorkspaceGroup={vi.fn().mockResolvedValue(null)}
-        reduceTransparency={false}
-        onToggleTransparency={vi.fn()}
-        appSettings={baseSettings}
-        openAppIconById={{}}
-        onUpdateAppSettings={vi.fn().mockResolvedValue(undefined)}
-        onRunDoctor={vi.fn().mockResolvedValue(createDoctorResult())}
-        activeWorkspace={workspace}
-        activeEngine="codex"
-        onUpdateWorkspaceCodexBin={vi.fn().mockResolvedValue(undefined)}
-        onUpdateWorkspaceSettings={onUpdateWorkspaceSettings}
-        scaleShortcutTitle="Scale shortcut"
-        scaleShortcutText="Use Command +/-"
-        onTestNotificationSound={vi.fn()}
-        dictationModelStatus={null}
-        onDownloadDictationModel={vi.fn()}
-        onCancelDictationDownload={vi.fn()}
-        onRemoveDictationModel={vi.fn()}
-        initialSection="codex"
-      />,
-    );
-
-    const input = screen.getByLabelText("Codex args override for Workspace");
-    fireEvent.change(input, { target: { value: "--profile dev" } });
-    fireEvent.blur(input);
-
-    await waitFor(() => {
-      expect(onUpdateWorkspaceSettings).toHaveBeenCalledWith("w1", {
-        codexArgs: "--profile dev",
-      });
-    });
   });
 });
 

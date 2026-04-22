@@ -271,6 +271,7 @@ export function useThreadTurnEvents({
         ? [threadId, aliasThreadId]
         : [threadId];
       targetThreadIds.forEach((targetThreadId) => {
+        dispatch({ type: "markTerminalSettlement", threadId: targetThreadId });
         dispatch({
           type: "finalizePendingToolStatuses",
           threadId: targetThreadId,
@@ -384,6 +385,7 @@ export function useThreadTurnEvents({
       }
 
       dispatch({ type: "ensureThread", workspaceId, threadId, engine: inferEngineFromThreadId(threadId) });
+      dispatch({ type: "markTerminalSettlement", threadId });
       dispatch({
         type: "finalizePendingToolStatuses",
         threadId,
@@ -404,6 +406,10 @@ export function useThreadTurnEvents({
       markReviewing(threadId, false);
       setActiveTurnId(threadId, null);
       if (aliasThreadId) {
+        dispatch({
+          type: "markTerminalSettlement",
+          threadId: aliasThreadId,
+        });
         dispatch({
           type: "finalizePendingToolStatuses",
           threadId: aliasThreadId,
@@ -478,6 +484,7 @@ export function useThreadTurnEvents({
         message: string;
         reasonCode: string;
         stage: string;
+        source: string;
         startedAtMs: number | null;
         timeoutMs: number | null;
       },
@@ -497,6 +504,7 @@ export function useThreadTurnEvents({
       }
 
       dispatch({ type: "ensureThread", workspaceId, threadId, engine: inferEngineFromThreadId(threadId) });
+      dispatch({ type: "markTerminalSettlement", threadId });
       dispatch({
         type: "settleThreadPlanInProgress",
         threadId,
@@ -512,6 +520,10 @@ export function useThreadTurnEvents({
       markReviewing(threadId, false);
       setActiveTurnId(threadId, null);
       if (aliasThreadId) {
+        dispatch({
+          type: "markTerminalSettlement",
+          threadId: aliasThreadId,
+        });
         dispatch({
           type: "settleThreadPlanInProgress",
           threadId: aliasThreadId,
@@ -540,13 +552,20 @@ export function useThreadTurnEvents({
           rawMessage: payload.message,
           reasonCode: payload.reasonCode,
           stage: payload.stage,
+          source: payload.source,
           startedAtMs: payload.startedAtMs,
           timeoutMs: payload.timeoutMs,
         },
       });
+      const isFusionStalled = payload.source === "queue-fusion-cutover";
       const message = payload.message
-        ? t("threads.turnStalledWithMessage", { message: payload.message })
-        : t("threads.turnStalled");
+        ? t(
+            isFusionStalled
+              ? "threads.fusionTurnStalledWithMessage"
+              : "threads.turnStalledWithMessage",
+            { message: payload.message },
+          )
+        : t(isFusionStalled ? "threads.fusionTurnStalled" : "threads.turnStalled");
       pushThreadErrorMessage(threadId, message);
       safeMessageActivity();
     },

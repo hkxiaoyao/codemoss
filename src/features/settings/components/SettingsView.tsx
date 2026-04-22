@@ -77,8 +77,6 @@ import {
 import { DEFAULT_OPEN_APP_ID } from "../../app/constants";
 import { writeClientStoreValue } from "../../../services/clientStorage";
 import { VendorSettingsPanel } from "../../vendors/components/VendorSettingsPanel";
-import { useGlobalAgentsMd } from "../hooks/useGlobalAgentsMd";
-import { useGlobalCodexConfigToml } from "../hooks/useGlobalCodexConfigToml";
 import { AgentSettingsSection } from "./AgentSettingsSection";
 import { PlaceholderSection } from "./PlaceholderSection";
 import { CommitSection } from "./CommitSection";
@@ -116,7 +114,6 @@ import {
 } from "../../composer/hooks/useInputHistoryStore";
 import {
   buildOpenAppDrafts,
-  buildWorkspaceOverrideDrafts,
   COMPOSER_PRESET_CONFIGS,
   createOpenAppId,
   type ComposerPreset,
@@ -226,7 +223,12 @@ export type SettingsViewProps = {
   appSettings: AppSettings;
   openAppIconById: Record<string, string>;
   onUpdateAppSettings: (next: AppSettings) => Promise<void>;
-  onRunDoctor: (
+  onRunCodexDoctor?: (
+    codexBin: string | null,
+    codexArgs: string | null,
+  ) => Promise<CodexDoctorResult>;
+  onRunClaudeDoctor?: (claudeBin: string | null) => Promise<CodexDoctorResult>;
+  onRunDoctor?: (
     codexBin: string | null,
     codexArgs: string | null,
   ) => Promise<CodexDoctorResult>;
@@ -269,6 +271,8 @@ export function SettingsView({
   appSettings,
   openAppIconById,
   onUpdateAppSettings,
+  onRunCodexDoctor,
+  onRunClaudeDoctor,
   onRunDoctor,
   activeWorkspace,
   activeEngine,
@@ -287,11 +291,13 @@ export function SettingsView({
   initialHighlightTarget,
 }: SettingsViewProps) {
   const { t } = useTranslation();
+  const runCodexDoctor = onRunCodexDoctor ?? onRunDoctor;
   const [activeSection, setActiveSection] = useState<SettingsViewSection>("basic");
   const [basicSubTab, setBasicSubTab] = useState<"appearance" | "behavior">("appearance");
   const [commitPrompt, setCommitPrompt] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [claudePathDraft, setClaudePathDraft] = useState(appSettings.claudeBin ?? "");
   const [codexPathDraft, setCodexPathDraft] = useState(appSettings.codexBin ?? "");
   const [codexArgsDraft, setCodexArgsDraft] = useState(appSettings.codexArgs ?? "");
   const [remoteHostDraft, setRemoteHostDraft] = useState(appSettings.remoteBackendHost);
@@ -314,15 +320,6 @@ export function SettingsView({
     appSettings.notificationSoundCustomPath ?? "",
   );
   const systemResolvedTheme = useSystemResolvedTheme();
-  const [codexBinOverrideDrafts, setCodexBinOverrideDrafts] = useState<
-    Record<string, string>
-  >({});
-  const [codexHomeOverrideDrafts, setCodexHomeOverrideDrafts] = useState<
-    Record<string, string>
-  >({});
-  const [codexArgsOverrideDrafts, setCodexArgsOverrideDrafts] = useState<
-    Record<string, string>
-  >({});
   const [groupDrafts, setGroupDrafts] = useState<Record<string, string>>({});
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null);
   const [newGroupName, setNewGroupName] = useState("");
@@ -356,34 +353,14 @@ export function SettingsView({
     status: "idle" | "running" | "done";
     result: CodexDoctorResult | null;
   }>({ status: "idle", result: null });
+  const [claudeDoctorState, setClaudeDoctorState] = useState<{
+    status: "idle" | "running" | "done";
+    result: CodexDoctorResult | null;
+  }>({ status: "idle", result: null });
   const [codexRuntimeReloadState, setCodexRuntimeReloadState] = useState<{
     status: "idle" | "reloading" | "applied" | "failed";
     message: string | null;
   }>({ status: "idle", message: null });
-  const {
-    content: globalAgentsContent,
-    exists: globalAgentsExists,
-    truncated: globalAgentsTruncated,
-    isLoading: globalAgentsLoading,
-    isSaving: globalAgentsSaving,
-    error: globalAgentsError,
-    isDirty: globalAgentsDirty,
-    setContent: setGlobalAgentsContent,
-    refresh: refreshGlobalAgents,
-    save: saveGlobalAgents,
-  } = useGlobalAgentsMd();
-  const {
-    content: globalConfigContent,
-    exists: globalConfigExists,
-    truncated: globalConfigTruncated,
-    isLoading: globalConfigLoading,
-    isSaving: globalConfigSaving,
-    error: globalConfigError,
-    isDirty: globalConfigDirty,
-    setContent: setGlobalConfigContent,
-    refresh: refreshGlobalConfig,
-    save: saveGlobalConfig,
-  } = useGlobalCodexConfigToml();
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [shortcutDrafts, setShortcutDrafts] = useState({
     model: appSettings.composerModelShortcut ?? "",
@@ -501,42 +478,6 @@ export function SettingsView({
   const uiScaleDraftPercentLabel = `${Math.round(uiScaleDraft * 100)}%`;
   const dictationReady = dictationModelStatus?.state === "ready";
   const dictationProgress = dictationModelStatus?.progress ?? null;
-  const globalAgentsStatus = globalAgentsLoading
-    ? t("settings.loading")
-    : globalAgentsSaving
-      ? t("settings.saving")
-      : globalAgentsExists
-        ? ""
-        : t("settings.notFound");
-  const globalAgentsMetaParts: string[] = [];
-  if (globalAgentsStatus) {
-    globalAgentsMetaParts.push(globalAgentsStatus);
-  }
-  if (globalAgentsTruncated) {
-    globalAgentsMetaParts.push(t("settings.truncated"));
-  }
-  const globalAgentsMeta = globalAgentsMetaParts.join(" · ");
-  const globalAgentsSaveLabel = globalAgentsExists ? t("common.save") : t("common.create");
-  const globalAgentsSaveDisabled = globalAgentsLoading || globalAgentsSaving || !globalAgentsDirty;
-  const globalAgentsRefreshDisabled = globalAgentsLoading || globalAgentsSaving;
-  const globalConfigStatus = globalConfigLoading
-    ? t("settings.loading")
-    : globalConfigSaving
-      ? t("settings.saving")
-      : globalConfigExists
-        ? ""
-        : t("settings.notFound");
-  const globalConfigMetaParts: string[] = [];
-  if (globalConfigStatus) {
-    globalConfigMetaParts.push(globalConfigStatus);
-  }
-  if (globalConfigTruncated) {
-    globalConfigMetaParts.push(t("settings.truncated"));
-  }
-  const globalConfigMeta = globalConfigMetaParts.join(" · ");
-  const globalConfigSaveLabel = globalConfigExists ? t("common.save") : t("common.create");
-  const globalConfigSaveDisabled = globalConfigLoading || globalConfigSaving || !globalConfigDirty;
-  const globalConfigRefreshDisabled = globalConfigLoading || globalConfigSaving;
   const selectedDictationModel = useMemo(() => {
     const models = DICTATION_MODELS(t);
     return (
@@ -741,6 +682,10 @@ export function SettingsView({
     (appSettings.systemProxyUrl ?? "") !== systemProxyUrlDraft;
 
   useEffect(() => {
+    setClaudePathDraft(appSettings.claudeBin ?? "");
+  }, [appSettings.claudeBin]);
+
+  useEffect(() => {
     setCodexPathDraft(appSettings.codexBin ?? "");
   }, [appSettings.codexBin]);
 
@@ -834,30 +779,6 @@ export function SettingsView({
   ]);
 
   useEffect(() => {
-    setCodexBinOverrideDrafts((prev) =>
-      buildWorkspaceOverrideDrafts(
-        projects,
-        prev,
-        (workspace) => workspace.codex_bin ?? null,
-      ),
-    );
-    setCodexHomeOverrideDrafts((prev) =>
-      buildWorkspaceOverrideDrafts(
-        projects,
-        prev,
-        (workspace) => workspace.settings.codexHome ?? null,
-      ),
-    );
-    setCodexArgsOverrideDrafts((prev) =>
-      buildWorkspaceOverrideDrafts(
-        projects,
-        prev,
-        (workspace) => workspace.settings.codexArgs ?? null,
-      ),
-    );
-  }, [projects]);
-
-  useEffect(() => {
     if (projects.length === 0) {
       setSettingsWorkspaceId(null);
       return;
@@ -935,11 +856,25 @@ export function SettingsView({
     return () => window.clearTimeout(timer);
   }, [activeSection, initialHighlightTarget]);
 
+  const nextClaudeBin = claudePathDraft.trim() ? claudePathDraft.trim() : null;
   const nextCodexBin = codexPathDraft.trim() ? codexPathDraft.trim() : null;
   const nextCodexArgs = codexArgsDraft.trim() ? codexArgsDraft.trim() : null;
+  const claudeDirty = nextClaudeBin !== (appSettings.claudeBin ?? null);
   const codexDirty =
     nextCodexBin !== (appSettings.codexBin ?? null) ||
     nextCodexArgs !== (appSettings.codexArgs ?? null);
+
+  const handleSaveClaudeSettings = async () => {
+    setIsSavingSettings(true);
+    try {
+      await onUpdateAppSettings({
+        ...appSettings,
+        claudeBin: nextClaudeBin,
+      });
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
 
   const handleSaveCodexSettings = async () => {
     setIsSavingSettings(true);
@@ -1317,10 +1252,21 @@ export function SettingsView({
     setCodexPathDraft(selection);
   };
 
+  const handleBrowseClaude = async () => {
+    const selection = await open({ multiple: false, directory: false });
+    if (!selection || Array.isArray(selection)) {
+      return;
+    }
+    setClaudePathDraft(selection);
+  };
+
   const handleRunDoctor = async () => {
     setDoctorState({ status: "running", result: null });
     try {
-      const result = await onRunDoctor(nextCodexBin, nextCodexArgs);
+      if (!runCodexDoctor) {
+        throw new Error("Codex doctor is not available.");
+      }
+      const result = await runCodexDoctor(nextCodexBin, nextCodexArgs);
       setDoctorState({ status: "done", result });
     } catch (error) {
       setDoctorState({
@@ -1328,6 +1274,32 @@ export function SettingsView({
         result: {
           ok: false,
           codexBin: nextCodexBin,
+          version: null,
+          appServerOk: false,
+          details: error instanceof Error ? error.message : String(error),
+          path: null,
+          nodeOk: false,
+          nodeVersion: null,
+          nodeDetails: null,
+        },
+      });
+    }
+  };
+
+  const handleRunClaudeDoctor = async () => {
+    setClaudeDoctorState({ status: "running", result: null });
+    try {
+      if (!onRunClaudeDoctor) {
+        throw new Error("Claude doctor is not available.");
+      }
+      const result = await onRunClaudeDoctor(nextClaudeBin);
+      setClaudeDoctorState({ status: "done", result });
+    } catch (error) {
+      setClaudeDoctorState({
+        status: "done",
+        result: {
+          ok: false,
+          codexBin: nextClaudeBin,
           version: null,
           appServerOk: false,
           details: error instanceof Error ? error.message : String(error),
@@ -2559,6 +2531,13 @@ export function SettingsView({
               t={t}
               appSettings={appSettings}
               onUpdateAppSettings={onUpdateAppSettings}
+              claudePathDraft={claudePathDraft}
+              setClaudePathDraft={setClaudePathDraft}
+              claudeDirty={claudeDirty}
+              handleBrowseClaude={handleBrowseClaude}
+              handleSaveClaudeSettings={handleSaveClaudeSettings}
+              handleRunClaudeDoctor={handleRunClaudeDoctor}
+              claudeDoctorState={claudeDoctorState}
               codexPathDraft={codexPathDraft}
               setCodexPathDraft={setCodexPathDraft}
               codexArgsDraft={codexArgsDraft}
@@ -2575,35 +2554,6 @@ export function SettingsView({
               setRemoteTokenDraft={setRemoteTokenDraft}
               handleCommitRemoteHost={handleCommitRemoteHost}
               handleCommitRemoteToken={handleCommitRemoteToken}
-              globalAgentsMeta={globalAgentsMeta}
-              globalAgentsError={globalAgentsError}
-              globalAgentsContent={globalAgentsContent}
-              globalAgentsLoading={globalAgentsLoading}
-              globalAgentsRefreshDisabled={globalAgentsRefreshDisabled}
-              globalAgentsSaveDisabled={globalAgentsSaveDisabled}
-              globalAgentsSaveLabel={globalAgentsSaveLabel}
-              setGlobalAgentsContent={setGlobalAgentsContent}
-              refreshGlobalAgents={refreshGlobalAgents}
-              saveGlobalAgents={saveGlobalAgents}
-              globalConfigMeta={globalConfigMeta}
-              globalConfigError={globalConfigError}
-              globalConfigContent={globalConfigContent}
-              globalConfigLoading={globalConfigLoading}
-              globalConfigRefreshDisabled={globalConfigRefreshDisabled}
-              globalConfigSaveDisabled={globalConfigSaveDisabled}
-              globalConfigSaveLabel={globalConfigSaveLabel}
-              setGlobalConfigContent={setGlobalConfigContent}
-              refreshGlobalConfig={refreshGlobalConfig}
-              saveGlobalConfig={saveGlobalConfig}
-              projects={projects}
-              codexBinOverrideDrafts={codexBinOverrideDrafts}
-              setCodexBinOverrideDrafts={setCodexBinOverrideDrafts}
-              codexHomeOverrideDrafts={codexHomeOverrideDrafts}
-              setCodexHomeOverrideDrafts={setCodexHomeOverrideDrafts}
-              codexArgsOverrideDrafts={codexArgsOverrideDrafts}
-              setCodexArgsOverrideDrafts={setCodexArgsOverrideDrafts}
-              onUpdateWorkspaceCodexBin={onUpdateWorkspaceCodexBin}
-              onUpdateWorkspaceSettings={onUpdateWorkspaceSettings}
             />
             {/* about is now mapped to community above */}
             {activeSection === "experimental" && (

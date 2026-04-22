@@ -12,6 +12,19 @@ use tokio::time::timeout;
 
 const LOCAL_SESSION_SCAN_TIMEOUT: Duration = Duration::from_secs(60);
 
+fn normalize_session_id(session_id: &str) -> Result<String, String> {
+    let normalized = session_id.trim();
+    if normalized.is_empty()
+        || normalized == "."
+        || normalized.contains('/')
+        || normalized.contains('\\')
+        || normalized.contains("..")
+    {
+        return Err("[SESSION_NOT_FOUND] Invalid Gemini session id".to_string());
+    }
+    Ok(normalized.to_string())
+}
+
 async fn resolve_workspace_session_files_with_timeout(
     workspace_path: &Path,
     custom_home: Option<&str>,
@@ -1217,6 +1230,7 @@ pub async fn load_gemini_session(
     session_id: &str,
     custom_home: Option<&str>,
 ) -> Result<GeminiSessionLoadResult, String> {
+    let normalized_session_id = normalize_session_id(session_id)?;
     let matched_files =
         resolve_workspace_session_files_with_timeout(workspace_path, custom_home).await?;
     for (_path, value) in matched_files {
@@ -1226,11 +1240,11 @@ pub async fn load_gemini_session(
             .unwrap_or("")
             .trim()
             .to_string();
-        if current_session_id == session_id {
+        if current_session_id == normalized_session_id {
             return Ok(parse_messages_from_value(&value));
         }
     }
-    Err(format!("Gemini session not found: {}", session_id))
+    Err(format!("Gemini session not found: {}", normalized_session_id))
 }
 
 /// Delete Gemini session file by session id.
@@ -1239,15 +1253,7 @@ pub async fn delete_gemini_session(
     session_id: &str,
     custom_home: Option<&str>,
 ) -> Result<(), String> {
-    let normalized_session_id = session_id.trim();
-    if normalized_session_id.is_empty()
-        || normalized_session_id.contains('/')
-        || normalized_session_id.contains('\\')
-        || normalized_session_id.contains("..")
-    {
-        return Err("[SESSION_NOT_FOUND] Invalid Gemini session id".to_string());
-    }
-
+    let normalized_session_id = normalize_session_id(session_id)?;
     let matched_files =
         resolve_workspace_session_files_with_timeout(workspace_path, custom_home).await?;
     for (path, value) in matched_files {
@@ -1625,5 +1631,23 @@ mod tests {
         };
         let resolved = resolve_gemini_base_dir(Some("~/mossx-gemini-home"));
         assert_eq!(resolved, home.join("mossx-gemini-home"));
+    }
+
+    #[tokio::test]
+    async fn load_gemini_session_rejects_current_directory_session_id() {
+        let workspace_path = std::env::temp_dir();
+        let error = super::load_gemini_session(&workspace_path, ".", None)
+            .await
+            .expect_err("dot session id should fail");
+        assert!(error.contains("Invalid Gemini session id"));
+    }
+
+    #[tokio::test]
+    async fn delete_gemini_session_rejects_current_directory_session_id() {
+        let workspace_path = std::env::temp_dir();
+        let error = super::delete_gemini_session(&workspace_path, ".", None)
+            .await
+            .expect_err("dot session id should fail");
+        assert!(error.contains("Invalid Gemini session id"));
     }
 }

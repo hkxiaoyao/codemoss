@@ -1562,6 +1562,70 @@ describe("threadReducer", () => {
     expect(messages[0]?.text).toBe(readable);
   });
 
+  it("keeps live and restored assistant text aligned for inline code snapshots", () => {
+    const itemId = "assistant-inline-code-parity-1";
+    const finalText = "命令是 `pnpm\n\nrun\n\nlint`，执行后继续。";
+    const withFirstDelta = threadReducer(initialState, {
+      type: "appendAgentDelta",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId,
+      delta: "命令是 `pnpm",
+      hasCustomName: false,
+    });
+    const withSecondDelta = threadReducer(withFirstDelta, {
+      type: "appendAgentDelta",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId,
+      delta: "\n\nrun",
+      hasCustomName: false,
+    });
+    const withSnapshot = threadReducer(withSecondDelta, {
+      type: "appendAgentDelta",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId,
+      delta: finalText,
+      hasCustomName: false,
+    });
+
+    const liveMessages = (withSnapshot.itemsByThread["thread-1"] ?? []).filter(
+      (item): item is Extract<ConversationItem, { kind: "message" }> =>
+        item.kind === "message" && item.role === "assistant" && item.id === itemId,
+    );
+    expect(liveMessages).toHaveLength(1);
+    expect(liveMessages[0]?.text).toBe(finalText);
+
+    const completed = threadReducer(withSnapshot, {
+      type: "completeAgentMessage",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      itemId,
+      text: finalText,
+      hasCustomName: false,
+    });
+    const restored = threadReducer(completed, {
+      type: "upsertItem",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      item: {
+        id: itemId,
+        kind: "message",
+        role: "assistant",
+        text: finalText,
+      },
+      hasCustomName: false,
+    });
+
+    const messages = (restored.itemsByThread["thread-1"] ?? []).filter(
+      (item): item is Extract<ConversationItem, { kind: "message" }> =>
+        item.kind === "message" && item.role === "assistant" && item.id === itemId,
+    );
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.text).toBe(finalText);
+  });
+
   it("dedupes five manual QA greeting snapshots and keeps one readable answer", () => {
     const scenarios = [
       {

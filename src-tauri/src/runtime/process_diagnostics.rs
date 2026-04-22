@@ -67,10 +67,7 @@ pub(super) fn terminate_pid_tree(pid: u32) -> Result<bool, String> {
     }
 }
 
-pub(super) fn merge_process_diagnostics(
-    pids: &[u32],
-    category: &str,
-) -> RuntimeProcessDiagnostics {
+pub(super) fn merge_process_diagnostics(pids: &[u32], category: &str) -> RuntimeProcessDiagnostics {
     let mut diagnostics = RuntimeProcessDiagnostics {
         root_processes: pids.len() as u32,
         total_processes: 0,

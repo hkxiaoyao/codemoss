@@ -7,9 +7,9 @@
 ## Current Status
 
 <!-- @@@auto:current-status -->
-- **Active File**: `journal-3.md`
-- **Total Sessions**: 86
-- **Last Active**: 2026-04-21
+- **Active File**: `journal-4.md`
+- **Total Sessions**: 116
+- **Last Active**: 2026-04-22
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,8 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1081 | Active |
+| `journal-4.md` | ~816 | Active |
+| `journal-3.md` | ~1972 | Archived |
 | `journal-2.md` | ~1960 | Archived |
 | `journal-1.md` | ~1990 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +32,36 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 116 | 2026-04-22 | 补写 v0.4.7 changelog 消息区修复说明 | `042f7853` | `feature/v-0.4.7` |
+| 115 | 2026-04-22 | 修复 codex 最终消息 markdown 结构块重复 | `c3b99dba` | `feature/v-0.4.7` |
+| 114 | 2026-04-22 | 收口 assistant 最终回复近似重复段落去重 | `6c0d1606` | `feature/v-0.4.7` |
+| 113 | 2026-04-22 | 收口 inline code 去重作用域并补齐重复渲染回归 | `3600b38d` | `feature/v-0.4.7` |
+| 112 | 2026-04-22 | 更新 v0.4.7 发布说明 | `0db213e2` | `feature/v-0.4.7` |
+| 111 | 2026-04-22 | 补充 markdown code region 回归测试 | `0588973a` | `feature/v-0.4.7` |
+| 110 | 2026-04-22 | 修复 Computer Use 插件清单版本选择 | `a06c730c` | `feature/v-0.4.7` |
+| 109 | 2026-04-22 | 对齐 Claude Doctor 与 CLI 验证链路 | `80829b4c` | `feature/v-0.4.7` |
+| 108 | 2026-04-22 | 修复 OpenCode 自动探测抖动 | `f3448982` | `feature/v-0.4.7` |
+| 107 | 2026-04-22 | 完成 Computer Use Phase 1 状态桥接实现 | `7cbf1f60` | `feature/v-0.4.7` |
+| 106 | 2026-04-22 | fix(notifications): 收紧运行时提示悬浮点右下角定位 | `74fbc0bb` | `feature/v-0.4.7` |
+| 105 | 2026-04-22 | Add codex computer use plugin bridge change | `e8933fdd` | `feature/v-0.4.7` |
+| 104 | 2026-04-22 | 补齐 Claude 流式延迟诊断并启用定向缓解 | `9d16c31953ae2e48919e6da91c6062abe1c8295d` | `feature/v-0.4.7` |
+| 103 | 2026-04-22 | docs(openspec): 回写并归档实时 markdown streaming 兼容性提案 | `cd332b84` | `feature/v-0.4.7` |
+| 102 | 2026-04-22 | 新增 Claude 桌面流式慢体验修复提案 | `16a34090253c0409803301c960f585681917c7ee` | `feature/v-0.4.7` |
+| 101 | 2026-04-22 | fix(messages): 修复实时对话中 inline code 的流式渲染错位 | `4f74ea65` | `feature/v-0.4.7` |
+| 100 | 2026-04-22 | 修正空闲态最小化提示图标语义 | `6373bd82c7111a6614d56c938ebb150f360e6ebc` | `feature/v-0.4.7` |
+| 99 | 2026-04-22 | 补强运行时提示启动链路与边界回写 | `f616a615afb3b7898b48478b4df43ae0cbf4618f` | `feature/v-0.4.7` |
+| 98 | 2026-04-22 | 拆分消息样式并补强桌面渲染守卫 | `7619db05` | `feature/v-0.4.7` |
+| 97 | 2026-04-22 | Harden Claude desktop render-safe mode | `41a12c7b1a3486da89fac055e3169ae8e757c633` | `feature/v-0.4.7` |
+| 96 | 2026-04-22 | OpenSpec 归档六个已完成 change 并回写提案状态 | `708ddc6f77d28abf4dac91b602178d2e52667280` | `feature/v-0.4.7` |
+| 95 | 2026-04-22 | 增强运行时提示与融合续跑收口 | `292147259ed56c835ffefb2c5556b2185ddea4f0` | `feature/v-0.4.7` |
+| 94 | 2026-04-22 | Checkpoint fusion stalled continuity | `486cf0388c6fd9dadc1836d3650e05cea50e87fd` | `feature/v-0.4.7` |
+| 93 | 2026-04-22 | 完善会话恢复 toast 链路并修复边界问题 | `01632817` | `feature/v-0.4.7` |
+| 92 | 2026-04-22 | 统一消息吸顶并补齐会话恢复重试 | `daab536b8115d8e84f66c0d306d7207fafa7c8f6` | `feature/v-0.4.7` |
+| 91 | 2026-04-22 | 修复历史展开后的消息视口跳动 | `8a2c6450eac0675890e36aab6b1cdb2b46a3638a` | `feature/v-0.4.7` |
+| 90 | 2026-04-21 | 拆分 messages 时间线渲染层并瘦身主组件 | `36049224b002c0bf9d0488912cdc435d69300508` | `feature/v-0.4.7` |
+| 89 | 2026-04-21 | 修复 Windows 下 Claude 对话幕布闪烁止血补丁 | `747751b5` | `feature/v-0.4.7` |
+| 88 | 2026-04-21 | Archive Codex stalled recovery change | `e6ad9549` | `feature/v-0.4.7` |
+| 87 | 2026-04-21 | archive completed openspec changes | `007c3b9d` | `feature/v-0.4.7` |
 | 86 | 2026-04-21 | runtime 与 thread actions 大文件模块拆分治理 | `643252092ca5359e507490c8e2071aa69cdf65b3` | `feature/f-v0.4.6` |
 | 85 | 2026-04-21 | 修复 Codex stale thread binding recovery 连续性 | `2628c4119753547df4461fb16db02dfa0c02bfbb` | `feature/f-v0.4.6` |
 | 84 | 2026-04-21 | 收敛 Windows runtime churn 与恢复诊断 | `9218a060a0711204b424d2f63abba6bf4d4d5992` | `feature/f-v0.4.6` |

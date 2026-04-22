@@ -5,6 +5,7 @@ import type { AppSettings, CodexDoctorResult } from "../../../types";
 import { useAppSettings } from "./useAppSettings";
 import {
   getAppSettings,
+  runClaudeDoctor,
   runCodexDoctor,
   updateAppSettings,
 } from "../../../services/tauri";
@@ -13,10 +14,12 @@ import { UI_SCALE_DEFAULT, UI_SCALE_MAX } from "../../../utils/uiScale";
 vi.mock("../../../services/tauri", () => ({
   getAppSettings: vi.fn(),
   updateAppSettings: vi.fn(),
+  runClaudeDoctor: vi.fn(),
   runCodexDoctor: vi.fn(),
 }));
 
 const getAppSettingsMock = vi.mocked(getAppSettings);
+const runClaudeDoctorMock = vi.mocked(runClaudeDoctor);
 const updateAppSettingsMock = vi.mocked(updateAppSettings);
 const runCodexDoctorMock = vi.mocked(runCodexDoctor);
 
@@ -62,6 +65,7 @@ describe("useAppSettings", () => {
     expect(result.current.settings.codexUnifiedExecPolicy).toBe("inherit");
     expect(result.current.settings.backendMode).toBe("remote");
     expect(result.current.settings.remoteBackendHost).toBe("example:1234");
+    expect(result.current.settings.claudeBin).toBeNull();
   });
 
   it("upgrades legacy warm ttl to the current startup default when loading", async () => {
@@ -177,6 +181,28 @@ describe("useAppSettings", () => {
     await expect(result.current.doctor("/bin/codex", null)).resolves.toEqual(
       response,
     );
+  });
+
+  it("returns claude doctor results", async () => {
+    getAppSettingsMock.mockResolvedValue({} as AppSettings);
+    const response: CodexDoctorResult = {
+      ok: true,
+      codexBin: "/bin/claude",
+      version: "0.9.0",
+      appServerOk: false,
+      details: null,
+      path: null,
+      nodeOk: true,
+      nodeVersion: "20.0.0",
+      nodeDetails: null,
+    };
+    runClaudeDoctorMock.mockResolvedValue(response);
+    const { result } = renderHook(() => useAppSettings());
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    await expect(result.current.claudeDoctor("/bin/claude")).resolves.toEqual(response);
+    expect(runClaudeDoctorMock).toHaveBeenCalledWith("/bin/claude");
   });
 
   it("uses legacy localStorage user message color when settings value is missing", async () => {

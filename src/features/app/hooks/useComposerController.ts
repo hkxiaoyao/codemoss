@@ -13,6 +13,8 @@ import { useQueuedSend } from "../../threads/hooks/useQueuedSend";
 export function useComposerController({
   activeThreadId,
   activeTurnId,
+  activeContinuationPulse,
+  activeTerminalPulse,
   activeWorkspaceId,
   activeWorkspace,
   isProcessing,
@@ -23,6 +25,7 @@ export function useComposerController({
   startThreadForWorkspace,
   sendUserMessage,
   sendUserMessageToThread,
+  handleFusionStalled,
   startFork,
   startReview,
   startResume,
@@ -44,6 +47,8 @@ export function useComposerController({
 }: {
   activeThreadId: string | null;
   activeTurnId?: string | null;
+  activeContinuationPulse?: number;
+  activeTerminalPulse?: number;
   activeWorkspaceId: string | null;
   activeWorkspace: WorkspaceInfo | null;
   isProcessing: boolean;
@@ -67,6 +72,10 @@ export function useComposerController({
     images?: string[],
     options?: MessageSendOptions,
   ) => Promise<void>;
+  handleFusionStalled?: (
+    threadId: string,
+    options?: { message?: string | null },
+  ) => void;
   startFork: (text: string) => Promise<void>;
   startReview: (text: string) => Promise<void>;
   startResume: (text: string) => Promise<void>;
@@ -119,6 +128,8 @@ export function useComposerController({
   } = useQueuedSend({
     activeThreadId,
     activeTurnId,
+    activeContinuationPulse,
+    activeTerminalPulse,
     isProcessing,
     isReviewing,
     steerEnabled,
@@ -128,6 +139,7 @@ export function useComposerController({
     startThreadForWorkspace,
     sendUserMessage,
     sendUserMessageToThread,
+    handleFusionStalled,
     startFork,
     startReview,
     startResume,
