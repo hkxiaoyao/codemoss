@@ -1582,3 +1582,60 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 130: 收敛 git-history 首批 exhaustive-deps 告警
+
+**Date**: 2026-04-23
+**Task**: 收敛 git-history 首批 exhaustive-deps 告警
+**Branch**: `feature/v-0.4.8`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 为 git-history 的 exhaustive-deps hotspot 建立专门的 OpenSpec/Trellis change，并先落地首批低风险 warning 修复。
+
+主要改动:
+- 新建 OpenSpec change `stabilize-git-history-exhaustive-deps-hotspot`，补齐 proposal/design/spec/tasks。
+- 新建 Trellis task `04-23-stabilize-git-history-exhaustive-deps-hotspot`。
+- 在 `useGitHistoryPanelInteractions.tsx` 中补全 fallback/workspace、branch CRUD、create-pr defaults/head repo parse/simple copy handlers 的依赖数组。
+- 将高风险 preview/push/pull/sync/diff/menu/resize warning 留在 deferred batches。
+
+涉及模块:
+- src/features/git-history/components/git-history-panel/hooks/useGitHistoryPanelInteractions.tsx
+- openspec/changes/stabilize-git-history-exhaustive-deps-hotspot/**
+- .trellis/tasks/04-23-stabilize-git-history-exhaustive-deps-hotspot/prd.md
+
+验证结果:
+- 目标文件 `react-hooks/exhaustive-deps` warning: 70 -> 47
+- 仓库总 warning: 95 -> 72
+- `npm run lint` 通过（0 errors, 72 warnings）
+- `npm run typecheck` 通过
+- `npx vitest run src/features/git-history/components/GitHistoryPanel.test.tsx src/features/git-history/components/git-history-panel/components/GitHistoryPanelPickers.test.tsx` 通过（34 tests）
+
+后续事项:
+- 下一批优先处理 create-pr preview、push/pull/sync preview 相关 warning。
+- context menu / resize / diff preview 继续保持 deferred，等专门批次和更细的测试覆盖再动。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d135ad6e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
