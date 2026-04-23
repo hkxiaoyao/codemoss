@@ -1249,21 +1249,29 @@
 
 ### Summary
 
-(Add summary)
+修正 mossx 对官方 Computer Use 插件链路的错误判断：实机证据表明 Codex CLI 可以通过 `~/.codex/plugins/cache/openai-bundled/computer-use/<version>/.mcp.json` 启动官方 Computer Use MCP helper。mossx 现在将该路径识别为 Codex CLI plugin cache launch contract，而不是误判为 Codex.app parent-contract dead end。
 
 ### Main Changes
 
-
+- 后端 detection 优先解析 Codex CLI plugin cache `.mcp.json`，并从同版本目录解析 helper path / cwd / args。
+- Codex.app bundled descriptor 只作为 fallback，避免覆盖 CLI cache descriptor。
+- activation 对 CLI cache helper 改为 static launch-contract verification；mossx 不再 direct exec `SkyComputerUseClient`。
+- host-contract diagnostics 将 CLI cache helper 分类为 `handoff_verified` / `codex_cli_plugin_cache_mcp_descriptor` evidence。
+- official parent handoff discovery 将 CLI cache `.mcp.json` 作为 `mcp_descriptor` candidate evidence。
+- 归档 OpenSpec change `integrate-codex-cli-computer-use-plugin-bridge`，新增主 spec `codex-cli-computer-use-plugin-bridge`，并同步 Computer Use 相关 specs 与 Trellis backend contract。
 
 ### Git Commits
 
 | Hash | Message |
 |------|---------|
-| `5ecae8d6` | (see git log) |
+| `5ecae8d6` | fix(computer-use): 接入 Codex CLI 插件缓存链路 |
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `cargo test --manifest-path src-tauri/Cargo.toml computer_use -- --nocapture`，27 个相关测试通过。
+- [OK] `openspec validate integrate-codex-cli-computer-use-plugin-bridge --type change --strict --no-interactive` 通过。
+- [OK] `openspec validate --all --strict --no-interactive` 通过，177 项全绿。
+- [OK] `git diff --check` / `git diff --cached --check` 通过。
 
 ### Status
 
@@ -1271,4 +1279,4 @@
 
 ### Next Steps
 
-- None - task complete
+- 在 macOS UI 刷新 Computer Use Bridge 状态页，确认不再显示 Codex.app parent dead end；后续真实阻塞应只剩 Screen Recording / Accessibility / app approval 等人工授权项。
