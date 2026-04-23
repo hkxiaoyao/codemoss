@@ -181,3 +181,67 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 140: clean-tauri-dev-warning-surface
+
+**Date**: 2026-04-23
+**Task**: clean-tauri-dev-warning-surface
+**Branch**: `feature/v-0.4.8`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 清理 `npm run tauri dev` 默认启动链路中的 repo-owned warning，并明确区分 environment-owned warning。
+
+主要改动:
+- 新增 `scripts/tauri-dev-frontend.mjs`，将 `beforeDevCommand` 从嵌套 `npm run dev` 改成 direct bootstrap，保留 `ensure-dev-port + vite` 行为并消除仓库内重复 npm warning 放大。
+- 将 `startup_guard` 收紧到 Windows / test 编译边界，删除未使用的 `workspace_root_dir` helper。
+- 清理 `backend/app_server` 的未接线 auto-compaction scaffolding，移除默认启动链路里不会触发的死代码分支。
+- 收敛 `engine/*` 的 orphaned surface：删除 lib 侧未使用的 wrappers / DTO / builder surface，保留 daemon 私有 `codex_adapter` 文件供 bridge 复用。
+- 归档 OpenSpec change `clean-tauri-dev-warning-surface`，同步主 spec `openspec/specs/tauri-dev-warning-cleanliness/spec.md`。
+
+涉及模块:
+- `src-tauri/tauri.conf.json`
+- `scripts/tauri-dev-frontend.mjs`
+- `src-tauri/src/startup_guard.rs`
+- `src-tauri/src/app_paths.rs`
+- `src-tauri/src/backend/app_server*.rs`
+- `src-tauri/src/engine/*.rs`
+- `src-tauri/src/runtime/process_diagnostics.rs`
+- `openspec/changes/archive/2026-04-23-clean-tauri-dev-warning-surface/`
+- `openspec/specs/tauri-dev-warning-cleanliness/spec.md`
+
+验证结果:
+- `npm run typecheck` 通过
+- `npm run lint` 通过
+- `cargo check --manifest-path src-tauri/Cargo.toml --no-default-features --message-format short` 通过；`cc-gui (lib)` warning 清零
+- `npm run tauri:dev:hot` 启动通过；日志里只剩顶层 `Unknown user config "electron_mirror"` 1 次，Vite `devUrl` 正常 reachable
+- `cargo test --manifest-path src-tauri/Cargo.toml` 通过：`485 passed, 0 failed`，`tests/tauri_config.rs` 额外 `1 passed`
+
+后续事项:
+- 当前 residual warning 只剩本机 npm 环境配置 `electron_mirror`，如要彻底静默，需要人工清理本机 npm config。
+- `cc_gui_daemon` bin 仍有独立 warning 面，但不再属于 GUI `tauri dev` 默认启动 debt，可后续单开 change 处理。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `43c63fbabc8d0b67bcbbdabc2541448b059cee81` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
