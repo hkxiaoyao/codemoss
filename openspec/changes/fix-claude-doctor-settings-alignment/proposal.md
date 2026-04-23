@@ -4,6 +4,14 @@
 当前分支已经在 Rust 侧落下了部分 groundwork，例如 `claude_bin` 已存在于 `AppSettings` 并参与引擎选择与安装探测；但 settings UI、Tauri command、frontend bridge、daemon PATH bootstrap 与 Claude fallback 探测仍未对齐。  
 因此，这个问题在当前分支上不适合直接整包合并上游 PR，而应以“保留当前分支结构、重写等价能力”的方式补齐契约。
 
+## 代码核对状态（2026-04-22）
+
+- `Claude doctor` 主链已经落地：`src-tauri/src/codex/mod.rs` 暴露了独立的 `claude_doctor` command，本地模式走 `run_claude_doctor_with_settings`，remote mode 走 `remote_claude_doctor_request(...)` + `call_remote(...)`，不再复用 `codex_doctor` 隐式分支。
+- settings 侧接线已经落地：`src/features/settings/hooks/useAppSettings.ts` 提供 `claudeDoctor` facade，`SettingsView.tsx` 已有 `handleRunClaudeDoctor`、Claude path draft 与独立按钮，`SettingsView.test.tsx` 也覆盖了切到 `Claude Code` tab 后运行 doctor 的行为。
+- `CLI 验证` 语义已经进入用户可见层：i18n 中已存在 `CLI 验证`、`Codex / Claude Code` tabs、shared execution backend 文案，说明左侧入口与面板组织方式已不再是 Codex-only 语义。
+- app/daemon reachability 对齐已部分可证：`src-tauri/src/backend/app_server_cli.rs` 现在会在 Codex 失败后 fallback 探测 Claude CLI；`src-tauri/src/engine/commands_tests.rs` 也覆盖了 remote `claude_doctor` 请求参数归一化。
+- 当前 change 仍未到归档条件：`tasks.md` 中基础质量门禁、手动验证矩阵与 apply-ready 收尾项还未全部勾完。严格 `openspec validate --strict` 已通过，但 proposal 状态更接近“主链实现已落地，验证收口待完成”。
+
 ## 目标与边界
 
 - 目标：

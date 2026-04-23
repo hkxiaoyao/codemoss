@@ -7,9 +7,9 @@
 ## Current Status
 
 <!-- @@@auto:current-status -->
-- **Active File**: `journal-4.md`
-- **Total Sessions**: 116
-- **Last Active**: 2026-04-22
+- **Active File**: `journal-5.md`
+- **Total Sessions**: 146
+- **Last Active**: 2026-04-23
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,8 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~816 | Active |
+| `journal-5.md` | ~588 | Active |
+| `journal-4.md` | ~1975 | Archived |
 | `journal-3.md` | ~1972 | Archived |
 | `journal-2.md` | ~1960 | Archived |
 | `journal-1.md` | ~1990 | Archived |
@@ -32,6 +33,36 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 146 | 2026-04-23 | 补充 v0.4.8 CHANGELOG 发布说明 | `52ea36e6adecdbbad62f94ce99d248aae0c41f1b` | `feature/v-0.4.8` |
+| 145 | 2026-04-23 | 修正 heavy-test-noise 环境告警统计 | `48ac9bee` | `feature/v-0.4.8` |
+| 144 | 2026-04-23 | 增加 heavy test 噪音 CI 门禁 | `bf288c25` | `feature/v-0.4.8` |
+| 143 | 2026-04-23 | 清理 heavy 回归测试噪音并归档变更 | `4b08630546a7088e7075d17a85f42d1558171c66` | `feature/v-0.4.8` |
+| 142 | 2026-04-23 | 清理 Rust test-target 告警面 | `30b3680f` | `feature/v-0.4.8` |
+| 141 | 2026-04-23 | 清理 cc_gui_daemon 告警面并归档 OpenSpec 变更 | `472e9e7492369f7055b70748dd5628ef353a5de4` | `feature/v-0.4.8` |
+| 140 | 2026-04-23 | clean-tauri-dev-warning-surface | `43c63fbabc8d0b67bcbbdabc2541448b059cee81` | `feature/v-0.4.8` |
+| 139 | 2026-04-23 | 修复 TaskCreateModal 超时并归档尾部告警变更 | `58e82d82` | `feature/v-0.4.8` |
+| 138 | 2026-04-23 | 收敛 exhaustive-deps 尾部告警 | `66661059` | `feature/v-0.4.8` |
+| 137 | 2026-04-23 | 归档 threads exhaustive-deps OpenSpec 变更 | `15deacbd` | `feature/v-0.4.8` |
+| 136 | 2026-04-23 | 收敛 threads exhaustive-deps 告警 | `01ae0e63` | `feature/v-0.4.8` |
+| 135 | 2026-04-23 | 归档 app-shell-parts exhaustive-deps OpenSpec 变更 | `dbd8fd50` | `feature/v-0.4.8` |
+| 134 | 2026-04-23 | 收敛 app-shell-parts exhaustive-deps 告警 | `d1278a25` | `feature/v-0.4.8` |
+| 133 | 2026-04-23 | 归档 git-history exhaustive-deps OpenSpec 变更 | `c404d71e` | `feature/v-0.4.8` |
+| 132 | 2026-04-23 | 收敛 git-history 第三批 exhaustive-deps 告警 | `33a0472c` | `feature/v-0.4.8` |
+| 131 | 2026-04-23 | 收敛 git-history 第二批 exhaustive-deps 告警 | `3479d297` | `feature/v-0.4.8` |
+| 130 | 2026-04-23 | 收敛 git-history 首批 exhaustive-deps 告警 | `d135ad6e` | `feature/v-0.4.8` |
+| 129 | 2026-04-23 | 归档 exhaustive-deps 治理 OpenSpec 变更 | `c9496469` | `feature/v-0.4.8` |
+| 128 | 2026-04-23 | 稳定 sentinel 刷新路径 | `def54253` | `feature/v-0.4.8` |
+| 127 | 2026-04-23 | 收敛首批 exhaustive-deps 告警 | `0c51f80c` | `feature/v-0.4.8` |
+| 126 | 2026-04-23 | 归档大文件治理 OpenSpec 变更 | `39c78985` | `feature/v-0.4.8` |
+| 125 | 2026-04-23 | 回归门禁修复与线程测试契约对齐 | `a975548c` | `feature/v-0.4.8` |
+| 124 | 2026-04-23 | Split engine OpenCode command surface | `2384c5a6` | `feature/v-0.4.8` |
+| 123 | 2026-04-23 | Split git branch commands and refresh baseline | `332497ee` | `feature/v-0.4.8` |
+| 122 | 2026-04-23 | Split runtime session lifecycle submodule | `8556b2c4` | `feature/v-0.4.8` |
+| 121 | 2026-04-23 | Split settings, composer, and git history style shards | `4c2e28ee` | `feature/v-0.4.8` |
+| 120 | 2026-04-23 | Split thread actions and thread item hotspots | `f4deb70d` | `feature/v-0.4.8` |
+| 119 | 2026-04-23 | Split tauri, app shell, and thread messaging hotspots | `1b25ff26` | `feature/v-0.4.8` |
+| 118 | 2026-04-23 | Upgrade large-file governance policy | `6b6dc1c9` | `feature/v-0.4.8` |
+| 117 | 2026-04-22 | 同步 OpenSpec 提案并归档已完成变更 | `73b9256c` | `feature/v-0.4.8` |
 | 116 | 2026-04-22 | 补写 v0.4.7 changelog 消息区修复说明 | `042f7853` | `feature/v-0.4.7` |
 | 115 | 2026-04-22 | 修复 codex 最终消息 markdown 结构块重复 | `c3b99dba` | `feature/v-0.4.7` |
 | 114 | 2026-04-22 | 收口 assistant 最终回复近似重复段落去重 | `6c0d1606` | `feature/v-0.4.7` |

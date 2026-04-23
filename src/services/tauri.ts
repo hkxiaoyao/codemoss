@@ -1,12 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
-  AgentConfig,
-  AgentImportApplyResult,
-  AgentImportPreviewResult,
   AppSettings,
-  DictationModelStatus,
-  DictationSessionState,
   LocalUsageSnapshot,
   LocalUsageStatistics,
   RuntimePoolSnapshot,
@@ -35,7 +30,6 @@ import type {
   GitPushPreviewResponse,
   ReviewTarget,
 } from "../types";
-import type { ClaudeCurrentConfig as VendorClaudeCurrentConfig, CodexProviderConfig as VendorCodexProviderConfig, ProviderConfig as VendorProviderConfig } from "../features/vendors/types";
 export type { WorkspaceSessionCatalogEntry, WorkspaceSessionCatalogQuery, WorkspaceSessionCatalogPage, WorkspaceSessionProjectionSummary, WorkspaceSessionBatchMutationResult, WorkspaceSessionBatchMutationResponse } from "./tauri/sessionManagement";
 export { archiveWorkspaceSessions, deleteWorkspaceSessions, getWorkspaceSessionProjectionSummary, listGlobalCodexSessions, listProjectRelatedCodexSessions, listWorkspaceSessions, unarchiveWorkspaceSessions } from "./tauri/sessionManagement";
 export type { CodexRuntimeReloadResult } from "./tauri/settings";
@@ -49,6 +43,81 @@ export {
 export { getComputerUseBridgeStatus } from "./tauri/computerUse";
 export { runClaudeDoctor, runCodexDoctor } from "./tauri/doctor";
 export type { ComputerUseBridgeStatus } from "../types";
+export {
+  cancelDictation,
+  cancelDictationDownload,
+  downloadDictationModel,
+  getDictationModelStatus,
+  removeDictationModel,
+  requestDictationPermission,
+  startDictation,
+  stopDictation,
+} from "./tauri/dictation";
+export {
+  closeTerminalSession,
+  openTerminalSession,
+  resizeTerminalSession,
+  runtimeLogDetectProfiles,
+  runtimeLogGetSession,
+  runtimeLogMarkExit,
+  runtimeLogStart,
+  runtimeLogStop,
+  writeTerminalSession,
+} from "./tauri/terminalRuntime";
+export type {
+  RuntimeLogSessionSnapshot,
+  RuntimeLogSessionStatus,
+  RuntimeProfileDescriptor,
+} from "./tauri/terminalRuntime";
+export {
+  projectMemoryCaptureAuto,
+  projectMemoryCreate,
+  projectMemoryDelete,
+  projectMemoryGet,
+  projectMemoryGetSettings,
+  projectMemoryList,
+  projectMemoryUpdate,
+  projectMemoryUpdateSettings,
+} from "./tauri/projectMemory";
+export type {
+  ProjectMemoryItem,
+  ProjectMemoryListResult,
+  ProjectMemorySettings,
+} from "./tauri/projectMemory";
+export {
+  addClaudeProvider,
+  addCodexProvider,
+  deleteClaudeProvider,
+  deleteCodexProvider,
+  getClaudeAlwaysThinkingEnabled,
+  getClaudeProviders,
+  getCodexProviders,
+  getCurrentClaudeConfig,
+  getGeminiVendorPreflight,
+  getGeminiVendorSettings,
+  saveGeminiVendorSettings,
+  setClaudeAlwaysThinkingEnabled,
+  switchClaudeProvider,
+  switchCodexProvider,
+  updateClaudeProvider,
+  updateCodexProvider,
+} from "./tauri/vendors";
+export type {
+  GeminiVendorPreflightCheck,
+  GeminiVendorPreflightResult,
+  GeminiVendorSettings,
+} from "./tauri/vendors";
+export {
+  addAgentConfig,
+  applyImportAgentConfigs,
+  deleteAgentConfig,
+  exportAgentConfigs,
+  getSelectedAgentConfig,
+  listAgentConfigs,
+  previewImportAgentConfigs,
+  setSelectedAgentConfig,
+  updateAgentConfig,
+} from "./tauri/agents";
 
 function isMissingTauriInvokeError(error: unknown) {
   return (
@@ -1960,163 +2029,6 @@ export async function getGitWorktreeDiffFileAgainstBranch(
   });
 }
 
-function withModelId(modelId?: string | null) {
-  return modelId ? { modelId } : {};
-}
-
-export async function getDictationModelStatus(
-  modelId?: string | null,
-): Promise<DictationModelStatus> {
-  return invoke<DictationModelStatus>(
-    "dictation_model_status",
-    withModelId(modelId),
-  );
-}
-
-export async function downloadDictationModel(
-  modelId?: string | null,
-): Promise<DictationModelStatus> {
-  return invoke<DictationModelStatus>(
-    "dictation_download_model",
-    withModelId(modelId),
-  );
-}
-
-export async function cancelDictationDownload(
-  modelId?: string | null,
-): Promise<DictationModelStatus> {
-  return invoke<DictationModelStatus>(
-    "dictation_cancel_download",
-    withModelId(modelId),
-  );
-}
-
-export async function removeDictationModel(
-  modelId?: string | null,
-): Promise<DictationModelStatus> {
-  return invoke<DictationModelStatus>(
-    "dictation_remove_model",
-    withModelId(modelId),
-  );
-}
-
-export async function startDictation(
-  preferredLanguage: string | null,
-): Promise<DictationSessionState> {
-  return invoke("dictation_start", { preferredLanguage });
-}
-
-export async function requestDictationPermission(): Promise<boolean> {
-  return invoke("dictation_request_permission");
-}
-
-export async function stopDictation(): Promise<DictationSessionState> {
-  return invoke("dictation_stop");
-}
-
-export async function cancelDictation(): Promise<DictationSessionState> {
-  return invoke("dictation_cancel");
-}
-
-export async function openTerminalSession(
-  workspaceId: string,
-  terminalId: string,
-  cols: number,
-  rows: number,
-): Promise<{ id: string }> {
-  return invoke("terminal_open", { workspaceId, terminalId, cols, rows });
-}
-
-export async function writeTerminalSession(
-  workspaceId: string,
-  terminalId: string,
-  data: string,
-): Promise<void> {
-  return invoke("terminal_write", { workspaceId, terminalId, data });
-}
-
-export async function resizeTerminalSession(
-  workspaceId: string,
-  terminalId: string,
-  cols: number,
-  rows: number,
-): Promise<void> {
-  return invoke("terminal_resize", { workspaceId, terminalId, cols, rows });
-}
-
-export async function closeTerminalSession(
-  workspaceId: string,
-  terminalId: string,
-): Promise<void> {
-  return invoke("terminal_close", { workspaceId, terminalId });
-}
-
-export type RuntimeLogSessionStatus =
-  | "idle"
-  | "starting"
-  | "running"
-  | "stopping"
-  | "stopped"
-  | "failed";
-
-export type RuntimeLogSessionSnapshot = {
-  workspaceId: string;
-  terminalId: string;
-  status: RuntimeLogSessionStatus;
-  commandPreview: string | null;
-  profileId?: string | null;
-  detectedStack?: string | null;
-  startedAtMs: number | null;
-  stoppedAtMs: number | null;
-  exitCode: number | null;
-  error: string | null;
-};
-
-export type RuntimeProfileDescriptor = {
-  id: string;
-  defaultCommand: string;
-  detectedStack: string;
-};
-
-export async function runtimeLogDetectProfiles(
-  workspaceId: string,
-): Promise<RuntimeProfileDescriptor[]> {
-  return invoke("runtime_log_detect_profiles", { workspaceId });
-}
-
-export async function runtimeLogStart(
-  workspaceId: string,
-  options?: {
-    profileId?: string | null;
-    commandOverride?: string | null;
-  },
-): Promise<RuntimeLogSessionSnapshot> {
-  return invoke("runtime_log_start", {
-    workspaceId,
-    profileId: options?.profileId ?? null,
-    commandOverride: options?.commandOverride ?? null,
-  });
-}
-
-export async function runtimeLogStop(
-  workspaceId: string,
-): Promise<RuntimeLogSessionSnapshot> {
-  return invoke("runtime_log_stop", { workspaceId });
-}
-
-export async function runtimeLogGetSession(
-  workspaceId: string,
-): Promise<RuntimeLogSessionSnapshot | null> {
-  return invoke("runtime_log_get_session", { workspaceId });
-}
-
-export async function runtimeLogMarkExit(
-  workspaceId: string,
-  exitCode: number,
-): Promise<RuntimeLogSessionSnapshot> {
-  return invoke("runtime_log_mark_exit", { workspaceId, exitCode });
-}
-
 export async function listThreads(
   workspaceId: string,
   cursor?: string | null,
@@ -2652,340 +2564,4 @@ export async function deleteGeminiSession(
  */
 export async function getPendingOpenPaths(): Promise<string[]> {
   return invoke<string[]>("get_pending_open_paths");
-}
-
-// ==================== Project Memory API ====================
-
-export type ProjectMemorySettings = {
-  autoEnabled: boolean;
-  captureMode: string;
-  dedupeEnabled: boolean;
-  desensitizeEnabled: boolean;
-  workspaceOverrides: Record<string, { autoEnabled?: boolean }>;
-};
-
-export type ProjectMemoryItem = {
-  id: string;
-  workspaceId: string;
-  kind: string;
-  title: string;
-  summary: string;
-  detail?: string | null;
-  rawText?: string | null;
-  cleanText: string;
-  tags: string[];
-  importance: string;
-  threadId?: string | null;
-  messageId?: string | null;
-  source: string;
-  fingerprint: string;
-  createdAt: number;
-  updatedAt: number;
-  deletedAt?: number | null;
-  workspaceName?: string | null;
-  workspacePath?: string | null;
-  engine?: string | null;
-};
-
-export type ProjectMemoryListResult = {
-  items: ProjectMemoryItem[];
-  total: number;
-};
-
-export async function projectMemoryGetSettings(): Promise<ProjectMemorySettings> {
-  return invoke<ProjectMemorySettings>("project_memory_get_settings");
-}
-
-export async function projectMemoryUpdateSettings(
-  settings: ProjectMemorySettings,
-): Promise<ProjectMemorySettings> {
-  return invoke<ProjectMemorySettings>("project_memory_update_settings", {
-    settings,
-  });
-}
-
-export async function projectMemoryList(params: {
-  workspaceId: string;
-  query?: string | null;
-  kind?: string | null;
-  importance?: string | null;
-  tag?: string | null;
-  page?: number | null;
-  pageSize?: number | null;
-}): Promise<ProjectMemoryListResult> {
-  return invoke<ProjectMemoryListResult>("project_memory_list", {
-    workspaceId: params.workspaceId,
-    query: params.query ?? null,
-    kind: params.kind ?? null,
-    importance: params.importance ?? null,
-    tag: params.tag ?? null,
-    page: params.page ?? null,
-    pageSize: params.pageSize ?? null,
-  });
-}
-
-export async function projectMemoryGet(
-  memoryId: string,
-  workspaceId: string,
-): Promise<ProjectMemoryItem | null> {
-  return invoke<ProjectMemoryItem | null>("project_memory_get", {
-    memoryId,
-    workspaceId,
-  });
-}
-
-export async function projectMemoryCreate(input: {
-  workspaceId: string;
-  kind?: string | null;
-  title?: string | null;
-  summary?: string | null;
-  detail?: string | null;
-  tags?: string[] | null;
-  importance?: string | null;
-  threadId?: string | null;
-  messageId?: string | null;
-  source?: string | null;
-  workspaceName?: string | null;
-  workspacePath?: string | null;
-  engine?: string | null;
-}): Promise<ProjectMemoryItem> {
-  return invoke<ProjectMemoryItem>("project_memory_create", {
-    input: {
-      workspaceId: input.workspaceId,
-      kind: input.kind ?? null,
-      title: input.title ?? null,
-      summary: input.summary ?? null,
-      detail: input.detail ?? null,
-      tags: input.tags ?? null,
-      importance: input.importance ?? null,
-      threadId: input.threadId ?? null,
-      messageId: input.messageId ?? null,
-      source: input.source ?? null,
-      workspaceName: input.workspaceName ?? null,
-      workspacePath: input.workspacePath ?? null,
-      engine: input.engine ?? null,
-    },
-  });
-}
-
-export async function projectMemoryUpdate(
-  memoryId: string,
-  workspaceId: string,
-  patch: {
-    kind?: string | null;
-    title?: string | null;
-    summary?: string | null;
-    detail?: string | null;
-    tags?: string[] | null;
-    importance?: string | null;
-  },
-): Promise<ProjectMemoryItem> {
-  return invoke<ProjectMemoryItem>("project_memory_update", {
-    memoryId,
-    workspaceId,
-    patch: {
-      kind: patch.kind ?? null,
-      title: patch.title ?? null,
-      summary: patch.summary ?? null,
-      detail: patch.detail ?? null,
-      tags: patch.tags ?? null,
-      importance: patch.importance ?? null,
-    },
-  });
-}
-
-export async function projectMemoryDelete(
-  memoryId: string,
-  workspaceId: string,
-  hardDelete?: boolean,
-): Promise<void> {
-  return invoke<void>("project_memory_delete", {
-    memoryId,
-    workspaceId,
-    hardDelete: hardDelete ?? false,
-  });
-}
-
-export async function projectMemoryCaptureAuto(input: {
-  workspaceId: string;
-  text: string;
-  threadId?: string | null;
-  messageId?: string | null;
-  source?: string | null;
-  workspaceName?: string | null;
-  workspacePath?: string | null;
-  engine?: string | null;
-}): Promise<ProjectMemoryItem | null> {
-  return invoke<ProjectMemoryItem | null>("project_memory_capture_auto", {
-    input: {
-      workspaceId: input.workspaceId,
-      text: input.text,
-      threadId: input.threadId ?? null,
-      messageId: input.messageId ?? null,
-      source: input.source ?? null,
-      workspaceName: input.workspaceName ?? null,
-      workspacePath: input.workspacePath ?? null,
-      engine: input.engine ?? null,
-    },
-  });
-}
-
-// ==================== Vendor/Provider API ====================
-
-export async function getClaudeProviders(): Promise<VendorProviderConfig[]> {
-  return invoke<VendorProviderConfig[]>("vendor_get_claude_providers");
-}
-
-export async function addClaudeProvider(provider: unknown): Promise<void> {
-  return invoke("vendor_add_claude_provider", { provider });
-}
-
-export async function updateClaudeProvider(
-  id: string,
-  updates: unknown,
-): Promise<void> {
-  return invoke("vendor_update_claude_provider", { id, updates });
-}
-
-export async function deleteClaudeProvider(id: string): Promise<void> {
-  return invoke("vendor_delete_claude_provider", { id });
-}
-
-export async function switchClaudeProvider(id: string): Promise<void> {
-  return invoke("vendor_switch_claude_provider", { id });
-}
-
-export async function getCurrentClaudeConfig(): Promise<VendorClaudeCurrentConfig> {
-  return invoke<VendorClaudeCurrentConfig>("vendor_get_current_claude_config");
-}
-
-export async function getClaudeAlwaysThinkingEnabled(): Promise<boolean> {
-  return invoke<boolean>("vendor_get_claude_always_thinking_enabled");
-}
-
-export async function setClaudeAlwaysThinkingEnabled(
-  enabled: boolean,
-): Promise<void> {
-  return invoke("vendor_set_claude_always_thinking_enabled", { enabled });
-}
-
-export async function getCodexProviders(): Promise<
-  VendorCodexProviderConfig[]
-> {
-  return invoke<VendorCodexProviderConfig[]>("vendor_get_codex_providers");
-}
-
-export async function addCodexProvider(provider: unknown): Promise<void> {
-  return invoke("vendor_add_codex_provider", { provider });
-}
-
-export async function updateCodexProvider(
-  id: string,
-  updates: unknown,
-): Promise<void> {
-  return invoke("vendor_update_codex_provider", { id, updates });
-}
-
-export async function deleteCodexProvider(id: string): Promise<void> {
-  return invoke("vendor_delete_codex_provider", { id });
-}
-
-export async function switchCodexProvider(id: string): Promise<void> {
-  return invoke("vendor_switch_codex_provider", { id });
-}
-
-export interface GeminiVendorSettings {
-  enabled: boolean;
-  env: Record<string, string>;
-  authMode: string;
-}
-
-export interface GeminiVendorPreflightCheck {
-  id: string;
-  label: string;
-  status: "pass" | "fail" | string;
-  message: string;
-}
-
-export interface GeminiVendorPreflightResult {
-  checks: GeminiVendorPreflightCheck[];
-}
-
-export async function getGeminiVendorSettings(): Promise<GeminiVendorSettings> {
-  return invoke<GeminiVendorSettings>("vendor_get_gemini_settings");
-}
-
-export async function saveGeminiVendorSettings(
-  settings: GeminiVendorSettings,
-): Promise<void> {
-  return invoke("vendor_save_gemini_settings", { settings });
-}
-
-export async function getGeminiVendorPreflight(): Promise<GeminiVendorPreflightResult> {
-  return invoke<GeminiVendorPreflightResult>("vendor_gemini_preflight");
-}
-
-// ==================== Agent API ====================
-
-export async function listAgentConfigs(): Promise<AgentConfig[]> {
-  return invoke<AgentConfig[]>("agent_list");
-}
-
-export async function addAgentConfig(agent: AgentConfig): Promise<void> {
-  return invoke("agent_add", { agent });
-}
-
-export async function updateAgentConfig(
-  id: string,
-  updates: Partial<Pick<AgentConfig, "name" | "prompt" | "icon">>,
-): Promise<void> {
-  return invoke("agent_update", { id, updates });
-}
-
-export async function deleteAgentConfig(id: string): Promise<boolean> {
-  return invoke<boolean>("agent_delete", { id });
-}
-
-export async function getSelectedAgentConfig(): Promise<{
-  selectedAgentId: string | null;
-  agent: AgentConfig | null;
-}> {
-  return invoke<{ selectedAgentId: string | null; agent: AgentConfig | null }>(
-    "agent_get_selected",
-  );
-}
-
-export async function setSelectedAgentConfig(agentId: string | null): Promise<{
-  success: boolean;
-  agent: AgentConfig | null;
-}> {
-  return invoke<{ success: boolean; agent: AgentConfig | null }>(
-    "agent_set_selected",
-    {
-      agentId,
-    },
-  );
-}
-
-export async function exportAgentConfigs(
-  agentIds: string[],
-  path: string,
-): Promise<void> {
-  return invoke("agent_export", { agentIds, path });
-}
-
-export async function previewImportAgentConfigs(
-  path: string,
-): Promise<AgentImportPreviewResult> {
-  return invoke<AgentImportPreviewResult>("agent_import_preview", { path });
-}
-
-export async function applyImportAgentConfigs(input: {
-  agents: AgentConfig[];
-  strategy: "skip" | "overwrite" | "duplicate";
-}): Promise<AgentImportApplyResult> {
-  return invoke<AgentImportApplyResult>("agent_import_apply", {
-    agents: input.agents,
-    strategy: input.strategy,
-  });
 }

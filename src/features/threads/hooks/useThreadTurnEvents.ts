@@ -466,6 +466,7 @@ export function useThreadTurnEvents({
       interruptedThreadsRef,
       markProcessing,
       markReviewing,
+      onDebug,
       pendingInterruptsRef,
       pushThreadErrorMessage,
       resolvePendingAliasThread,

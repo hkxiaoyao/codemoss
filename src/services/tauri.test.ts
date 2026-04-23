@@ -374,12 +374,17 @@ describe("tauri invoke wrappers", () => {
 
   it("returns an empty list when the Tauri invoke bridge is missing", async () => {
     const invokeMock = vi.mocked(invoke);
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     invokeMock.mockRejectedValueOnce(
       new TypeError("Cannot read properties of undefined (reading 'invoke')"),
     );
 
     await expect(listWorkspaces()).resolves.toEqual([]);
     expect(invokeMock).toHaveBeenCalledWith("list_workspaces");
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      "Tauri invoke bridge unavailable; returning empty workspaces list.",
+    );
+    consoleWarnSpy.mockRestore();
   });
 
   it("applies default limit for git log", async () => {
