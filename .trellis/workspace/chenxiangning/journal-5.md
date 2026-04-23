@@ -1450,3 +1450,67 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 163: 收紧 Codex 实时消息兜底边界
+
+**Date**: 2026-04-23
+**Task**: 收紧 Codex 实时消息兜底边界
+**Branch**: `feature/v-0.4.8`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：
+- 修复 Codex 实时对话兜底刷新位置过早导致的界面抖动、卡顿和当前用户气泡延迟显示问题。
+- 对当前工作区进行边界 review，覆盖空值、异常输入、大文件门禁、heavy-test-noise 告警门禁，以及 macOS/Windows 兼容性风险。
+
+主要改动：
+- 将最终历史兜底收敛为 turn 结束后的低频兜底，避免 completed/alias completed 多变种事件期间频繁历史刷新抢占实时态。
+- 拆出 src/features/threads/hooks/useThreadsReducerAssistantDedup.ts，承载 Codex assistant 等价去重判断，降低 useThreadsReducer.ts 文件体量并通过 large-file hard gate。
+- 根据 ThreadSummary.engineSource 与 threadKind 收紧 Codex 去重作用域，避免裸 thread id 的 Claude/shared 线程被误判为 Codex。
+- 为 assistant 段落近似去重增加长文本复杂度上限，避免异常长输入触发高成本 Levenshtein 比较拖慢 UI。
+- 兼容 listWorkspaces 返回 null/undefined 的 runtime 边界，防止 ComputerUseStatusCard 在设置页渲染时崩溃。
+- 补充 OpenSpec change fix-codex-realtime-canvas-duplicate-messages，沉淀实时 canvas 消息幂等和生命周期契约。
+
+涉及模块：
+- threads realtime reducer / event handlers / turn events / memory race tests
+- assistant text normalization utilities
+- computer-use status card runtime boundary
+- OpenSpec behavior specs
+
+验证结果：
+- npm run check:heavy-test-noise：通过，350 个测试文件完成，act warnings 为 0，stdout/stderr payload noise 为 0。
+- npm run check:large-files:gate：通过。
+- npm run check:large-files:near-threshold：通过，仅保留 watch 警告。
+- node --test scripts/check-heavy-test-noise.test.mjs：通过。
+- npm run typecheck：通过。
+- npm run lint：通过。
+- npm run check:runtime-contracts：通过。
+- git diff --check：通过。
+- openspec validate fix-codex-realtime-canvas-duplicate-messages --strict：通过。
+
+后续事项：
+- 建议继续人工验证真实 Codex 长会话场景，重点观察 turn 结束前实时气泡稳定性、turn 结束后兜底补齐是否只发生一次。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0eb05c319da360074bcba4c383a9c59992b4a94e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
