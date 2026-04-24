@@ -312,3 +312,63 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 177: 收紧 Computer Use 未签名宿主连续性判定
+
+**Date**: 2026-04-25
+**Task**: 收紧 Computer Use 未签名宿主连续性判定
+**Branch**: `feature/v0.4.9`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- review 并补强 Codex Computer Use authorization continuity，实现未签名 packaged app 的正确阻断，避免下次发版继续把 sender authentication 问题误导成普通权限问题。
+
+主要改动:
+- backend 新增 unsigned packaged app sender 判定；当 packaged app 缺少稳定 signing identity（如 TeamIdentifier 缺失、adhoc、linker-signed）时，直接归类为 UnsupportedContext。
+- frontend/i18n 同步更新 unsupported_context 与 continuity blocked 文案，明确提示当前包不适合作为最终授权 sender。
+- 补充 Rust 单测与状态卡前端测试，覆盖 unsigned packaged app 分支。
+- 更新 Trellis code spec 与 OpenSpec verification，固化该行为约束。
+
+涉及模块:
+- src-tauri/src/computer_use/authorization_continuity.rs
+- src/features/computer-use/components/ComputerUseStatusCard.test.tsx
+- src/i18n/locales/zh.part1.ts
+- src/i18n/locales/en.part1.ts
+- .trellis/spec/backend/computer-use-bridge.md
+- .trellis/spec/frontend/computer-use-bridge.md
+- openspec/changes/fix-codex-computer-use-authorization-continuity/verification.md
+
+验证结果:
+- cargo test --manifest-path src-tauri/Cargo.toml computer_use -- --nocapture: 42 passed
+- npm exec vitest run src/features/computer-use/components/ComputerUseStatusCard.test.tsx src/features/computer-use/hooks/useComputerUseBridgeStatus.test.tsx src/features/computer-use/hooks/useComputerUseActivation.test.tsx src/features/computer-use/hooks/useComputerUseBroker.test.tsx src/features/computer-use/hooks/useComputerUseHostContractDiagnostics.test.tsx src/services/tauri.test.ts: 106 passed
+- npm run check:large-files: passed
+- openspec validate fix-codex-computer-use-authorization-continuity --type change --strict --no-interactive: passed
+- npm run typecheck: blocked by unrelated src/utils/generatedImageArtifacts.ts changes in another in-progress line, not by this Computer Use patch.
+
+后续事项:
+- 使用正式签名的 packaged app 做最终人工验证；未签名或 adhoc 包现在会被显式拦截。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2958f3f75896de366210d94e8bc2ce637a248f0e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

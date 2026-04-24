@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-6.md`
-- **Total Sessions**: 176
+- **Total Sessions**: 177
 - **Last Active**: 2026-04-25
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-6.md` | ~314 | Active |
+| `journal-6.md` | ~374 | Active |
 | `journal-5.md` | ~1949 | Archived |
 | `journal-4.md` | ~1975 | Archived |
 | `journal-3.md` | ~1972 | Archived |
@@ -34,6 +34,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 177 | 2026-04-25 | 收紧 Computer Use 未签名宿主连续性判定 | `2958f3f75896de366210d94e8bc2ce637a248f0e` | `feature/v0.4.9` |
 | 176 | 2026-04-25 | 拆分 Git selective commit、queued bubble 与 Computer Use continuity | `3c8df523`, `58db55b0`, `ef17894b` | `feature/v0.4.9` |
 | 175 | 2026-04-24 | 修复 Codex 历史会话空白页并补加载态 | `c3f5c27bf6f19fae08b05def52a531d09a40d144` | `feature/v0.4.9` |
 | 174 | 2026-04-24 | 归档已验证的 Claude 稳定性提案 | `5c91e83d8311bf5b67d0de7c869e0a1a4314de68` | `feature/v-0.4.8` |
