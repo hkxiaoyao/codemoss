@@ -1976,7 +1976,7 @@ describe("useAppServerEvents", () => {
     });
   });
 
-  it("ignores claude item/updated agentMessage snapshot in normalized realtime routing", async () => {
+  it("routes claude item/updated agentMessage snapshot in normalized realtime routing", async () => {
     const handlers: Handlers = {
       onAgentMessageDelta: vi.fn(),
       onItemUpdated: vi.fn(),
@@ -2002,7 +2002,13 @@ describe("useAppServerEvents", () => {
       });
     });
 
-    expect(handlers.onAgentMessageDelta).not.toHaveBeenCalled();
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledTimes(1);
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledWith({
+      workspaceId: "ws-claude",
+      threadId: "claude:session-100",
+      itemId: "assistant-100",
+      delta: "snapshot text",
+    });
     expect(handlers.onItemUpdated).not.toHaveBeenCalled();
 
     await act(async () => {
@@ -2010,7 +2016,7 @@ describe("useAppServerEvents", () => {
     });
   });
 
-  it("keeps claude realtime assistant body single in normalized mode when delta and snapshot coexist", async () => {
+  it("routes claude growing assistant snapshots in normalized mode when delta and snapshot coexist", async () => {
     const handlers: Handlers = {
       onAgentMessageDelta: vi.fn(),
       onAgentMessageCompleted: vi.fn(),
@@ -2111,7 +2117,7 @@ describe("useAppServerEvents", () => {
       });
     });
 
-    expect(handlers.onAgentMessageDelta).toHaveBeenCalledTimes(2);
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledTimes(3);
     expect(handlers.onAgentMessageDelta).toHaveBeenNthCalledWith(1, {
       workspaceId: "ws-claude",
       threadId: "claude:session-seq-1",
@@ -2119,6 +2125,12 @@ describe("useAppServerEvents", () => {
       delta: "第一段",
     });
     expect(handlers.onAgentMessageDelta).toHaveBeenNthCalledWith(2, {
+      workspaceId: "ws-claude",
+      threadId: "claude:session-seq-1",
+      itemId: "assistant-seq-1",
+      delta: "第一段第二段",
+    });
+    expect(handlers.onAgentMessageDelta).toHaveBeenNthCalledWith(3, {
       workspaceId: "ws-claude",
       threadId: "claude:session-seq-1",
       itemId: "assistant-seq-1",
@@ -2180,7 +2192,13 @@ describe("useAppServerEvents", () => {
       });
     });
 
-    expect(handlers.onAgentMessageDelta).not.toHaveBeenCalled();
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledTimes(1);
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledWith({
+      workspaceId: "ws-claude",
+      threadId: "claude:session-snapshot-only-1",
+      itemId: "assistant-snapshot-only-1",
+      delta: "snapshot-only-text",
+    });
     expect(handlers.onItemUpdated).not.toHaveBeenCalled();
     expect(handlers.onAgentMessageCompleted).toHaveBeenCalledTimes(1);
     expect(handlers.onAgentMessageCompleted).toHaveBeenCalledWith({
@@ -2288,7 +2306,7 @@ describe("useAppServerEvents", () => {
     });
   });
 
-  it("ignores claude item/updated agentMessage snapshot in legacy routing", async () => {
+  it("routes claude item/updated agentMessage snapshot in legacy routing", async () => {
     const handlers: Handlers = {
       onAgentMessageDelta: vi.fn(),
       onItemUpdated: vi.fn(),
@@ -2313,7 +2331,16 @@ describe("useAppServerEvents", () => {
     });
 
     expect(handlers.onAgentMessageDelta).not.toHaveBeenCalled();
-    expect(handlers.onItemUpdated).not.toHaveBeenCalled();
+    expect(handlers.onItemUpdated).toHaveBeenCalledTimes(1);
+    expect(handlers.onItemUpdated).toHaveBeenCalledWith(
+      "ws-claude",
+      "claude:session-101",
+      expect.objectContaining({
+        id: "assistant-101",
+        type: "agentMessage",
+        text: "snapshot text",
+      }),
+    );
 
     await act(async () => {
       root.unmount();
@@ -2372,7 +2399,7 @@ describe("useAppServerEvents", () => {
     });
   });
 
-  it("keeps claude realtime assistant body single in legacy mode when delta and snapshot coexist", async () => {
+  it("keeps claude snapshot updates flowing through legacy mode when delta and snapshot coexist", async () => {
     const handlers: Handlers = {
       onAgentMessageDelta: vi.fn(),
       onAgentMessageCompleted: vi.fn(),
@@ -2485,7 +2512,16 @@ describe("useAppServerEvents", () => {
       delta: "第二段",
     });
     expect(handlers.onItemStarted).not.toHaveBeenCalled();
-    expect(handlers.onItemUpdated).not.toHaveBeenCalled();
+    expect(handlers.onItemUpdated).toHaveBeenCalledTimes(1);
+    expect(handlers.onItemUpdated).toHaveBeenCalledWith(
+      "ws-claude",
+      "claude:session-seq-2",
+      expect.objectContaining({
+        id: "assistant-seq-2",
+        type: "agentMessage",
+        text: "第一段第二段",
+      }),
+    );
     expect(handlers.onAgentMessageCompleted).toHaveBeenCalledTimes(1);
     expect(handlers.onAgentMessageCompleted).toHaveBeenCalledWith({
       workspaceId: "ws-claude",
@@ -2539,7 +2575,16 @@ describe("useAppServerEvents", () => {
     });
 
     expect(handlers.onAgentMessageDelta).not.toHaveBeenCalled();
-    expect(handlers.onItemUpdated).not.toHaveBeenCalled();
+    expect(handlers.onItemUpdated).toHaveBeenCalledTimes(1);
+    expect(handlers.onItemUpdated).toHaveBeenCalledWith(
+      "ws-claude",
+      "claude:session-snapshot-only-2",
+      expect.objectContaining({
+        id: "assistant-snapshot-only-2",
+        type: "agentMessage",
+        text: "snapshot-only-text",
+      }),
+    );
     expect(handlers.onAgentMessageCompleted).toHaveBeenCalledTimes(1);
     expect(handlers.onAgentMessageCompleted).toHaveBeenCalledWith({
       workspaceId: "ws-claude",

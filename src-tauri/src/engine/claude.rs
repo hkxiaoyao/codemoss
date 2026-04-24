@@ -1255,6 +1255,22 @@ impl ClaudeSession {
         }
     }
 
+    fn clear_tool_block_indices_for_tool(&self, turn_id: &str, tool_id: &str) {
+        if tool_id.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.tool_id_by_block_index.lock() {
+            map.retain(|(mapped_turn_id, _), mapped_tool_id| {
+                !(mapped_turn_id == turn_id && mapped_tool_id == tool_id)
+            });
+        }
+    }
+
+    fn clear_tool_block_tracking(&self, turn_id: &str, tool_id: &str, index: Option<i64>) {
+        self.clear_tool_block_index(turn_id, index);
+        self.clear_tool_block_indices_for_tool(turn_id, tool_id);
+    }
+
     fn register_pending_tool(
         &self,
         turn_id: &str,

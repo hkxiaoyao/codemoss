@@ -532,6 +532,49 @@ fn convert_stream_event_emits_tool_completed_for_tool_result_delta() {
 }
 
 #[test]
+fn convert_event_clears_stale_tool_block_mapping_after_tool_completion() {
+    let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
+    session.cache_tool_name("tool-stale", "Bash");
+    session.register_pending_tool("turn-a", "tool-stale", "Bash", None);
+    session.cache_tool_block_index("turn-a", 2, "tool-stale");
+    session.cache_tool_block_index("turn-a", 7, "tool-stale");
+
+    let completion_event = json!({
+        "type": "tool_result",
+        "tool_use_id": "tool-stale",
+        "index": 7,
+        "content": [{"type": "text", "text": "done\n"}]
+    });
+
+    match session.convert_event("turn-a", &completion_event) {
+        Some(EngineEvent::ToolCompleted { tool_id, .. }) => {
+            assert_eq!(tool_id, "tool-stale");
+        }
+        other => panic!("expected tool completed, got {:?}", other),
+    }
+
+    assert_eq!(session.tool_id_for_block_index("turn-a", Some(2)), None);
+    assert_eq!(session.tool_id_for_block_index("turn-a", Some(7)), None);
+
+    let followup_text_event = json!({
+        "type": "stream_event",
+        "event": {
+            "type": "content_block_delta",
+            "index": 2,
+            "delta": {
+                "type": "text_delta",
+                "text": "# 汇总\n"
+            }
+        }
+    });
+
+    match session.convert_event("turn-a", &followup_text_event) {
+        Some(EngineEvent::TextDelta { text, .. }) => assert_eq!(text, "# 汇总\n"),
+        other => panic!("expected assistant text delta, got {:?}", other),
+    }
+}
+
+#[test]
 fn build_tool_completed_embeds_cached_input_with_output() {
     let session = ClaudeSession::new("test-workspace".to_string(), test_workspace_path(), None);
     session.cache_tool_name("tool-input", "Bash");

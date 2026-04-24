@@ -317,20 +317,24 @@ impl ClaudeSession {
                                                     turn_id, &tool_id, text,
                                                 )
                                             {
-                                                self.clear_tool_block_index(turn_id, index);
+                                                self.clear_tool_block_tracking(
+                                                    turn_id, &tool_id, index,
+                                                );
                                                 return Some(mode_blocked_event);
                                             }
                                             if self.has_pending_approval_request(&Value::String(
                                                 tool_id.clone(),
                                             )) {
-                                                self.clear_tool_block_index(turn_id, index);
+                                                self.clear_tool_block_tracking(
+                                                    turn_id, &tool_id, index,
+                                                );
                                                 return None;
                                             }
                                         }
                                     }
                                     let result =
                                         self.build_tool_completed(&tool_id, output, is_error);
-                                    self.clear_tool_block_index(turn_id, index);
+                                    self.clear_tool_block_tracking(turn_id, &tool_id, index);
                                     return result;
                                 }
                                 _ => {}
@@ -416,19 +420,23 @@ impl ClaudeSession {
                                             turn_id, &tool_id, text,
                                         )
                                     {
-                                        self.clear_tool_block_index(turn_id, index);
+                                        self.clear_tool_block_tracking(
+                                            turn_id, &tool_id, index,
+                                        );
                                         return Some(mode_blocked_event);
                                     }
                                     if self.has_pending_approval_request(&Value::String(
                                         tool_id.clone(),
                                     )) {
-                                        self.clear_tool_block_index(turn_id, index);
+                                        self.clear_tool_block_tracking(
+                                            turn_id, &tool_id, index,
+                                        );
                                         return None;
                                     }
                                 }
                             }
                             let result = self.build_tool_completed(&tool_id, output, is_error);
-                            self.clear_tool_block_index(turn_id, index);
+                            self.clear_tool_block_tracking(turn_id, &tool_id, index);
                             return result;
                         }
                     }
@@ -540,17 +548,17 @@ impl ClaudeSession {
                         if let Some(mode_blocked_event) =
                             self.maybe_handle_claude_permission_block(turn_id, &tool_id, text)
                         {
-                            self.clear_tool_block_index(turn_id, index);
+                            self.clear_tool_block_tracking(turn_id, &tool_id, index);
                             return Some(mode_blocked_event);
                         }
                         if self.has_pending_approval_request(&Value::String(tool_id.clone())) {
-                            self.clear_tool_block_index(turn_id, index);
+                            self.clear_tool_block_tracking(turn_id, &tool_id, index);
                             return None;
                         }
                     }
                 }
                 let result = self.build_tool_completed(&tool_id, output, is_error);
-                self.clear_tool_block_index(turn_id, index);
+                self.clear_tool_block_tracking(turn_id, &tool_id, index);
                 result
             }
 
@@ -624,19 +632,23 @@ impl ClaudeSession {
                                 if let Some(mode_blocked_event) = self
                                     .maybe_handle_claude_permission_block(turn_id, &tool_id, text)
                                 {
-                                    self.clear_tool_block_index(turn_id, index);
+                                    self.clear_tool_block_tracking(
+                                        turn_id, &tool_id, index,
+                                    );
                                     return Some(mode_blocked_event);
                                 }
                                 if self
                                     .has_pending_approval_request(&Value::String(tool_id.clone()))
                                 {
-                                    self.clear_tool_block_index(turn_id, index);
+                                    self.clear_tool_block_tracking(
+                                        turn_id, &tool_id, index,
+                                    );
                                     return None;
                                 }
                             }
                         }
                         if let Some(event) = self.build_tool_completed(&tool_id, output, is_error) {
-                            self.clear_tool_block_index(turn_id, index);
+                            self.clear_tool_block_tracking(turn_id, &tool_id, index);
                             return Some(event);
                         }
                     }
@@ -750,17 +762,17 @@ impl ClaudeSession {
                         if let Some(mode_blocked_event) =
                             self.maybe_handle_claude_permission_block(turn_id, &tool_id, text)
                         {
-                            self.clear_tool_block_index(turn_id, index);
+                            self.clear_tool_block_tracking(turn_id, &tool_id, index);
                             return Some(mode_blocked_event);
                         }
                         if self.has_pending_approval_request(&Value::String(tool_id.clone())) {
-                            self.clear_tool_block_index(turn_id, index);
+                            self.clear_tool_block_tracking(turn_id, &tool_id, index);
                             return None;
                         }
                     }
                 }
                 let result = self.build_tool_completed(&tool_id, output, is_error);
-                self.clear_tool_block_index(turn_id, index);
+                self.clear_tool_block_tracking(turn_id, &tool_id, index);
                 result
             }
             _ => None,
