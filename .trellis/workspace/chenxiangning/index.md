@@ -7,8 +7,8 @@
 ## Current Status
 
 <!-- @@@auto:current-status -->
-- **Active File**: `journal-5.md`
-- **Total Sessions**: 170
+- **Active File**: `journal-6.md`
+- **Total Sessions**: 171
 - **Last Active**: 2026-04-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,8 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-5.md` | ~1949 | Active |
+| `journal-6.md` | ~63 | Active |
+| `journal-5.md` | ~1949 | Archived |
 | `journal-4.md` | ~1975 | Archived |
 | `journal-3.md` | ~1972 | Archived |
 | `journal-2.md` | ~1960 | Archived |
@@ -33,6 +34,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 171 | 2026-04-24 | 优化悬浮问题条样式与收起兼容性 | `efde3dec` | `feature/v-0.4.8` |
 | 170 | 2026-04-24 | 修正对话幕布 markdown 卡片渲染兼容性 | `4bbd01113b061d6c225924526a0c0948a36de6dd` | `feature/v-0.4.8` |
 | 169 | 2026-04-24 | 修复 Claude 空白幕布与终态重复 | `4b44af80` | `feature/v-0.4.8` |
 | 168 | 2026-04-24 | 拆分 useAppServerEvents 路由测试 | `97896a18` | `feature/v-0.4.8` |
