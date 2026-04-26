@@ -888,3 +888,64 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 186: 修复 0.4.9 边界审查问题
+
+**Date**: 2026-04-26
+**Task**: 修复 0.4.9 边界审查问题
+**Branch**: `feature/v0.4.9`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标：对 v0.4.8 之后的新代码进行边界条件、跨平台兼容、大文件治理与 heavy-test-noise 门禁审查，并对发现的问题做谨慎修复。
+
+主要改动：
+- 清理多个 OpenSpec design 文件中的 trailing whitespace，修复 git diff --check 硬失败。
+- 加强 generatedImageArtifacts 的 raw text 本地图片路径提取，覆盖带空格的 macOS 路径、Windows drive 路径与 UNC 路径。
+- 为 Git diff section actions 的 aria label 接入 i18n，避免英文硬编码，并同步 en/zh locale。
+- 补充 generatedImageArtifacts 与 GitDiffPanel 目标测试。
+
+涉及模块：
+- openspec/changes/*/design.md
+- src/utils/generatedImageArtifacts.ts
+- src/features/git/components/GitDiffPanelSectionActions.tsx
+- src/i18n/locales/en.part1.ts
+- src/i18n/locales/zh.part1.ts
+- 对应测试文件
+
+验证结果：
+- git diff --check 通过。
+- npm run lint 通过。
+- npm run typecheck 通过。
+- npx vitest run src/utils/generatedImageArtifacts.test.ts src/features/git/components/GitDiffPanel.test.tsx 通过。
+- npm run check:large-files:gate 通过，found=0。
+- npm run check:large-files:near-threshold 仅保留既有 watch warning，无 hard failure。
+- npm run check:heavy-test-noise 完整通过，366 个测试文件完成，act warnings=0，stdout/stderr payload lines=0。
+
+后续事项：
+- near-threshold 大文件仍建议单独开拆分任务处理，不混入本次 review 修复。
+- 本轮未纳入已有未跟踪目录 openspec/changes/fix-updater-check-fallback/ 与 updater/composer 相关未提交改动。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `06678e28` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
