@@ -70,6 +70,7 @@ import {
   mapWithConcurrency,
   markThreadSummariesDegraded,
   mergeCodexCatalogSessionSummaries,
+  mergeDegradedCodexContinuitySummaries,
   mergeGeminiSessionSummaries,
   mergeRecoveredThreadSummaries,
   normalizeGeminiSessionSummaries,
@@ -80,6 +81,7 @@ import {
   selectRecoveredNewThreadSummary,
   selectReplacementThreadByMessageHistory,
   selectReplacementThreadSummary,
+  shouldApplyCodexSidebarContinuity,
   shouldIncludeWorkspaceThreadEntry,
   shouldReplaceUserInputQueueFromSnapshot,
   withTimeout,
@@ -1896,6 +1898,12 @@ export function useThreadActions({
             });
           }
         } else if (degradedPartialSource) {
+          if (shouldApplyCodexSidebarContinuity(degradedPartialSource)) {
+            visibleSummaries = mergeDegradedCodexContinuitySummaries(
+              visibleSummaries,
+              getLastGoodThreadSummaries(workspace.id),
+            );
+          }
           visibleSummaries = markThreadSummariesDegraded(
             visibleSummaries,
             degradedPartialSource,

@@ -2518,6 +2518,67 @@ describe("useThreadActions", () => {
     ]);
   });
 
+  it("preserves previously visible finalized codex sessions during degraded partial refresh", async () => {
+    vi.mocked(listThreads).mockResolvedValue({
+      result: {
+        data: [
+          {
+            id: "thread-active",
+            cwd: "/tmp/codex",
+            preview: "Recovered active thread",
+            updated_at: 4100,
+          },
+        ],
+        nextCursor: null,
+        partialSource: "local-session-scan-unavailable",
+      },
+    });
+    vi.mocked(getThreadTimestamp).mockImplementation((thread) => {
+      const value = (thread as Record<string, unknown>).updated_at as number;
+      return value ?? 0;
+    });
+
+    const { result, dispatch } = renderActions({
+      threadsByWorkspace: {
+        "ws-1": [
+          {
+            id: "thread-finalized",
+            name: "项目分析",
+            updatedAt: 3900,
+            engineSource: "codex",
+            threadKind: "native",
+          },
+        ],
+      },
+    });
+
+    await act(async () => {
+      await result.current.listThreadsForWorkspace(workspace);
+    });
+
+    expectSetThreadsDispatched(dispatch, "ws-1", [
+      {
+        id: "thread-active",
+        name: "Recovered active thread",
+        updatedAt: 4100,
+        engineSource: "codex",
+        partialSource: "local-session-scan-unavailable",
+        isDegraded: true,
+        degradedReason: "partial-thread-list",
+      },
+      {
+        id: "thread-finalized",
+        name: "项目分析",
+        updatedAt: 3900,
+        engineSource: "codex",
+        threadKind: "native",
+        partialSource: "local-session-scan-unavailable",
+        isDegraded: true,
+        degradedReason: "partial-thread-list",
+      },
+    ]);
+  });
+
   it("archives threads and reports errors", async () => {
     vi.mocked(archiveThread).mockRejectedValue(new Error("nope"));
     const onDebug = vi.fn();
