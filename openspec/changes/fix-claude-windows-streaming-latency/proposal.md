@@ -84,6 +84,12 @@ Windows 上的 `Claude Code` 实时对话存在秒级卡顿与“最后一次性
   - frontend 回归确认 final completion 不覆盖已显示 delta。
   - Windows native Claude Code 手测：首轮、第二轮、tool-heavy prompt、first visible delta latency、delta cadence、final text parity。
 
+## 当前验证记录（2026-04-27）
+
+- 已结合当前代码核对：Claude forwarder 已落到 “realtime delta 先 emit，再 touch/sync runtime” 的顺序，`TextDelta` / `ReasoningDelta` / `ToolOutputDelta` 均由 Rust 回归测试锁住低延迟路径。
+- Windows native Claude Code 最新人工对话测试已通过：普通对话已经正常流式推进，未再复现长时间停在少量前缀后最终一次性整体输出的主症状。
+- 该结果将本 change 视为 Windows Claude “卡顿 / final-only burst flush” 的主修复记录；frontend 长线程渲染放大仍由 `fix-claude-long-thread-render-amplification` 独立覆盖。
+
 ## Impact
 
 - Affected backend:

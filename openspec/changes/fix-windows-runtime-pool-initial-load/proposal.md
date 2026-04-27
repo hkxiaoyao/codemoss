@@ -30,6 +30,8 @@ Windows 用户冷启动后立即进入 `Settings > Runtime` 时，`Runtime Pool 
 - 不隐藏真实空态：当确实不存在可恢复的受管 runtime 时，面板最终仍应展示空态。
 - 不通过修改 `restoreThreadsOnlyOnLaunch` 默认值绕过问题。
 
+2026-04-27 标记：Windows native Claude Code 普通对话已在当前代码下测试正常，但该结果不归因于本 change。本 change 仅负责 Runtime Pool Console 首屏 visibility / bootstrap 体验，不能用来关闭 Claude streaming latency 或 final-only burst-flush 的验收项。
+
 ## What Changes
 
 - 修改 `runtime-pool-console` 行为契约：Runtime 面板首屏不得把“恢复尚未开始/尚未完成”的瞬时空 snapshot 直接当作稳定空态展示。

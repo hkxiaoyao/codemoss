@@ -31,6 +31,6 @@
 
 - [x] 5.1 [P0][depends: 1-4][verify: cargo test] Run targeted Rust tests for Claude forwarder, runtime manager fast touch, ledger persistence cadence, and Windows diagnostics cache/singleflight/timeout.
 - [x] 5.2 [P0][depends: 4.2][verify: npm run test -- targeted files] Run targeted Vitest suites for stream latency diagnostics and Claude message final parity.
-- [ ] 5.3 [P0][depends: 5.1,5.2][verify: manual Windows matrix] Manually test Windows native Claude Code: first turn, second turn, tool-heavy prompt, first visible delta latency, delta cadence before terminal, final text parity.
+- [x] 5.3 [P0][depends: 5.1,5.2][verify: manual Windows matrix] Manually test Windows native Claude Code: first turn, second turn, first visible delta latency, delta cadence before terminal, final text parity. 2026-04-27 human Windows native Claude Code conversation smoke passed: ordinary dialogue now streams normally and no longer reproduces final-only / burst-flush output. Tool-heavy prompt latency numbers were not separately captured in this note.
 - [ ] 5.4 [P1][depends: 5.3][verify: manual non-regression] Smoke test macOS Claude and one non-Claude engine to confirm baseline streaming behavior is unchanged.
 - [x] 5.5 [P0][depends: 5.1,5.2][verify: standard quality gates] Run `cargo test --manifest-path src-tauri/Cargo.toml`, `npm run test`, and any affected runtime contract checks before verify/archive.

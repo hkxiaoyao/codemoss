@@ -8,6 +8,8 @@ Windows native Claude 长线程仍可能在 backend event 已经到达 frontend 
 - `Messages` 在 `VISIBLE_MESSAGE_WINDOW = 30` 尾部裁剪前，已经基于完整 `effectiveItems` 做 visible filtering、reasoning dedupe/collapse、timeline 构建和 live middle-step collapse。
 - Claude prompt overflow 进入 automatic `/compact` + retry 时，UI 已有事件链路，但缺少足够回归覆盖确保 compacting/compacted/failed 状态不被误看成“卡死”。
 
+2026-04-27 补充定位：当前 Windows native Claude Code 普通对话已由最新代码验证为正常。该实测结果证明 `fix-claude-windows-streaming-latency` 的 backend hot-path 修复命中了主要 final-only / burst-flush 症状；本 change 继续保留为长线程、prompt overflow compaction 与 frontend O(n) 放大的独立硬化项，不能反向归因为本轮主根因。
+
 ## 目标与边界
 
 ### 目标
