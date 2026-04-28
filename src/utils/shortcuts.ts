@@ -72,6 +72,14 @@ const ACCELERATOR_KEYS: Record<string, string> = {
 };
 
 const MODIFIER_KEYS = new Set(["shift", "control", "alt", "meta"]);
+const KEY_ALIASES: Record<string, string> = {
+  down: "arrowdown",
+  esc: "escape",
+  left: "arrowleft",
+  return: "enter",
+  right: "arrowright",
+  up: "arrowup",
+};
 
 function normalizeKey(key: string) {
   const normalized = key.toLowerCase();
@@ -85,7 +93,7 @@ function normalizeKey(key: string) {
   if (normalized === " ") {
     return "space";
   }
-  return normalized;
+  return KEY_ALIASES[normalized] ?? normalized;
 }
 
 function matchesShiftModifier(event: KeyboardEvent, parsed: ShortcutDefinition): boolean {
@@ -110,7 +118,7 @@ export function parseShortcut(value: string | null | undefined): ShortcutDefinit
   if (parts.length === 0) {
     return null;
   }
-  const key = parts[parts.length - 1] ?? "";
+  const key = normalizeKey(parts[parts.length - 1] ?? "");
   if (!key || MODIFIER_KEYS.has(key)) {
     return null;
   }
