@@ -500,3 +500,41 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 212: 记录邮件发送设置提案提交
+
+**Date**: 2026-04-28
+**Task**: 记录邮件发送设置提案提交
+**Branch**: `feature/v0.4.11`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+- 任务目标：按 review 后的拆分计划提交邮件发送设置 OpenSpec 提案。
+- 主要改动：新增 add-email-sending-settings proposal/design/tasks/spec，定义 SMTP 邮件发送设置、secret 存储、测试发送与验收标准。
+- 涉及模块：openspec/changes/add-email-sending-settings。
+- 验证结果：本轮提交前已完成 lint/typecheck/heavy-test-noise/large-file gate/Rust lib tests；该提交为纯文档规范变更。
+- 后续事项：后续实现邮件发送能力时需按 proposal 继续创建代码变更。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ab8312fc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
