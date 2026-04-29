@@ -241,6 +241,11 @@ export function useThreadTurnEvents({
         threadId,
         engine: inferEngineFromThreadId(threadId),
       });
+      dispatch({
+        type: "setThreadHistoryRestoredAt",
+        threadId,
+        timestamp: null,
+      });
       dispatch({ type: "markContextCompacting", threadId, isCompacting: false });
       if (pendingInterruptsRef.current.has(threadId)) {
         pendingInterruptsRef.current.delete(threadId);

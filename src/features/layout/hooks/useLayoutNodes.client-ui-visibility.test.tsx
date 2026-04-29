@@ -88,14 +88,23 @@ vi.mock("../../messages/components/Messages", () => ({
   Messages: ({
     showMessageAnchors,
     showStickyUserBubble,
+    conversationState,
   }: {
     showMessageAnchors: boolean;
     showStickyUserBubble: boolean;
+    conversationState?: {
+      meta?: {
+        historyRestoredAtMs?: number | null;
+      };
+    } | null;
   }) => (
     <section
       data-testid="messages"
       data-message-anchors={String(showMessageAnchors)}
       data-sticky-user-bubble={String(showStickyUserBubble)}
+      data-history-restored-at={String(
+        conversationState?.meta?.historyRestoredAtMs ?? "",
+      )}
     />
   ),
 }));
@@ -278,6 +287,7 @@ function createLayoutOptions(
     threadParentById: {},
     threadStatusById: {},
     historyLoadingByThreadId: {},
+    historyRestoredAtMsByThread: {},
     runningSessionCountByWorkspaceId: {},
     recentCompletedSessionCountByWorkspaceId: {},
     hydratedThreadListWorkspaceIds: new Set(),
@@ -664,5 +674,36 @@ describe("useLayoutNodes client UI visibility", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "settings" }));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards restored history metadata into the runtime conversation state", () => {
+    const { result } = renderHook(() =>
+      useLayoutNodes(
+        createLayoutOptions({
+          historyRestoredAtMsByThread: {
+            "thread-1": 1234,
+          },
+        }),
+      ),
+    );
+
+    render(<>{result.current.messagesNode}</>);
+
+    expect(screen.getByTestId("messages").dataset.historyRestoredAt).toBe("1234");
+  });
+
+  it("does not crash when restored history metadata is omitted by a caller", () => {
+    const optionsWithoutRestoreMeta = {
+      ...createLayoutOptions(),
+      historyRestoredAtMsByThread: undefined,
+    };
+
+    const { result } = renderHook(() =>
+      useLayoutNodes(optionsWithoutRestoreMeta),
+    );
+
+    render(<>{result.current.messagesNode}</>);
+
+    expect(screen.getByTestId("messages").dataset.historyRestoredAt ?? "").toBe("");
   });
 });

@@ -177,6 +177,7 @@ type LayoutNodesOptions = {
   threadParentById: Record<string, string>;
   threadStatusById: Record<string, ThreadActivityStatus>;
   historyLoadingByThreadId: Record<string, boolean>;
+  historyRestoredAtMsByThread?: Record<string, number | null | undefined>;
   runningSessionCountByWorkspaceId: Record<string, number>;
   recentCompletedSessionCountByWorkspaceId: Record<string, number>;
   hydratedThreadListWorkspaceIds: ReadonlySet<string>;
@@ -722,6 +723,10 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
   const activeThreadStatus = options.activeThreadId
     ? options.threadStatusById[options.activeThreadId] ?? null
     : null;
+  const historyRestoredAtMsByThread = options.historyRestoredAtMsByThread ?? {};
+  const activeHistoryRestoredAtMs = options.activeThreadId
+    ? historyRestoredAtMsByThread[options.activeThreadId] ?? null
+    : null;
   const activeThreadHistoryLoading = options.activeThreadId
     ? options.historyLoadingByThreadId[options.activeThreadId] === true
     : false;
@@ -811,7 +816,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
         activeTurnId: null,
         isThinking: activeThreadStatus?.isProcessing ?? false,
         heartbeatPulse: heartbeatPulseRef.current,
-        historyRestoredAtMs: null,
+        historyRestoredAtMs: activeHistoryRestoredAtMs,
       },
     }),
     [
@@ -822,6 +827,7 @@ export function useLayoutNodes(options: LayoutNodesOptions): LayoutNodesResult {
       options.activeThreadId,
       conversationEngine,
       activeThreadStatus?.isProcessing,
+      activeHistoryRestoredAtMs,
     ],
   );
   const presentationProfile = useMemo(

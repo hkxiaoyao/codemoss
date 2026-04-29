@@ -1254,6 +1254,51 @@ describe("Messages live behavior", () => {
     });
   });
 
+  it("keeps the latest restored user question renderable even when live sticky is disabled", () => {
+    const conversationState: ConversationState = {
+      items: [
+        {
+          id: "user-restored-windowed",
+          kind: "message",
+          role: "user",
+          text: "恢复态里这条问题不能被裁掉",
+        },
+        ...Array.from({ length: 65 }, (_, index): ConversationItem => ({
+          id: `assistant-restored-windowed-${index}`,
+          kind: "message",
+          role: "assistant",
+          text: `恢复态响应 ${index + 1}`,
+        })),
+      ],
+      plan: null,
+      userInputQueue: [],
+      meta: {
+        workspaceId: "ws-1",
+        threadId: "thread-restored-windowed",
+        engine: "codex",
+        activeTurnId: null,
+        isThinking: true,
+        heartbeatPulse: null,
+        historyRestoredAtMs: Date.now(),
+      },
+    };
+
+    const { container } = render(
+      <Messages
+        items={[]}
+        threadId="thread-restored-windowed"
+        workspaceId="ws-1"
+        isThinking
+        conversationState={conversationState}
+        openTargets={[]}
+        selectedOpenAppId=""
+      />,
+    );
+
+    expect(container.querySelector(".messages-live-sticky-user-message")).toBeNull();
+    expect(container.textContent ?? "").toContain("恢复态里这条问题不能被裁掉");
+  });
+
   it("does not pin memory-only injected user payloads as the latest live question", async () => {
     const items: ConversationItem[] = [
       {

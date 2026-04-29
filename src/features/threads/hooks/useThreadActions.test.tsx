@@ -495,6 +495,12 @@ describe("useThreadActions", () => {
         steps: [{ step: "Inspect", status: "pending" }],
       },
     });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "setThreadHistoryRestoredAt",
+        threadId: "thread-unified",
+      }),
+    );
   });
 
   it("hydrates unified codex history through assembler before dispatching thread items", async () => {
@@ -573,6 +579,12 @@ describe("useThreadActions", () => {
       threadId: "thread-empty",
       plan: null,
     });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "setThreadHistoryRestoredAt",
+        threadId: "thread-empty",
+      }),
+    );
     expect(onDebug).toHaveBeenCalledWith(
       expect.objectContaining({
         label: "thread/history fallback",

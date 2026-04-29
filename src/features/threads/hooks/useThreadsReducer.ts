@@ -157,6 +157,7 @@ type ThreadActivityStatus = {
 export type ThreadState = {
   activeThreadIdByWorkspace: Record<string, string | null>;
   itemsByThread: Record<string, ConversationItem[]>;
+  historyRestoredAtMsByThread: Record<string, number | null>;
   threadsByWorkspace: Record<string, ThreadSummary[]>;
   hiddenThreadIdsByWorkspace: Record<string, Record<string, true>>;
   threadParentById: Record<string, string>;
@@ -204,6 +205,11 @@ export type ThreadAction =
       type: "upsertCodexCompactionMessage";
       threadId: string;
       text: string;
+    }
+  | {
+      type: "setThreadHistoryRestoredAt";
+      threadId: string;
+      timestamp: number | null;
     }
   | { type: "markHeartbeat"; threadId: string; pulse: number }
   | { type: "markContinuationEvidence"; threadId: string }
@@ -363,6 +369,7 @@ const emptyItems: Record<string, ConversationItem[]> = {};
 export const initialState: ThreadState = {
   activeThreadIdByWorkspace: {},
   itemsByThread: emptyItems,
+  historyRestoredAtMsByThread: {},
   threadsByWorkspace: {},
   hiddenThreadIdsByWorkspace: {},
   threadParentById: {},
@@ -788,6 +795,8 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
           ? filtered[0]?.id ?? null
           : state.activeThreadIdByWorkspace[action.workspaceId] ?? null;
       const { [action.threadId]: _items, ...restItems } = state.itemsByThread;
+      const { [action.threadId]: _historyRestoredAt, ...restHistoryRestoredAt } =
+        state.historyRestoredAtMsByThread;
       const { [action.threadId]: _status, ...restStatus } = state.threadStatusById;
       const { [action.threadId]: _turns, ...restTurns } = state.activeTurnIdByThread;
       const { [action.threadId]: _codexAcceptedTurn, ...restCodexAcceptedTurn } =
@@ -804,6 +813,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
           [action.workspaceId]: filtered,
         },
         itemsByThread: restItems,
+        historyRestoredAtMsByThread: restHistoryRestoredAt,
         threadStatusById: restStatus,
         activeTurnIdByThread: restTurns,
         codexAcceptedTurnByThread: restCodexAcceptedTurn,
@@ -1674,6 +1684,20 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
         },
       };
     }
+    case "setThreadHistoryRestoredAt": {
+      const previousTimestamp =
+        state.historyRestoredAtMsByThread[action.threadId] ?? null;
+      if (previousTimestamp === action.timestamp) {
+        return state;
+      }
+      return {
+        ...state,
+        historyRestoredAtMsByThread: {
+          ...state.historyRestoredAtMsByThread,
+          [action.threadId]: action.timestamp,
+        },
+      };
+    }
     case "markLatestAssistantMessageFinal": {
       const list = state.itemsByThread[action.threadId] ?? [];
       if (list.length === 0) {
@@ -1782,6 +1806,15 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
           ...mergedItems,
         ]);
         delete newItemsByThread[oldThreadId];
+      }
+
+      const newHistoryRestoredAtMsByThread = { ...state.historyRestoredAtMsByThread };
+      if (newHistoryRestoredAtMsByThread[oldThreadId] !== undefined) {
+        newHistoryRestoredAtMsByThread[newThreadId] =
+          newHistoryRestoredAtMsByThread[newThreadId]
+          ?? newHistoryRestoredAtMsByThread[oldThreadId]
+          ?? null;
+        delete newHistoryRestoredAtMsByThread[oldThreadId];
       }
 
       // Update threadsByWorkspace
@@ -1939,6 +1972,7 @@ export function threadReducer(state: ThreadState, action: ThreadAction): ThreadS
         ...state,
         activeThreadIdByWorkspace: newActiveThreadIdByWorkspace,
         itemsByThread: newItemsByThread,
+        historyRestoredAtMsByThread: newHistoryRestoredAtMsByThread,
         threadsByWorkspace: newThreadsByWorkspace,
         threadStatusById: newThreadStatusById,
         activeTurnIdByThread: newActiveTurnIdByThread,

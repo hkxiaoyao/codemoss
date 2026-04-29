@@ -57,7 +57,6 @@ import {
   buildLiveTailWorkingSet,
   buildRenderedItemsWindow,
   collapseExpandedExploreItems,
-  findLatestOrdinaryUserQuestionId,
   isOrdinaryUserQuestionItem,
   resolveOrdinaryUserStickyText,
   resolveLiveAutoExpandedExploreId,
@@ -1130,24 +1129,15 @@ export const Messages = memo(function Messages({
       : 0;
   const collapsedHistoryItemCount =
     liveTailWorkingSet.omittedBeforeWorkingSetCount + timelineCollapsedHistoryItemCount;
-  const latestLiveStickyUserMessageId = useMemo(
-    () =>
-      isThinking && !conversationState?.meta.historyRestoredAtMs
-        ? findLatestOrdinaryUserQuestionId(timelineItems, {
-            enableCollaborationBadge,
-          })
-        : null,
-    [conversationState?.meta.historyRestoredAtMs, enableCollaborationBadge, isThinking, timelineItems],
-  );
   const renderedItemsWindow = useMemo(
     () =>
       buildRenderedItemsWindow(
         timelineItems,
         timelineCollapsedHistoryItemCount,
-        latestLiveStickyUserMessageId,
+        liveTailWorkingSet.stickyUserMessageId,
       ),
     [
-      latestLiveStickyUserMessageId,
+      liveTailWorkingSet.stickyUserMessageId,
       timelineCollapsedHistoryItemCount,
       timelineItems,
     ],
