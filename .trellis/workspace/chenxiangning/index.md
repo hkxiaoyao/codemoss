@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-7.md`
-- **Total Sessions**: 228
+- **Total Sessions**: 229
 - **Last Active**: 2026-04-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-7.md` | ~1394 | Active |
+| `journal-7.md` | ~1459 | Active |
 | `journal-6.md` | ~1961 | Archived |
 | `journal-5.md` | ~1949 | Archived |
 | `journal-4.md` | ~1975 | Archived |
@@ -35,6 +35,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 229 | 2026-04-29 | 修复历史恢复幕布渲染回归 | `d938e025` | `feature/v0.4.11` |
 | 228 | 2026-04-29 | CI sentry workflow 权限门禁修复 | `0b25913f890407eb0c98bca96eafd820b71f6486` | `feature/v0.4.11` |
 | 227 | 2026-04-29 | Linux IME 兼容边界修复与回归测试 | `dac0aa5a` | `feature/v0.4.11` |
 | 226 | 2026-04-29 | 支持管理运行时提示悬浮球显隐 | `beb5239fdf557a3458dc1c3b1069b56f8fb0ad61` | `feature/v0.4.11` |

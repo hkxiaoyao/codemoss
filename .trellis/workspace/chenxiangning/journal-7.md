@@ -1392,3 +1392,68 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 229: 修复历史恢复幕布渲染回归
+
+**Date**: 2026-04-29
+**Task**: 修复历史恢复幕布渲染回归
+**Branch**: `feature/v0.4.11`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 修复 Codex 自动/手动 context compaction 文案在幕布中的恢复态渲染问题。
+- 修复多轮对话快速 follow-up 时最后一个 user bubble 可能被幕布吃掉的问题。
+- 对当前工作区做全面 review，并补齐边界条件、CI 门禁与大文件治理相关修复。
+
+主要改动:
+- 补齐 historyRestoredAtMsByThread 从 threads state 到 AppShell、layout、Messages 的透传链路，并在 useLayoutNodes 增加漏传 fallback。
+- 调整 Messages render window 保底逻辑，恢复态关闭 live sticky overlay，但继续保留最后一个关键 user bubble 的可见性。
+- 修复 fallback resume 保留本地 items 时未写入 restored 标记的边界分支。
+- 保留本地 Codex compaction message 穿过 history reconcile。
+- 将新增历史恢复/compaction 回归测试拆到 companion test file，避免继续推高近阈值大测试文件。
+- 修正 large-file governance 与 heavy-test-noise sentry workflow 的 action 版本到仓库稳定基线。
+
+涉及模块:
+- src/features/threads/hooks
+- src/features/layout/hooks
+- src/features/messages/components
+- src/app-shell.tsx
+- src/app-shell-parts/useAppShellLayoutNodesSection.tsx
+- .github/workflows/large-file-governance.yml
+- .github/workflows/heavy-test-noise-sentry.yml
+
+验证结果:
+- npm exec vitest run src/features/layout/hooks/useLayoutNodes.client-ui-visibility.test.tsx src/features/messages/components/Messages.live-behavior.test.tsx src/features/threads/hooks/useThreadActions.test.tsx src/features/threads/hooks/useThreadActions.history-restore.test.tsx src/features/threads/hooks/useThreadsReducer.test.ts src/features/threads/hooks/useThreadsReducer.history-restore.test.ts src/features/threads/hooks/useThreadTurnEvents.test.tsx
+- node --test scripts/check-heavy-test-noise.test.mjs scripts/check-large-files.test.mjs
+- npm run typecheck
+- npm exec eslint src/features/threads/hooks/useThreadActions.ts src/features/threads/hooks/useThreadActions.test.tsx src/features/threads/hooks/useThreadActions.history-restore.test.tsx src/features/threads/hooks/useThreadsReducer.ts src/features/threads/hooks/useThreadsReducer.test.ts src/features/threads/hooks/useThreadsReducer.history-restore.test.ts src/features/layout/hooks/useLayoutNodes.tsx src/features/layout/hooks/useLayoutNodes.client-ui-visibility.test.tsx src/features/messages/components/Messages.tsx src/features/messages/components/Messages.live-behavior.test.tsx src/features/threads/hooks/threadReducerOptimisticItemMerge.ts src/features/threads/hooks/useThreadTurnEvents.ts src/features/threads/hooks/useThreads.ts src/app-shell.tsx src/app-shell-parts/useAppShellLayoutNodesSection.tsx
+- npm run check:large-files:near-threshold
+- npm run check:large-files:gate
+
+后续事项:
+- 建议继续人工回归 Codex 自动 compaction、手动 compaction、多轮快速 follow-up 三条真实交互链路。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d938e025` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
