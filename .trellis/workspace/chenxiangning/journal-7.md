@@ -975,3 +975,63 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 222: Codex 默认隐藏 streaming/thinking 开关
+
+**Date**: 2026-04-29
+**Task**: Codex 默认隐藏 streaming/thinking 开关
+**Branch**: `feature/v0.4.11`
+
+### Summary
+
+(Add summary)
+
+### Main Changes
+
+任务目标:
+- 让 Codex 对话配置菜单中的“流式传输 / 思考”默认开启并从菜单中隐藏。
+- 同步补齐对应 OpenSpec change artifacts，确保代码与规范一致。
+
+主要改动:
+- 在 ConfigSelect 中将 streaming/thinking 两个菜单项限制为非 Codex provider 才渲染。
+- 在 ChatInputBoxAdapter 中为 Codex 收口 effective defaults，强制 streamingEnabled 和 alwaysThinkingEnabled 为 true。
+- 阻断 Codex 路径继续依赖本地 streaming localStorage 和 Claude always-thinking fallback。
+- 新建 openspec/changes/hide-codex-streaming-thinking-config-toggles，并补齐 proposal/design/specs/tasks。
+- 补充 ConfigSelect 与 ChatInputBoxAdapter 的回归测试。
+
+涉及模块:
+- src/features/composer/components/ChatInputBox/selectors/ConfigSelect.tsx
+- src/features/composer/components/ChatInputBox/ChatInputBoxAdapter.tsx
+- src/features/composer/components/ChatInputBox/selectors/ConfigSelect.test.tsx
+- src/features/composer/components/ChatInputBox/ChatInputBoxAdapter.test.tsx
+- openspec/changes/hide-codex-streaming-thinking-config-toggles/**
+
+验证结果:
+- pnpm vitest run src/features/composer/components/ChatInputBox/selectors/ConfigSelect.test.tsx src/features/composer/components/ChatInputBox/ChatInputBoxAdapter.test.tsx 通过（43 tests）
+- pnpm typecheck 通过
+- pnpm lint 通过
+- openspec validate "hide-codex-streaming-thinking-config-toggles" --type change --strict 通过
+
+后续事项:
+- 仍需人工 smoke：真实 app 中确认 Codex 菜单不显示两项，Claude 菜单仍保留两项。
+- 若人工验证通过，可继续走 verify/archive。
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e860cdc3e0298963f25091c27c46e8bb55b2f86d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

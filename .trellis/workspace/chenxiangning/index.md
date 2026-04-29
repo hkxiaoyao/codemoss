@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-7.md`
-- **Total Sessions**: 221
+- **Total Sessions**: 222
 - **Last Active**: 2026-04-29
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-7.md` | ~977 | Active |
+| `journal-7.md` | ~1037 | Active |
 | `journal-6.md` | ~1961 | Archived |
 | `journal-5.md` | ~1949 | Archived |
 | `journal-4.md` | ~1975 | Archived |
@@ -35,6 +35,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 222 | 2026-04-29 | Codex 默认隐藏 streaming/thinking 开关 | `e860cdc3e0298963f25091c27c46e8bb55b2f86d` | `feature/v0.4.11` |
 | 221 | 2026-04-29 | 拆分提交邮件提醒与自动压缩改动 | `f8f74f23`, `bd140a77`, `a16aa802`, `b3ec7ec2` | `feature/v0.4.11` |
 | 220 | 2026-04-29 | 收敛 Codex 会话保活与历史展示 | `69131442` | `feature/v0.4.11` |
 | 219 | 2026-04-29 | 添加邮件发送设置与测试发送 | `3c65a668` | `feature/v0.4.11` |
