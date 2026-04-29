@@ -121,6 +121,8 @@ type ComposerProps = {
   onOpenAgentSettings?: () => void;
   onOpenPromptSettings?: () => void;
   onOpenModelSettings?: (providerId?: string) => void;
+  onRefreshModelConfig?: (providerId?: string) => Promise<void> | void;
+  isModelConfigRefreshing?: boolean;
   opencodeVariantOptions?: string[];
   selectedOpenCodeVariant?: string | null;
   onSelectOpenCodeVariant?: (variant: string | null) => void;
@@ -138,6 +140,12 @@ type ComposerProps = {
   contextUsage?: ThreadTokenUsage | null;
   contextDualViewEnabled?: boolean;
   isContextCompacting?: boolean;
+  codexAutoCompactionEnabled?: boolean;
+  codexAutoCompactionThresholdPercent?: number;
+  onCodexAutoCompactionSettingsChange?: (patch: {
+    enabled?: boolean;
+    thresholdPercent?: number;
+  }) => Promise<void> | void;
   accountRateLimits?: RateLimitSnapshot | null;
   usageShowRemaining?: boolean;
   onRefreshAccountRateLimits?: () => Promise<void> | void;
@@ -232,6 +240,9 @@ type ComposerProps = {
   showStatusPanelToggleOverride?: boolean;
   statusPanelExpandedOverride?: boolean;
   onToggleStatusPanelOverride?: () => void;
+  completionEmailSelected?: boolean;
+  completionEmailDisabled?: boolean;
+  onToggleCompletionEmail?: () => void;
 };
 
 type ManualMemorySelection = {
@@ -1087,6 +1098,8 @@ export const Composer = memo(function Composer({
   onOpenAgentSettings,
   onOpenPromptSettings,
   onOpenModelSettings,
+  onRefreshModelConfig,
+  isModelConfigRefreshing,
   opencodeVariantOptions: _opencodeVariantOptions = [],
   selectedOpenCodeVariant: _selectedOpenCodeVariant = null,
   onSelectOpenCodeVariant: _onSelectOpenCodeVariant,
@@ -1102,6 +1115,9 @@ export const Composer = memo(function Composer({
   contextUsage = null,
   contextDualViewEnabled = false,
   isContextCompacting = false,
+  codexAutoCompactionEnabled = true,
+  codexAutoCompactionThresholdPercent = 92,
+  onCodexAutoCompactionSettingsChange,
   accountRateLimits = null,
   usageShowRemaining = false,
   onRefreshAccountRateLimits,
@@ -1179,6 +1195,9 @@ export const Composer = memo(function Composer({
   showStatusPanelToggleOverride,
   statusPanelExpandedOverride,
   onToggleStatusPanelOverride,
+  completionEmailSelected,
+  completionEmailDisabled,
+  onToggleCompletionEmail,
 }: ComposerProps) {
   const { t } = useTranslation();
   const isCodexEngine = selectedEngine === "codex";
@@ -2206,6 +2225,9 @@ export const Composer = memo(function Composer({
               contextDualViewEnabled={codexContextDualViewEnabled}
               dualContextUsage={resolvedDualContextUsage}
               onRequestContextCompaction={handleManualCompactContext}
+              codexAutoCompactionEnabled={codexAutoCompactionEnabled}
+              codexAutoCompactionThresholdPercent={codexAutoCompactionThresholdPercent}
+              onCodexAutoCompactionSettingsChange={onCodexAutoCompactionSettingsChange}
               queuedMessages={queuedMessages}
               onDeleteQueued={onDeleteQueued}
               onFuseQueued={onFuseQueued}
@@ -2244,6 +2266,8 @@ export const Composer = memo(function Composer({
               onOpenAgentSettings={onOpenAgentSettings}
               onOpenPromptSettings={onOpenPromptSettings}
               onOpenModelSettings={onOpenModelSettings}
+              onRefreshModelConfig={onRefreshModelConfig}
+              isModelConfigRefreshing={isModelConfigRefreshing}
               permissionMode={accessModeToPermissionMode(accessMode)}
               onModeSelect={handleModeSelect}
               selectedCollaborationModeId={_selectedCollaborationModeId}
@@ -2258,6 +2282,9 @@ export const Composer = memo(function Composer({
               statusPanelExpanded={resolvedStatusPanelExpanded}
               showStatusPanelToggle={resolvedShowStatusPanelToggle}
               onToggleStatusPanel={resolvedToggleStatusPanel}
+              completionEmailSelected={completionEmailSelected}
+              completionEmailDisabled={completionEmailDisabled}
+              onToggleCompletionEmail={onToggleCompletionEmail}
             />
           </>
         )}

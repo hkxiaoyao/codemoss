@@ -42,15 +42,16 @@
   - 使用 repo root 作为 Rust package source，并通过 `cargoRoot = "src-tauri"` 指定 Rust crate 根目录；
   - 修正 Nix build 下 Tauri `frontendDist` 的相对路径；
   - 增加 Linux/Tauri 构建所需 native build inputs，并保持 Linux-only scoping；
-  - 按 Nix build 证据决定是否需要 `npmDepsFetcherVersion = 2`、`npmFlags = [ "--legacy-peer-deps" ]`、`LIBCLANG_PATH` 等构建环境补充；
+  - 使用 `npmDepsHash` + `npmDepsFetcherVersion = 2` 固定 npm dependency closure，避开当前 `package-lock.json` 缺少大量 `resolved` 字段导致的 `importNpmLock` evaluation failure；
+  - 按 Nix build 证据决定是否需要 `npmFlags = [ "--legacy-peer-deps" ]`、`LIBCLANG_PATH` 等构建环境补充；
   - 设置 `meta.mainProgram = "cc-gui"`，保证 `nix run .#` 可解析默认 binary；
-  - 更新 `npmDepsHash`，使 Nix npm dependency fetch 与 lockfile 对齐。
+  - 保留手写 `npmDepsHash`，仅在 npm dependency closure 变化时按 Nix fixed-output mismatch 刷新。
 - 调整 npm manifest：
   - 补齐 `antd` direct dependency；
   - 补齐 `remark-breaks` direct dependency；
   - 审查 `@lobehub/icons` peer dependencies，仅在构建确实要求时补充相关 direct dependency。
 - 审查 `package-lock.json`：
-  - lockfile diff 必须可解释为 direct dependency declaration、peer dependency 补齐或 Nix dependency hash 必需更新；
+  - lockfile diff 必须可解释为 direct dependency declaration、peer dependency 补齐或 Nix/npm dependency closure 所需的 reproducibility 信息；
   - 允许 Nix/npm 可复现构建所需的 lockfile v3、`resolved`、`integrity` normalization；
   - 禁止接受无关 dependency version upgrade、无关 dependency promotion 或不可解释的 transitive churn。
 - 增加验证约束：

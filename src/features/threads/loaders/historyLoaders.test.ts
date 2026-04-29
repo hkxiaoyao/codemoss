@@ -88,6 +88,175 @@ describe("history loaders", () => {
     ]);
   });
 
+  it("loads passive Codex local history without resuming runtime when local items exist", async () => {
+    const resumeThread = vi.fn().mockResolvedValue({
+      result: {
+        thread: {
+          turns: [],
+        },
+      },
+    });
+    const loader = createCodexHistoryLoader({
+      workspaceId: "ws-local-codex",
+      resumeThread,
+      preferLocalHistory: true,
+      loadCodexSession: vi.fn().mockResolvedValue({
+        entries: [
+          {
+            type: "response_item",
+            timestamp: "2026-04-28T10:00:00.000Z",
+            payload: {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "local history prompt" }],
+            },
+          },
+          {
+            type: "response_item",
+            timestamp: "2026-04-28T10:00:01.000Z",
+            payload: {
+              type: "message",
+              role: "assistant",
+              content: [{ type: "output_text", text: "local history answer" }],
+            },
+          },
+        ],
+      }),
+    });
+
+    const snapshot = await loader.load("thread-local-history");
+
+    expect(resumeThread).not.toHaveBeenCalled();
+    expect(snapshot.items).toEqual([
+      expect.objectContaining({
+        kind: "message",
+        role: "user",
+        text: "local history prompt",
+      }),
+      expect.objectContaining({
+        kind: "message",
+        role: "assistant",
+        text: "local history answer",
+      }),
+    ]);
+  });
+
+  it("does not retry a failed Codex local history fallback in the same load", async () => {
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const loadCodexSession = vi.fn().mockRejectedValue(new Error("local history unavailable"));
+    const resumeThread = vi.fn().mockResolvedValue({
+      result: {
+        thread: {
+          turns: [],
+        },
+      },
+    });
+    const loader = createCodexHistoryLoader({
+      workspaceId: "ws-local-codex",
+      resumeThread,
+      preferLocalHistory: true,
+      loadCodexSession,
+    });
+
+    try {
+      await loader.load("thread-local-history");
+      expect(loadCodexSession).toHaveBeenCalledTimes(1);
+      expect(consoleWarn).toHaveBeenCalledTimes(1);
+      expect(resumeThread).toHaveBeenCalledWith("ws-local-codex", "thread-local-history");
+    } finally {
+      consoleWarn.mockRestore();
+    }
+  });
+
+  it("parses Codex response_item message string content", () => {
+    const items = parseCodexSessionHistory({
+      entries: [
+        {
+          type: "response_item",
+          timestamp: "2026-04-28T10:00:00.000Z",
+          payload: {
+            type: "message",
+            role: "user",
+            content: "string content prompt",
+          },
+        },
+        {
+          type: "response_item",
+          timestamp: "2026-04-28T10:00:01.000Z",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: "string content answer",
+          },
+        },
+      ],
+    });
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        kind: "message",
+        role: "user",
+        text: "string content prompt",
+      }),
+      expect.objectContaining({
+        kind: "message",
+        role: "assistant",
+        text: "string content answer",
+      }),
+    ]);
+  });
+
+  it("prefers Codex event_msg user messages over response_item user mirrors", () => {
+    const items = parseCodexSessionHistory({
+      entries: [
+        {
+          type: "response_item",
+          timestamp: "2026-04-28T10:00:00.000Z",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: "response_item injected wrapper",
+              },
+            ],
+          },
+        },
+        {
+          type: "event_msg",
+          timestamp: "2026-04-28T10:00:01.000Z",
+          payload: {
+            type: "user_message",
+            message: "真实用户请求",
+          },
+        },
+        {
+          type: "response_item",
+          timestamp: "2026-04-28T10:00:02.000Z",
+          payload: {
+            type: "message",
+            role: "assistant",
+            content: [{ type: "output_text", text: "真实回复" }],
+          },
+        },
+      ],
+    });
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        kind: "message",
+        role: "user",
+        text: "真实用户请求",
+      }),
+      expect.objectContaining({
+        kind: "message",
+        role: "assistant",
+        text: "真实回复",
+      }),
+    ]);
+  });
+
   it("hydrates codex final completion time and duration from turn item timestamps", async () => {
     const startedAt = "2026-04-01T08:00:00.000Z";
     const completedAt = "2026-04-01T08:00:07.000Z";

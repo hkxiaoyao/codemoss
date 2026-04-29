@@ -171,10 +171,11 @@ describe("useAppServerEvents", () => {
       "ws-runtime-ended",
       "shared-thread-1",
       "turn-77",
-      {
+      expect.objectContaining({
         message: "[RUNTIME_ENDED] Managed runtime process exited unexpectedly.",
         willRetry: false,
-      },
+        engine: "codex",
+      }),
     );
 
     await act(async () => {
@@ -418,6 +419,7 @@ describe("useAppServerEvents", () => {
       threadId: "claude:session-1",
       itemId: "item-1",
       delta: "chunk-from-text-field",
+      turnId: "turn-1",
     });
 
     await act(async () => {
@@ -490,6 +492,129 @@ describe("useAppServerEvents", () => {
       "thinking...",
     );
 
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("passes turnId through legacy agent message delta events", async () => {
+    const handlers: Handlers = {
+      onAgentMessageDelta: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-codex",
+        message: {
+          method: "item/agentMessage/delta",
+          params: {
+            threadId: "thread-codex-legacy-delta",
+            turnId: "turn-codex-legacy-delta",
+            itemId: "assistant-delta-1",
+            delta: "legacy delta",
+          },
+        },
+      });
+    });
+
+    expect(handlers.onAgentMessageDelta).toHaveBeenCalledWith({
+      workspaceId: "ws-codex",
+      threadId: "thread-codex-legacy-delta",
+      itemId: "assistant-delta-1",
+      delta: "legacy delta",
+      turnId: "turn-codex-legacy-delta",
+    });
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("hydrates turnId into legacy raw item events", async () => {
+    const handlers: Handlers = {
+      onItemUpdated: vi.fn(),
+    };
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-codex",
+        message: {
+          method: "item/updated",
+          params: {
+            threadId: "thread-codex-legacy-item",
+            turnId: "turn-codex-legacy-item",
+            item: {
+              id: "cmd-legacy-item",
+              type: "commandExecution",
+              status: "running",
+            },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onItemUpdated).toHaveBeenCalledWith(
+      "ws-codex",
+      "thread-codex-legacy-item",
+      expect.objectContaining({
+        id: "cmd-legacy-item",
+        type: "commandExecution",
+        turnId: "turn-codex-legacy-item",
+      }),
+    );
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("preserves shared-session engine source on legacy raw item events", async () => {
+    const handlers: Handlers = {
+      onItemUpdated: vi.fn(),
+    };
+    registerSharedSessionNativeBinding({
+      workspaceId: "ws-shared-claude-legacy-item",
+      sharedThreadId: "shared:thread-claude-legacy-item",
+      nativeThreadId: "claude:legacy-native-item",
+      engine: "claude",
+    });
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-shared-claude-legacy-item",
+        message: {
+          method: "item/updated",
+          params: {
+            threadId: "claude:legacy-native-item",
+            turnId: "turn-shared-claude-legacy-item",
+            item: {
+              id: "tool-shared-claude",
+              type: "commandExecution",
+              status: "running",
+            },
+          },
+        },
+      });
+    });
+
+    expect(handlers.onItemUpdated).toHaveBeenCalledWith(
+      "ws-shared-claude-legacy-item",
+      "shared:thread-claude-legacy-item",
+      expect.objectContaining({
+        id: "tool-shared-claude",
+        type: "commandExecution",
+        turnId: "turn-shared-claude-legacy-item",
+        engineSource: "claude",
+      }),
+    );
+
+    clearSharedSessionBindingsForSharedThread(
+      "ws-shared-claude-legacy-item",
+      "shared:thread-claude-legacy-item",
+    );
     await act(async () => {
       root.unmount();
     });
@@ -832,6 +957,55 @@ describe("useAppServerEvents", () => {
     );
 
     clearSharedSessionBindingsForSharedThread("ws-shared-codex", "shared:thread-codex");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("passes shared-session engine hint on stalled turns", async () => {
+    const handlers: Handlers = {
+      onTurnStalled: vi.fn(),
+    };
+    registerSharedSessionNativeBinding({
+      workspaceId: "ws-shared-claude-stalled",
+      sharedThreadId: "shared:thread-claude-stalled",
+      nativeThreadId: "claude:stalled-native-1",
+      engine: "claude",
+    });
+    const { root } = await mount(handlers);
+
+    act(() => {
+      listener?.({
+        workspace_id: "ws-shared-claude-stalled",
+        message: {
+          method: "turn/stalled",
+          params: {
+            threadId: "claude:stalled-native-1",
+            turnId: "turn-shared-claude-stalled",
+            message: "resume stalled",
+            reasonCode: "resume_pending_timeout",
+            stage: "stalled",
+            source: "turn/stalled",
+          },
+        },
+      });
+    });
+
+    expect(handlers.onTurnStalled).toHaveBeenCalledWith(
+      "ws-shared-claude-stalled",
+      "shared:thread-claude-stalled",
+      "turn-shared-claude-stalled",
+      expect.objectContaining({
+        message: "resume stalled",
+        reasonCode: "resume_pending_timeout",
+        engine: "claude",
+      }),
+    );
+
+    clearSharedSessionBindingsForSharedThread(
+      "ws-shared-claude-stalled",
+      "shared:thread-claude-stalled",
+    );
     await act(async () => {
       root.unmount();
     });
@@ -2656,6 +2830,7 @@ describe("useAppServerEvents", () => {
       threadId: "claude:session-98",
       itemId: "claude:session-98:text-delta",
       delta: "streaming text",
+      turnId: "turn-98",
     });
 
     await act(async () => {
@@ -2818,104 +2993,4 @@ describe("useAppServerEvents", () => {
     });
   });
 
-  it("keeps token_count last usage as zero when only total snapshot exists", async () => {
-    const handlers: Handlers = {
-      onThreadTokenUsageUpdated: vi.fn(),
-      getActiveCodexThreadId: vi.fn(() => "thread-codex-2"),
-    };
-    const { root } = await mount(handlers);
-
-    act(() => {
-      listener?.({
-        workspace_id: "ws-1",
-        message: {
-          method: "token_count",
-          params: {
-            info: {
-              total_token_usage: {
-                input_tokens: 120000,
-                cached_input_tokens: 10000,
-                model_context_window: 200000,
-              },
-            },
-          },
-        },
-      });
-    });
-
-    expect(handlers.onThreadTokenUsageUpdated).toHaveBeenCalledWith(
-      "ws-1",
-      "thread-codex-2",
-      {
-        total: {
-          inputTokens: 120000,
-          outputTokens: 0,
-          cachedInputTokens: 10000,
-          totalTokens: 120000,
-        },
-        last: {
-          inputTokens: 0,
-          outputTokens: 0,
-          cachedInputTokens: 0,
-          totalTokens: 0,
-        },
-        modelContextWindow: 200000,
-      },
-    );
-
-    await act(async () => {
-      root.unmount();
-    });
-  });
-
-  it("emits item/completed token usage updates when cached tokens are present", async () => {
-    const handlers: Handlers = {
-      onThreadTokenUsageUpdated: vi.fn(),
-      onItemCompleted: vi.fn(),
-    };
-    const { root } = await mount(handlers);
-
-    act(() => {
-      listener?.({
-        workspace_id: "ws-1",
-        message: {
-          method: "item/completed",
-          params: {
-            threadId: "thread-1",
-            item: { id: "tool-1", type: "command", status: "completed" },
-            usage: {
-              input_tokens: 0,
-              output_tokens: 0,
-              cached_input_tokens: 12,
-              model_context_window: 200000,
-            },
-          },
-        },
-      });
-    });
-
-    expect(handlers.onThreadTokenUsageUpdated).toHaveBeenCalledWith(
-      "ws-1",
-      "thread-1",
-      {
-        total: {
-          inputTokens: 0,
-          outputTokens: 0,
-          cachedInputTokens: 12,
-          totalTokens: 0,
-        },
-        last: {
-          inputTokens: 0,
-          outputTokens: 0,
-          cachedInputTokens: 12,
-          totalTokens: 0,
-        },
-        modelContextWindow: 200000,
-      },
-    );
-
-    await act(async () => {
-      root.unmount();
-    });
-  });
 });

@@ -28,6 +28,9 @@ function normalizeWorkspaceSettings(value: unknown): WorkspaceSettings | null {
   if (typeof value.groupId === "string" || value.groupId === null) {
     settings.groupId = value.groupId;
   }
+  if (typeof value.projectAlias === "string" || value.projectAlias === null) {
+    settings.projectAlias = value.projectAlias;
+  }
   if (typeof value.gitRoot === "string" || value.gitRoot === null) {
     settings.gitRoot = value.gitRoot;
   }

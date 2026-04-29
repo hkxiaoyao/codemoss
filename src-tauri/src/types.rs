@@ -561,6 +561,8 @@ pub(crate) struct WorkspaceSettings {
     pub(crate) sort_order: Option<u32>,
     #[serde(default, rename = "groupId")]
     pub(crate) group_id: Option<String>,
+    #[serde(default, rename = "projectAlias")]
+    pub(crate) project_alias: Option<String>,
     #[serde(default, rename = "gitRoot")]
     pub(crate) git_root: Option<String>,
     #[serde(default, rename = "codexHome")]
@@ -633,6 +635,84 @@ pub(crate) struct CodexUnifiedExecExternalStatus {
     pub(crate) has_explicit_unified_exec: bool,
     pub(crate) explicit_unified_exec_value: Option<bool>,
     pub(crate) official_default_enabled: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EmailSenderProvider {
+    #[serde(rename = "126")]
+    Mail126,
+    #[serde(rename = "163")]
+    Mail163,
+    Qq,
+    Custom,
+}
+
+impl Default for EmailSenderProvider {
+    fn default() -> Self {
+        Self::Custom
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EmailSenderSecurity {
+    SslTls,
+    StartTls,
+    None,
+}
+
+impl Default for EmailSenderSecurity {
+    fn default() -> Self {
+        Self::SslTls
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EmailSenderSettings {
+    #[serde(default)]
+    pub(crate) enabled: bool,
+    #[serde(default)]
+    pub(crate) provider: EmailSenderProvider,
+    #[serde(default, rename = "senderEmail")]
+    pub(crate) sender_email: String,
+    #[serde(default, rename = "senderName")]
+    pub(crate) sender_name: String,
+    #[serde(default, rename = "smtpHost")]
+    pub(crate) smtp_host: String,
+    #[serde(default = "default_email_sender_smtp_port", rename = "smtpPort")]
+    pub(crate) smtp_port: u16,
+    #[serde(default)]
+    pub(crate) security: EmailSenderSecurity,
+    #[serde(default)]
+    pub(crate) username: String,
+    #[serde(default, rename = "recipientEmail")]
+    pub(crate) recipient_email: String,
+}
+
+impl Default for EmailSenderSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: EmailSenderProvider::Custom,
+            sender_email: String::new(),
+            sender_name: String::new(),
+            smtp_host: String::new(),
+            smtp_port: default_email_sender_smtp_port(),
+            security: EmailSenderSecurity::SslTls,
+            username: String::new(),
+            recipient_email: String::new(),
+        }
+    }
+}
+
+fn default_email_sender_settings() -> EmailSenderSettings {
+    EmailSenderSettings::default()
+}
+
+fn default_email_sender_smtp_port() -> u16 {
+    465
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -749,6 +829,21 @@ pub(crate) struct AppSettings {
     pub(crate) ui_scale: f64,
     #[serde(default = "default_theme", rename = "theme")]
     pub(crate) theme: String,
+    #[serde(
+        default = "default_light_theme_preset_id",
+        rename = "lightThemePresetId"
+    )]
+    pub(crate) light_theme_preset_id: String,
+    #[serde(
+        default = "default_dark_theme_preset_id",
+        rename = "darkThemePresetId"
+    )]
+    pub(crate) dark_theme_preset_id: String,
+    #[serde(
+        default = "default_custom_theme_preset_id",
+        rename = "customThemePresetId"
+    )]
+    pub(crate) custom_theme_preset_id: String,
     #[serde(default = "default_user_msg_color", rename = "userMsgColor")]
     pub(crate) user_msg_color: String,
     #[serde(
@@ -791,6 +886,8 @@ pub(crate) struct AppSettings {
         rename = "systemNotificationEnabled"
     )]
     pub(crate) system_notification_enabled: bool,
+    #[serde(default = "default_email_sender_settings", rename = "emailSender")]
+    pub(crate) email_sender: EmailSenderSettings,
     #[serde(default = "default_preload_git_diffs", rename = "preloadGitDiffs")]
     pub(crate) preload_git_diffs: bool,
     #[serde(
@@ -936,6 +1033,16 @@ pub(crate) struct AppSettings {
         rename = "codexWarmTtlSeconds"
     )]
     pub(crate) codex_warm_ttl_seconds: u16,
+    #[serde(
+        default = "default_codex_auto_compaction_threshold_percent",
+        rename = "codexAutoCompactionThresholdPercent"
+    )]
+    pub(crate) codex_auto_compaction_threshold_percent: u16,
+    #[serde(
+        default = "default_codex_auto_compaction_enabled",
+        rename = "codexAutoCompactionEnabled"
+    )]
+    pub(crate) codex_auto_compaction_enabled: bool,
     /// Default engine type: "claude", "codex", or "opencode". If not set, auto-detect.
     #[serde(default, rename = "defaultEngine")]
     pub(crate) default_engine: Option<String>,
@@ -972,6 +1079,18 @@ fn default_ui_scale() -> f64 {
 
 fn default_theme() -> String {
     "system".to_string()
+}
+
+fn default_light_theme_preset_id() -> String {
+    "vscode-light-modern".to_string()
+}
+
+fn default_dark_theme_preset_id() -> String {
+    "vscode-dark-modern".to_string()
+}
+
+fn default_custom_theme_preset_id() -> String {
+    "vscode-dark-modern".to_string()
 }
 
 fn default_user_msg_color() -> String {
@@ -1277,6 +1396,18 @@ fn default_codex_warm_ttl_seconds() -> u16 {
     7200
 }
 
+fn default_codex_auto_compaction_threshold_percent() -> u16 {
+    92
+}
+
+fn default_codex_auto_compaction_enabled() -> bool {
+    true
+}
+
+fn is_allowed_codex_auto_compaction_threshold_percent(value: u16) -> bool {
+    value == 92 || ((100..=200).contains(&value) && value % 10 == 0)
+}
+
 impl AppSettings {
     pub(crate) fn normalize_unified_exec_policy(&mut self) {
         self.codex_unified_exec_policy = CodexUnifiedExecPolicy::Inherit;
@@ -1291,6 +1422,12 @@ impl AppSettings {
         self.codex_max_hot_runtimes = self.codex_max_hot_runtimes.clamp(0, 8);
         self.codex_max_warm_runtimes = self.codex_max_warm_runtimes.clamp(0, 16);
         self.codex_warm_ttl_seconds = self.codex_warm_ttl_seconds.clamp(15, 14400);
+        if !is_allowed_codex_auto_compaction_threshold_percent(
+            self.codex_auto_compaction_threshold_percent,
+        ) {
+            self.codex_auto_compaction_threshold_percent =
+                default_codex_auto_compaction_threshold_percent();
+        }
     }
 
     pub(crate) fn upgrade_runtime_pool_settings_for_startup(&mut self) {
@@ -1337,6 +1474,9 @@ impl Default for AppSettings {
             last_composer_reasoning_effort: None,
             ui_scale: 1.0,
             theme: default_theme(),
+            light_theme_preset_id: default_light_theme_preset_id(),
+            dark_theme_preset_id: default_dark_theme_preset_id(),
+            custom_theme_preset_id: default_custom_theme_preset_id(),
             user_msg_color: default_user_msg_color(),
             usage_show_remaining: default_usage_show_remaining(),
             show_message_anchors: default_show_message_anchors(),
@@ -1349,6 +1489,7 @@ impl Default for AppSettings {
             notification_sound_id: default_notification_sound_id(),
             notification_sound_custom_path: default_notification_sound_custom_path(),
             system_notification_enabled: true,
+            email_sender: EmailSenderSettings::default(),
             preload_git_diffs: default_preload_git_diffs(),
             detached_external_change_awareness_enabled:
                 default_detached_external_change_awareness_enabled(),
@@ -1389,6 +1530,9 @@ impl Default for AppSettings {
             codex_max_hot_runtimes: default_codex_max_hot_runtimes(),
             codex_max_warm_runtimes: default_codex_max_warm_runtimes(),
             codex_warm_ttl_seconds: default_codex_warm_ttl_seconds(),
+            codex_auto_compaction_threshold_percent:
+                default_codex_auto_compaction_threshold_percent(),
+            codex_auto_compaction_enabled: default_codex_auto_compaction_enabled(),
         }
     }
 }
@@ -1449,7 +1593,8 @@ pub(crate) struct CodexProviderConfig {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppSettings, BackendMode, WorkspaceEntry, WorkspaceGroup, WorkspaceKind, WorkspaceSettings,
+        AppSettings, BackendMode, EmailSenderProvider, EmailSenderSecurity, WorkspaceEntry,
+        WorkspaceGroup, WorkspaceKind, WorkspaceSettings,
     };
 
     #[test]
@@ -1524,6 +1669,9 @@ mod tests {
         assert!(settings.last_composer_reasoning_effort.is_none());
         assert!((settings.ui_scale - 1.0).abs() < f64::EPSILON);
         assert_eq!(settings.theme, "system");
+        assert_eq!(settings.light_theme_preset_id, "vscode-light-modern");
+        assert_eq!(settings.dark_theme_preset_id, "vscode-dark-modern");
+        assert_eq!(settings.custom_theme_preset_id, "vscode-dark-modern");
         assert!(settings.user_msg_color.is_empty());
         assert!(!settings.usage_show_remaining);
         assert!(settings.show_message_anchors);
@@ -1536,6 +1684,15 @@ mod tests {
         assert_eq!(settings.notification_sound_id, "default");
         assert!(settings.notification_sound_custom_path.is_empty());
         assert!(settings.system_notification_enabled);
+        assert!(!settings.email_sender.enabled);
+        assert_eq!(settings.email_sender.provider, EmailSenderProvider::Custom);
+        assert!(settings.email_sender.sender_email.is_empty());
+        assert!(settings.email_sender.sender_name.is_empty());
+        assert!(settings.email_sender.smtp_host.is_empty());
+        assert_eq!(settings.email_sender.smtp_port, 465);
+        assert_eq!(settings.email_sender.security, EmailSenderSecurity::SslTls);
+        assert!(settings.email_sender.username.is_empty());
+        assert!(settings.email_sender.recipient_email.is_empty());
         assert!(settings.preload_git_diffs);
         assert!(settings.detached_external_change_awareness_enabled);
         assert!(settings.detached_external_change_watcher_enabled);
@@ -1562,6 +1719,7 @@ mod tests {
         assert_eq!(settings.selected_open_app_id, "vscode");
         assert_eq!(settings.open_app_targets.len(), 6);
         assert_eq!(settings.open_app_targets[0].id, "vscode");
+        assert!(settings.codex_auto_compaction_enabled);
     }
 
     #[test]
@@ -1597,12 +1755,26 @@ mod tests {
         settings.codex_max_hot_runtimes = 200;
         settings.codex_max_warm_runtimes = 99;
         settings.codex_warm_ttl_seconds = 20_000;
+        settings.codex_auto_compaction_threshold_percent = 93;
 
         settings.sanitize_runtime_pool_settings();
 
         assert_eq!(settings.codex_max_hot_runtimes, 8);
         assert_eq!(settings.codex_max_warm_runtimes, 16);
         assert_eq!(settings.codex_warm_ttl_seconds, 14_400);
+        assert_eq!(settings.codex_auto_compaction_threshold_percent, 92);
+    }
+
+    #[test]
+    fn app_settings_sanitize_runtime_pool_settings_keeps_allowed_compaction_thresholds() {
+        for threshold in [92, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200] {
+            let mut settings = AppSettings::default();
+            settings.codex_auto_compaction_threshold_percent = threshold;
+
+            settings.sanitize_runtime_pool_settings();
+
+            assert_eq!(settings.codex_auto_compaction_threshold_percent, threshold);
+        }
     }
 
     #[test]

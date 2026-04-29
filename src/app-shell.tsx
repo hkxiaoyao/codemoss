@@ -26,6 +26,7 @@ import { usePullRequestComposer } from "./features/git/hooks/usePullRequestCompo
 import { useGitActions } from "./features/git/hooks/useGitActions";
 import { useAutoExitEmptyDiff } from "./features/git/hooks/useAutoExitEmptyDiff";
 import { useModels } from "./features/models/hooks/useModels";
+import { refreshCodexModelConfig } from "./features/models/refreshCodexModelConfig";
 import { useCollaborationModes } from "./features/collaboration/hooks/useCollaborationModes";
 import { useCollaborationModeSelection } from "./features/collaboration/hooks/useCollaborationModeSelection";
 import { useSkills } from "./features/skills/hooks/useSkills";
@@ -171,6 +172,18 @@ import type { SubagentInfo } from "./features/status-panel/types";
 
 const EMPTY_OPEN_APP_ICON_MAP: Record<string, string> = {};
 const DEFAULT_CLAUDE_MODEL_ID = "claude-sonnet-4-6";
+const resolveModelConfigEngine = (
+  providerId: string | undefined,
+  fallbackEngine: EngineType,
+): EngineType | null => {
+  if (providerId === "claude" || providerId === "codex" || providerId === "gemini") {
+    return providerId;
+  }
+  if (fallbackEngine === "claude" || fallbackEngine === "codex" || fallbackEngine === "gemini") {
+    return fallbackEngine;
+  }
+  return null;
+};
 
 export function AppShell() {
   const { t } = useTranslation();
@@ -544,7 +557,8 @@ export function AppShell() {
     reasoningSupported,
     reasoningOptions,
     selectedEffort,
-    setSelectedEffort
+    setSelectedEffort,
+    refreshModels,
   } = useModels({
     activeWorkspace,
     onDebug: addDebugEntry,
@@ -592,6 +606,61 @@ export function AppShell() {
     refreshEngineModels,
     refreshEngines,
   } = useEngineController({ activeWorkspace, onDebug: addDebugEntry });
+  const [modelConfigRefreshingByEngine, setModelConfigRefreshingByEngine] =
+    useState<Partial<Record<EngineType, boolean>>>({});
+  const modelConfigRefreshInFlightRef =
+    useRef<Partial<Record<EngineType, boolean>>>({});
+  const handleRefreshModelConfig = useCallback(
+    async (providerId?: string) => {
+      const targetEngine = resolveModelConfigEngine(providerId, activeEngine);
+      if (!targetEngine || modelConfigRefreshInFlightRef.current[targetEngine]) {
+        return;
+      }
+      modelConfigRefreshInFlightRef.current = {
+        ...modelConfigRefreshInFlightRef.current,
+        [targetEngine]: true,
+      };
+      setModelConfigRefreshingByEngine((current) => ({
+        ...current,
+        [targetEngine]: true,
+      }));
+      addDebugEntry({
+        id: `${Date.now()}-model-config-refresh-start`,
+        timestamp: Date.now(),
+        source: "client",
+        label: "model/config refresh start",
+        payload: { engine: targetEngine },
+      });
+      try {
+        if (targetEngine === "codex") {
+          await refreshCodexModelConfig({ refreshModels });
+        } else {
+          await refreshEngineModels(targetEngine, { forceRefresh: true });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        addDebugEntry({
+          id: `${Date.now()}-model-config-refresh-error`,
+          timestamp: Date.now(),
+          source: "error",
+          label: "model/config refresh error",
+          payload: { engine: targetEngine, error: message },
+        });
+        throw error;
+      } finally {
+        modelConfigRefreshInFlightRef.current = {
+          ...modelConfigRefreshInFlightRef.current,
+          [targetEngine]: false,
+        };
+        setModelConfigRefreshingByEngine((current) => ({
+          ...current,
+          [targetEngine]: false,
+        }));
+      }
+    },
+    [activeEngine, addDebugEntry, refreshEngineModels, refreshModels],
+  );
+  const isModelConfigRefreshing = Boolean(modelConfigRefreshingByEngine[activeEngine]);
   const {
     openCodeAgents,
     resolveOpenCodeAgentForThread,
@@ -951,6 +1020,7 @@ export function AppShell() {
     activeThreadId,
     activeItems,
     threadItemsByThread,
+    historyRestoredAtMsByThread,
     approvals,
     userInputRequests,
     threadsByWorkspace,
@@ -958,6 +1028,8 @@ export function AppShell() {
     threadStatusById,
     historyLoadingByThreadId,
     activeTurnIdByThread,
+    completionEmailIntentByThread,
+    toggleCompletionEmailIntent,
     threadListLoadingByWorkspace,
     threadListPagingByWorkspace,
     threadListCursorByWorkspace,
@@ -1990,6 +2062,7 @@ export function AppShell() {
     activeWorkspace,
     isCompact,
     activeEngine,
+    newAgentShortcut: appSettings.newAgentShortcut,
     setActiveEngine,
     addWorkspace,
     addWorkspaceFromPath,
@@ -2072,7 +2145,7 @@ export function AppShell() {
     clearDebugEntries, clearDictationError, clearDictationHint, clearDictationTranscript, clearDraftForThread, clearGitRootCandidates, clonePrompt, closePlanPanel,
     closeReleaseNotes, closeReviewPrompt, closeSettings, closeTerminalPanel, closeWorktreeCreateResult, codexComposerModeRef, collaborationModePayload, collaborationModes,
     collaborationModesEnabled, collaborationRuntimeModeByThread, collaborationUiModeByThread, collapseRightPanel, collapseSidebar, commands, commitError, commitLoading,
-    commitMessage, commitMessageError, commitMessageLoading, completionTrackerBySessionRef, completionTrackerReadyRef, composerEditorSettings, composerInputRef, composerInsert,
+    commitMessage, commitMessageError, commitMessageLoading, completionEmailIntentByThread, completionTrackerBySessionRef, completionTrackerReadyRef, composerEditorSettings, composerInputRef, composerInsert,
     confirmBranch, confirmClonePrompt, confirmCommit, confirmCustom, confirmRenameWorktreeUpstream, confirmWorktreePrompt, connectWorkspace, createBranch,
     createPrompt, createWorkspaceGroup, debugEntries, debugOpen, debugPanelHeight, deletePrompt, deleteThreadPrompt,
     deleteWorkspaceGroup, deletingWorktreeIds, dictationError, dictationHint, dictationLevel, dictationModel, dictationReady,
@@ -2092,7 +2165,7 @@ export function AppShell() {
     handleCloseFileTab, handleCollaborationModeResolved, handleCommit, handleCommitAndPush, handleCommitAndSync, handleCommitMessageChange, handleCopyDebug, handleCopyThread,
     handleCreateBranch, handleCreatePrompt, handleDebugClick, handleDeletePrompt, handleDeleteQueued, handleDeleteThreadPromptCancel, handleDeleteThreadPromptConfirm, handleDraftChange,
     handleDropWorkspacePaths, handleEditQueued, handleEnsureWorkspaceThreadsForSettings, handleExitEditor, handleGenerateCommitMessage, handleGitIssuesChange, handleGitPanelModeChange, handleGitPullRequestCommentsChange,
-    handleGitPullRequestDiffsChange, handleGitPullRequestsChange, handleInsertComposerText, handleLockPanel, handleMovePrompt, handleOpenDetachedFileExplorer, handleOpenFile, handleOpenModelSettings, handleOpenRenameWorktree,
+    handleGitPullRequestDiffsChange, handleGitPullRequestsChange, handleInsertComposerText, handleLockPanel, handleMovePrompt, handleOpenDetachedFileExplorer, handleOpenFile, handleOpenModelSettings, handleRefreshModelConfig, handleOpenRenameWorktree,
     handlePickGitRoot, handlePush, handleRenamePromptCancel, handleRenamePromptChange, handleRenamePromptConfirm, handleRenameThread,
     handleRenameWorktreeCancel, handleRenameWorktreeChange, handleRenameWorktreeConfirm, handleRevealGeneralPrompts, handleRevealWorkspacePrompts, handleRevertAllGitChanges, handleRevertGitFile,
     handleReviewPromptKeyDown, handleSelectAgent, handleSelectCommit, handleSelectDiff, handleSelectModel, handleSelectOpenAppId, handleSelectOpenCodeAgent, handleSelectOpenCodeVariant, handleSelectStatusPanelSubagent,
@@ -2100,7 +2173,7 @@ export function AppShell() {
     handleSync, handleTestNotificationSound, handleToggleDictation, handleToggleRuntimeConsole, handleToggleTerminal, handleToggleTerminalPanel, handleUnlockPanel, handleUnstageGitFile,
     handleUpdatePrompt, handleUserInputSubmit, handleUserInputSubmitWithPlanApply, handleExitPlanModeExecute, handleWorkspaceDragEnter, handleWorkspaceDragLeave, handleWorkspaceDragOver, handleWorkspaceDrop, handleWorktreeCreated,
     hasActivePlan, hasLoaded, hasPlanData, highlightedBranchIndex, highlightedCommitIndex, highlightedPresetIndex, historySearchItems, hydratedThreadListWorkspaceIdsRef,
-    availableEngines, installedEngines, interruptTurn, isCompact, isDeleteThreadPromptBusy, isEditorFileMaximized, isFilesLoading, isLoadingLatestAgents, isMacDesktop,
+    availableEngines, installedEngines, interruptTurn, isCompact, isDeleteThreadPromptBusy, isEditorFileMaximized, isFilesLoading, isLoadingLatestAgents, isMacDesktop, isModelConfigRefreshing,
     isPanelLocked, isPhone, isPlanMode, isPlanPanelDismissed, isProcessing, isReviewing, isSearchPaletteOpen,
     isTablet, isThreadAutoNaming, isThreadPinned, isWindowsDesktop, isWorkspaceDropActive, isWorktreeWorkspace, kanbanConversationWidth,
     kanbanCreatePanel, kanbanCreateTask, kanbanDeletePanel, kanbanDeleteTask, kanbanPanels, kanbanReorderTask, kanbanTasks, kanbanUpdatePanel,
@@ -2140,8 +2213,8 @@ export function AppShell() {
     startStatus, startThreadForWorkspace, startSharedSessionForWorkspace, startUpdate, syncError, syncLoading,
     t, tabletTab, terminalOpen, terminalPanelHeight, terminalState,
     terminalTabs, textareaHeight, threadAccessMode, threadItemsByThread, threadListCursorByWorkspace, threadListLoadingByWorkspace,
-    threadListPagingByWorkspace, threadParentById, threadStatusById, historyLoadingByThreadId, threadsByWorkspace, timelinePlan,
-    tokenUsageByThread, triggerAutoThreadTitle, ungroupedLabel, unpinThread,
+    threadListPagingByWorkspace, threadParentById, threadStatusById, historyLoadingByThreadId, historyRestoredAtMsByThread, threadsByWorkspace, timelinePlan,
+    tokenUsageByThread, toggleCompletionEmailIntent, triggerAutoThreadTitle, ungroupedLabel, unpinThread,
     updateCloneCopyName, updateCustomInstructions, updatePrompt, updateSharedSessionEngineSelection, updateWorkspaceCodexBin, updateWorkspaceSettings, updateWorktreeBaseRef, updateWorktreeBranch, updateWorktreePublishToOrigin,
     updateWorktreeSetupScript, updaterState, useSuggestedCloneCopiesFolder, userInputRequests,
     workspaceActivity, workspaceDropTargetRef, workspaceFilesPollingEnabled, workspaceGroups, workspaceHomeWorkspaceId, workspaceNameByPath,

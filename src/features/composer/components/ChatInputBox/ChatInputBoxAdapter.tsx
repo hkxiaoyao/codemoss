@@ -305,6 +305,12 @@ export interface ChatInputBoxAdapterProps {
   contextDualViewEnabled?: boolean;
   dualContextUsage?: DualContextUsageViewModel | null;
   onRequestContextCompaction?: () => Promise<void> | void;
+  codexAutoCompactionEnabled?: boolean;
+  codexAutoCompactionThresholdPercent?: number;
+  onCodexAutoCompactionSettingsChange?: (patch: {
+    enabled?: boolean;
+    thresholdPercent?: number;
+  }) => Promise<void> | void;
   accountRateLimits?: RateLimitSnapshot | null;
   usageShowRemaining?: boolean;
   onRefreshAccountRateLimits?: () => Promise<void> | void;
@@ -348,12 +354,17 @@ export interface ChatInputBoxAdapterProps {
   onOpenAgentSettings?: () => void;
   onOpenPromptSettings?: () => void;
   onOpenModelSettings?: (providerId?: string) => void;
+  onRefreshModelConfig?: (providerId?: string) => Promise<void> | void;
+  isModelConfigRefreshing?: boolean;
   hasMessages?: boolean;
   onRewind?: () => void;
   showRewindEntry?: boolean;
   statusPanelExpanded?: boolean;
   showStatusPanelToggle?: boolean;
   onToggleStatusPanel?: () => void;
+  completionEmailSelected?: boolean;
+  completionEmailDisabled?: boolean;
+  onToggleCompletionEmail?: () => void;
 }
 
 /**
@@ -717,6 +728,9 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
       contextDualViewEnabled = false,
       dualContextUsage,
       onRequestContextCompaction,
+      codexAutoCompactionEnabled,
+      codexAutoCompactionThresholdPercent,
+      onCodexAutoCompactionSettingsChange,
       accountRateLimits,
       usageShowRemaining,
       onRefreshAccountRateLimits,
@@ -748,12 +762,17 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
       onOpenAgentSettings,
       onOpenPromptSettings,
       onOpenModelSettings,
+      onRefreshModelConfig,
+      isModelConfigRefreshing,
       hasMessages,
       onRewind,
       showRewindEntry,
       statusPanelExpanded,
       showStatusPanelToggle,
       onToggleStatusPanel,
+      completionEmailSelected,
+      completionEmailDisabled,
+      onToggleCompletionEmail,
     } = props;
     const { t } = useTranslation();
     const chatInputRef = useRef<ChatInputBoxHandle>(null);
@@ -763,6 +782,7 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
       () => readStoredStreamingEnabled(),
     );
     const [codexSpeedMode, setCodexSpeedMode] = useState<CodexSpeedMode>('unknown');
+    const isCodexEngine = selectedEngine === 'codex';
     const normalizedModels = useMemo(() => {
       if (!models || models.length === 0) {
         return undefined;
@@ -801,7 +821,7 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
     }));
 
     useEffect(() => {
-      if (alwaysThinkingEnabled !== undefined) {
+      if (isCodexEngine || alwaysThinkingEnabled !== undefined) {
         return;
       }
       let cancelled = false;
@@ -835,7 +855,7 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
       return () => {
         cancelled = true;
       };
-    }, [alwaysThinkingEnabled]);
+    }, [alwaysThinkingEnabled, isCodexEngine]);
 
     // Handle input from ChatInputBox -> Composer text state
     const handleInput = useCallback((content: string) => {
@@ -871,6 +891,9 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
 
     const handleThinkingToggle = useCallback(
       async (enabled: boolean) => {
+        if (isCodexEngine) {
+          return;
+        }
         setLocalAlwaysThinkingEnabled(enabled);
         if (onToggleThinking) {
           onToggleThinking(enabled);
@@ -901,11 +924,14 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
           }
         }
       },
-      [localAlwaysThinkingEnabled, onToggleThinking],
+      [isCodexEngine, localAlwaysThinkingEnabled, onToggleThinking],
     );
 
     const handleStreamingToggle = useCallback(
       (enabled: boolean) => {
+        if (isCodexEngine) {
+          return;
+        }
         setLocalStreamingEnabled(enabled);
         if (typeof window !== 'undefined' && window.localStorage) {
           window.localStorage.setItem(
@@ -915,7 +941,7 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
         }
         onStreamingEnabledChange?.(enabled);
       },
-      [onStreamingEnabledChange],
+      [isCodexEngine, onStreamingEnabledChange],
     );
 
     const handleProviderSelect = useCallback((providerId: string) => {
@@ -937,6 +963,18 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
     const handleCodexReviewQuickStart = useCallback(() => {
       void onCodexQuickCommand?.('/review');
     }, [onCodexQuickCommand]);
+
+    const resolvedAlwaysThinkingEnabled = isCodexEngine
+      ? true
+      : alwaysThinkingEnabled !== undefined
+        ? alwaysThinkingEnabled
+        : localAlwaysThinkingEnabled;
+
+    const resolvedStreamingEnabled = isCodexEngine
+      ? true
+      : streamingEnabled !== undefined
+        ? streamingEnabled
+        : localStreamingEnabled;
 
     // Convert context usage
     const usagePercentage = useMemo(() => {
@@ -1460,15 +1498,9 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
         onProviderSelect={onSelectEngine ? handleProviderSelect : undefined}
         reasoningEffort={effortToReasoning(selectedEffort)}
         onReasoningChange={onSelectEffort ? handleReasoningChange : undefined}
-        alwaysThinkingEnabled={
-          alwaysThinkingEnabled !== undefined
-            ? alwaysThinkingEnabled
-            : localAlwaysThinkingEnabled
-        }
+        alwaysThinkingEnabled={resolvedAlwaysThinkingEnabled}
         onToggleThinking={handleThinkingToggle}
-        streamingEnabled={
-          streamingEnabled !== undefined ? streamingEnabled : localStreamingEnabled
-        }
+        streamingEnabled={resolvedStreamingEnabled}
         onStreamingEnabledChange={handleStreamingToggle}
         selectedAgent={selectedAgent}
         selectedContextChips={selectedContextChips}
@@ -1479,12 +1511,17 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
         onOpenAgentSettings={onOpenAgentSettings}
         onOpenPromptSettings={onOpenPromptSettings}
         onOpenModelSettings={onOpenModelSettings}
+        onRefreshModelConfig={onRefreshModelConfig}
+        isModelConfigRefreshing={isModelConfigRefreshing}
         hasMessages={hasMessages}
         onRewind={onRewind}
         showRewindEntry={showRewindEntry}
         statusPanelExpanded={statusPanelExpanded}
         showStatusPanelToggle={showStatusPanelToggle}
         onToggleStatusPanel={onToggleStatusPanel}
+        completionEmailSelected={completionEmailSelected}
+        completionEmailDisabled={completionEmailDisabled}
+        onToggleCompletionEmail={onToggleCompletionEmail}
         usagePercentage={usagePercentage}
         usageUsedTokens={contextUsage?.used}
         usageMaxTokens={contextUsage?.total}
@@ -1492,6 +1529,9 @@ export const ChatInputBoxAdapter = memo(forwardRef<ChatInputBoxHandle, ChatInput
         contextDualViewEnabled={contextDualViewEnabled}
         dualContextUsage={dualContextUsage}
         onRequestContextCompaction={onRequestContextCompaction}
+        codexAutoCompactionEnabled={codexAutoCompactionEnabled}
+        codexAutoCompactionThresholdPercent={codexAutoCompactionThresholdPercent}
+        onCodexAutoCompactionSettingsChange={onCodexAutoCompactionSettingsChange}
         accountRateLimits={accountRateLimits}
         usageShowRemaining={usageShowRemaining}
         onRefreshAccountRateLimits={onRefreshAccountRateLimits}

@@ -9,6 +9,7 @@ import { isDefaultWorkspacePath } from "../../workspaces/utils/defaultWorkspace"
 type WorkspaceCardProps = {
   workspace: WorkspaceInfo;
   workspaceName?: React.ReactNode;
+  workspaceAliasOriginalName?: string | null;
   isActive: boolean;
   isThreadListDegraded?: boolean;
   isThreadListRefreshing?: boolean;
@@ -25,6 +26,7 @@ type WorkspaceCardProps = {
 export function WorkspaceCard({
   workspace,
   workspaceName,
+  workspaceAliasOriginalName = null,
   isActive,
   isThreadListDegraded = false,
   isThreadListRefreshing = false,
@@ -88,6 +90,19 @@ export function WorkspaceCard({
           </button>
 
           <span className="workspace-name-text">{workspaceName ?? workspace.name}</span>
+          {workspaceAliasOriginalName ? (
+            <span
+              className="workspace-alias-badge"
+              aria-label={t("sidebar.workspaceAliasBadgeTitle", {
+                name: workspaceAliasOriginalName,
+              })}
+              title={t("sidebar.workspaceAliasBadgeTitle", {
+                name: workspaceAliasOriginalName,
+              })}
+            >
+              {t("sidebar.workspaceAliasBadge")}
+            </span>
+          ) : null}
           {isDefaultWorkspace ? (
             <span className="default-workspace-badge" aria-label="Default Workspace">
               Default

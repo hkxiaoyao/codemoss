@@ -14,10 +14,18 @@ import {
 
 type MessageItem = Extract<ConversationItem, { kind: "message" }>;
 type UserMessageItem = MessageItem & { role: "user" };
+type AssistantMessageItem = MessageItem & { role: "assistant" };
 type GeneratedImageItem = Extract<ConversationItem, { kind: "generatedImage" }>;
+const CODEX_COMPACTION_MESSAGE_ID_PREFIX = "context-compacted-codex-compact-";
 
 function isUserMessageItem(item: ConversationItem | undefined): item is UserMessageItem {
   return item?.kind === "message" && item.role === "user";
+}
+
+function isAssistantMessageItem(
+  item: ConversationItem | undefined,
+): item is AssistantMessageItem {
+  return item?.kind === "message" && item.role === "assistant";
 }
 
 function isOptimisticUserMessage(
@@ -39,6 +47,15 @@ function findMatchingRealUserMessage(
     }
     return isEquivalentUserObservation(item, candidate);
   });
+}
+
+function isCodexCompactionMessage(
+  item: ConversationItem | undefined,
+): item is AssistantMessageItem {
+  return (
+    isAssistantMessageItem(item)
+    && item.id.startsWith(CODEX_COMPACTION_MESSAGE_ID_PREFIX)
+  );
 }
 
 export function mergeThreadItemsPreservingOptimisticUsers(
@@ -146,15 +163,23 @@ export function mergeThreadItemsPreservingOptimisticUsers(
     const preservedOptimisticUsers = optimisticCandidates.filter(
       (item) => !findMatchingRealUserMessage(mergedItems, item),
     );
-    if (preservedOptimisticUsers.length > 0) {
-      const preservedOptimisticIds = new Set(
-        preservedOptimisticUsers.map((item) => item.id),
-      );
+    const preservedLocalOnlyItemIds = new Set(
+      preservedOptimisticUsers.map((item) => item.id),
+    );
+    localItems.forEach((item) => {
+      if (
+        isCodexCompactionMessage(item) &&
+        !mergedItems.some((candidate) => candidate.id === item.id)
+      ) {
+        preservedLocalOnlyItemIds.add(item.id);
+      }
+    });
+    if (preservedLocalOnlyItemIds.size > 0) {
       const mergedById = new Map(mergedItems.map((item) => [item.id, item]));
       const orderedItems: ConversationItem[] = [];
       const emittedIds = new Set<string>();
       localItems.forEach((localItem) => {
-        if (preservedOptimisticIds.has(localItem.id)) {
+        if (preservedLocalOnlyItemIds.has(localItem.id)) {
           if (!emittedIds.has(localItem.id)) {
             orderedItems.push(localItem);
             emittedIds.add(localItem.id);

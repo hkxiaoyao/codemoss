@@ -19,6 +19,7 @@ export type WorkspaceMenuIconKind =
   | "engine-opencode"
   | "engine-gemini"
   | "new-shared"
+  | "alias"
   | "reload"
   | "remove"
   | "new-worktree"
@@ -71,6 +72,7 @@ type SidebarMenuHandlers = {
   onReloadWorkspaceThreads: (workspaceId: string) => void;
   onDeleteWorkspace: (workspaceId: string) => void;
   onDeleteWorktree: (workspaceId: string) => void;
+  onRenameWorkspaceAlias: (workspace: WorkspaceInfo) => void;
   onAddWorktreeAgent: (workspace: WorkspaceInfo) => void;
   onAddCloneAgent: (workspace: WorkspaceInfo) => void;
 };
@@ -105,6 +107,7 @@ export function useSidebarMenus({
   onReloadWorkspaceThreads,
   onDeleteWorkspace,
   onDeleteWorktree,
+  onRenameWorkspaceAlias,
   onAddWorktreeAgent,
   onAddCloneAgent,
 }: SidebarMenuHandlers) {
@@ -641,6 +644,12 @@ export function useSidebarMenus({
               onSelect: () => onReloadWorkspaceThreads(workspaceId),
             },
             {
+              id: "rename-workspace-alias",
+              label: t("sidebar.setWorkspaceAlias"),
+              iconKind: "alias",
+              onSelect: () => onRenameWorkspaceAlias(workspace),
+            },
+            {
               id: "remove-workspace",
               label: t("sidebar.removeWorkspace"),
               iconKind: "remove",
@@ -678,6 +687,7 @@ export function useSidebarMenus({
       resolveWorkspaceMenuPosition,
       onReloadWorkspaceThreads,
       onDeleteWorkspace,
+      onRenameWorkspaceAlias,
       onAddWorktreeAgent,
       onAddCloneAgent,
     ],

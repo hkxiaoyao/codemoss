@@ -134,6 +134,28 @@ describe('ChatInputBoxAdapter toggle bridge', () => {
     expect(window.localStorage.getItem('ccgui.composer.streaming-enabled')).toBe('0');
   });
 
+  it('forces codex thinking and streaming to stay enabled and skips claude setting reads', async () => {
+    window.localStorage.setItem('ccgui.composer.streaming-enabled', '0');
+
+    renderAdapter({
+      selectedEngine: 'codex',
+      alwaysThinkingEnabled: false,
+      streamingEnabled: false,
+    });
+
+    await waitFor(() => expect(mockState.latestProps).toBeTruthy());
+
+    const latest = mockState.latestProps as {
+      alwaysThinkingEnabled?: boolean;
+      streamingEnabled?: boolean;
+    };
+
+    expect(latest.alwaysThinkingEnabled).toBe(true);
+    expect(latest.streamingEnabled).toBe(true);
+    expect(mockState.getClaudeProviders).not.toHaveBeenCalled();
+    expect(mockState.getClaudeAlwaysThinkingEnabled).not.toHaveBeenCalled();
+  });
+
   it('avoids rerendering ChatInputBox when adapter props stay referentially stable', async () => {
     const stableProps: ComponentProps<typeof ChatInputBoxAdapter> = {
       text: '',

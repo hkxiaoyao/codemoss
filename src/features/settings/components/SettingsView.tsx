@@ -47,11 +47,13 @@ import {
   Check,
   Wifi,
   Save,
+  Mail,
 } from "lucide-react";
 import type {
   AppSettings,
   CodexDoctorResult,
   DictationModelStatus,
+  ThemePresetId,
   WorkspaceSettings,
   OpenAppTarget,
   WorkspaceGroup,
@@ -117,6 +119,12 @@ import {
   type ComposerPreset,
   type OpenAppDraft,
 } from "./settings-view/actions/settingsViewActions";
+import {
+  buildSettingsWithCustomThemePreset,
+  getAllThemePresetOptions,
+  resolveActiveThemePresetId,
+  resolveEffectiveThemeAppearance,
+} from "../../theme/utils/themePreset";
 import { useSystemResolvedTheme } from "./settings-view/hooks/useSystemResolvedTheme";
 import { ProjectsSection } from "./settings-view/sections/ProjectsSection";
 import { ComposerSection } from "./settings-view/sections/ComposerSection";
@@ -129,9 +137,12 @@ import { SessionManagementSection } from "./settings-view/sections/SessionManage
 import { RuntimePoolSection } from "./settings-view/sections/RuntimePoolSection";
 import { DetachedExternalChangeToggles } from "./settings-view/sections/DetachedExternalChangeToggles";
 import { WebServiceSettings } from "./settings-view/sections/WebServiceSettings";
+import { EmailSenderSettings } from "./settings-view/sections/EmailSenderSettings";
 import { DictationSection } from "./settings-view/sections/DictationSection";
 import {
+  buildShortcutDrafts,
   shortcutDraftKeyBySetting,
+  type ShortcutDrafts,
   type ShortcutSettingKey,
 } from "./settings-view/settingsViewShortcuts";
 import {
@@ -367,39 +378,67 @@ export function SettingsView({
     message: string | null;
   }>({ status: "idle", message: null });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [shortcutDrafts, setShortcutDrafts] = useState({
-    model: appSettings.composerModelShortcut ?? "",
-    access: appSettings.composerAccessShortcut ?? "",
-    reasoning: appSettings.composerReasoningShortcut ?? "",
-    collaboration: appSettings.composerCollaborationShortcut ?? "",
-    interrupt: appSettings.interruptShortcut ?? "",
-    newAgent: appSettings.newAgentShortcut ?? "",
-    newWorktreeAgent: appSettings.newWorktreeAgentShortcut ?? "",
-    newCloneAgent: appSettings.newCloneAgentShortcut ?? "",
-    archiveThread: appSettings.archiveThreadShortcut ?? "",
-    projectsSidebar: appSettings.toggleProjectsSidebarShortcut ?? "",
-    gitSidebar: appSettings.toggleGitSidebarShortcut ?? "",
-    globalSearch: appSettings.toggleGlobalSearchShortcut ?? "",
-    debugPanel: appSettings.toggleDebugPanelShortcut ?? "",
-    terminal: appSettings.toggleTerminalShortcut ?? "",
-    cycleAgentNext: appSettings.cycleAgentNextShortcut ?? "",
-    cycleAgentPrev: appSettings.cycleAgentPrevShortcut ?? "",
-    cycleWorkspaceNext: appSettings.cycleWorkspaceNextShortcut ?? "",
-    cycleWorkspacePrev: appSettings.cycleWorkspacePrevShortcut ?? "",
-  });
+  const [shortcutDrafts, setShortcutDrafts] = useState<ShortcutDrafts>(() =>
+    buildShortcutDrafts(appSettings),
+  );
   const normalizedUserMsgColor = useMemo(
     () => normalizeHexColor(appSettings.userMsgColor),
     [appSettings.userMsgColor],
   );
-  const resolvedAppearanceTheme = useMemo<"light" | "dark">(() => {
-    if (appSettings.theme === "light") {
-      return "light";
-    }
-    if (appSettings.theme === "system") {
-      return systemResolvedTheme;
-    }
-    return "dark";
-  }, [appSettings.theme, systemResolvedTheme]);
+  const resolvedAppearanceTheme = useMemo<"light" | "dark">(
+    () =>
+      resolveEffectiveThemeAppearance(
+        {
+          theme: appSettings.theme,
+          lightThemePresetId: appSettings.lightThemePresetId,
+          darkThemePresetId: appSettings.darkThemePresetId,
+          customThemePresetId: appSettings.customThemePresetId,
+        },
+        systemResolvedTheme,
+      ),
+    [
+      appSettings.customThemePresetId,
+      appSettings.darkThemePresetId,
+      appSettings.lightThemePresetId,
+      appSettings.theme,
+      systemResolvedTheme,
+    ],
+  );
+  const activeThemePresetId = useMemo(
+    () =>
+      resolveActiveThemePresetId(
+        {
+          theme: appSettings.theme,
+          darkThemePresetId: appSettings.darkThemePresetId,
+          lightThemePresetId: appSettings.lightThemePresetId,
+          customThemePresetId: appSettings.customThemePresetId,
+        },
+        systemResolvedTheme,
+      ),
+    [
+      appSettings.customThemePresetId,
+      appSettings.darkThemePresetId,
+      appSettings.lightThemePresetId,
+      appSettings.theme,
+      systemResolvedTheme,
+    ],
+  );
+  const themePresetOptions = useMemo(
+    () =>
+      getAllThemePresetOptions().map((preset) => ({
+        id: preset.id,
+        label: t(preset.labelKey),
+      })),
+    [t],
+  );
+  const handleThemePresetChange = useCallback(
+    async (presetId: ThemePresetId) => {
+      await onUpdateAppSettings(
+        buildSettingsWithCustomThemePreset(appSettings, presetId),
+      );
+    },
+    [appSettings, onUpdateAppSettings],
+  );
   const userMsgPresets = useMemo(
     () =>
       resolvedAppearanceTheme === "light"
@@ -732,46 +771,8 @@ export function SettingsView({
   }, [appSettings.openAppTargets, appSettings.selectedOpenAppId]);
 
   useEffect(() => {
-    setShortcutDrafts({
-      model: appSettings.composerModelShortcut ?? "",
-      access: appSettings.composerAccessShortcut ?? "",
-      reasoning: appSettings.composerReasoningShortcut ?? "",
-      collaboration: appSettings.composerCollaborationShortcut ?? "",
-      interrupt: appSettings.interruptShortcut ?? "",
-      newAgent: appSettings.newAgentShortcut ?? "",
-      newWorktreeAgent: appSettings.newWorktreeAgentShortcut ?? "",
-      newCloneAgent: appSettings.newCloneAgentShortcut ?? "",
-      archiveThread: appSettings.archiveThreadShortcut ?? "",
-      projectsSidebar: appSettings.toggleProjectsSidebarShortcut ?? "",
-      gitSidebar: appSettings.toggleGitSidebarShortcut ?? "",
-      globalSearch: appSettings.toggleGlobalSearchShortcut ?? "",
-      debugPanel: appSettings.toggleDebugPanelShortcut ?? "",
-      terminal: appSettings.toggleTerminalShortcut ?? "",
-      cycleAgentNext: appSettings.cycleAgentNextShortcut ?? "",
-      cycleAgentPrev: appSettings.cycleAgentPrevShortcut ?? "",
-      cycleWorkspaceNext: appSettings.cycleWorkspaceNextShortcut ?? "",
-      cycleWorkspacePrev: appSettings.cycleWorkspacePrevShortcut ?? "",
-    });
-  }, [
-    appSettings.composerAccessShortcut,
-    appSettings.composerModelShortcut,
-    appSettings.composerReasoningShortcut,
-    appSettings.composerCollaborationShortcut,
-    appSettings.interruptShortcut,
-    appSettings.newAgentShortcut,
-    appSettings.newWorktreeAgentShortcut,
-    appSettings.newCloneAgentShortcut,
-    appSettings.archiveThreadShortcut,
-    appSettings.toggleProjectsSidebarShortcut,
-    appSettings.toggleGitSidebarShortcut,
-    appSettings.toggleGlobalSearchShortcut,
-    appSettings.toggleDebugPanelShortcut,
-    appSettings.toggleTerminalShortcut,
-    appSettings.cycleAgentNextShortcut,
-    appSettings.cycleAgentPrevShortcut,
-    appSettings.cycleWorkspaceNextShortcut,
-    appSettings.cycleWorkspacePrevShortcut,
-  ]);
+    setShortcutDrafts(buildShortcutDrafts(appSettings));
+  }, [appSettings]);
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -1671,6 +1672,15 @@ export function SettingsView({
               <Globe aria-hidden />
               {!sidebarCollapsed && t("settings.sidebarWebService")}
             </button>
+            <button
+              type="button"
+              className={`settings-nav ${activeSection === "email" ? "active" : ""}`}
+              onClick={() => setActiveSection("email")}
+              title={sidebarCollapsed ? t("settings.sidebarEmail") : ""}
+            >
+              <Mail aria-hidden />
+              {!sidebarCollapsed && t("settings.sidebarEmail")}
+            </button>
             {SHOW_GIT_ENTRY && (
               <button
                 type="button"
@@ -2131,6 +2141,9 @@ export function SettingsView({
                   <BasicAppearanceSection
                     appSettings={appSettings}
                     onUpdateAppSettings={onUpdateAppSettings}
+                    activeThemePresetId={activeThemePresetId}
+                    themePresetOptions={themePresetOptions}
+                    onThemePresetChange={handleThemePresetChange}
                     uiScaleDraft={uiScaleDraft}
                     clampedUiScale={clampedUiScale}
                     uiScaleDraftPercentLabel={uiScaleDraftPercentLabel}
@@ -2315,6 +2328,15 @@ export function SettingsView({
             {activeSection === "web-service" && (
               <section className="settings-section">
                 <WebServiceSettings
+                  t={t}
+                  appSettings={appSettings}
+                  onUpdateAppSettings={onUpdateAppSettings}
+                />
+              </section>
+            )}
+            {activeSection === "email" && (
+              <section className="settings-section">
+                <EmailSenderSettings
                   t={t}
                   appSettings={appSettings}
                   onUpdateAppSettings={onUpdateAppSettings}

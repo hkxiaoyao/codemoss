@@ -1115,14 +1115,14 @@ describe("Composer Claude rewind confirmation", () => {
       });
     });
 
+    const storeFeedback = await screen.findByTestId(
+      "claude-rewind-store-feedback",
+    );
+
     expect(
-      screen
-        .getByTestId("claude-rewind-store-feedback")
-        .closest(".claude-rewind-modal-actions"),
+      storeFeedback.closest(".claude-rewind-modal-actions"),
     ).not.toBeNull();
-    expect(
-      screen.getByTestId("claude-rewind-store-feedback").textContent,
-    ).toContain("2026-04-13/session-1/user-1");
+    expect(storeFeedback.textContent).toContain("2026-04-13/session-1/user-1");
   });
 
   it("reveals the stored changes directory from the inline success prompt", async () => {

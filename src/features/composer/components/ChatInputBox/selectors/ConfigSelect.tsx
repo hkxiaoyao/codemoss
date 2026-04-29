@@ -504,59 +504,63 @@ export const ConfigSelect = ({
             {activeSubmenu === 'agent' && renderAgentSubmenu()}
           </div>
 
-          {/* Divider */}
-          <div style={{ height: 1, background: 'var(--dropdown-border)', margin: '4px 0', opacity: 0.5 }} />
+          {!isCodexProvider && (
+            <>
+              {/* Divider */}
+              <div style={{ height: 1, background: 'var(--dropdown-border)', margin: '4px 0', opacity: 0.5 }} />
 
-          {/* Streaming Switch Item */}
-          <div
-            className="selector-option"
-            onClick={(e) => {
-              e.stopPropagation();
-              onStreamingEnabledChange?.(!streamingEnabled);
-            }}
-            onMouseEnter={() => setActiveSubmenu('none')}
-            style={{ justifyContent: 'space-between', cursor: 'pointer' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="codicon codicon-sync" />
-              <span>{t('settings.basic.streaming.label')}</span>
-            </div>
-            <Switch
-              size="small"
-              checked={streamingEnabled ?? true}
-              onClick={(checked, e) => {
-                 e.stopPropagation();
-                 onStreamingEnabledChange?.(checked);
-              }}
-            />
-          </div>
+              {/* Streaming Switch Item */}
+              <div
+                className="selector-option selector-option-streaming-toggle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStreamingEnabledChange?.(!streamingEnabled);
+                }}
+                onMouseEnter={() => setActiveSubmenu('none')}
+                style={{ justifyContent: 'space-between', cursor: 'pointer' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="codicon codicon-sync" />
+                  <span>{t('settings.basic.streaming.label')}</span>
+                </div>
+                <Switch
+                  size="small"
+                  checked={streamingEnabled ?? true}
+                  onClick={(checked, e) => {
+                     e.stopPropagation();
+                     onStreamingEnabledChange?.(checked);
+                  }}
+                />
+              </div>
 
-          {/* Divider */}
-          <div style={{ height: 1, background: 'var(--dropdown-border)', margin: '4px 0', opacity: 0.5 }} />
+              {/* Divider */}
+              <div style={{ height: 1, background: 'var(--dropdown-border)', margin: '4px 0', opacity: 0.5 }} />
 
-          {/* Thinking Switch Item */}
-          <div
-            className="selector-option"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleThinking?.(!alwaysThinkingEnabled);
-            }}
-            onMouseEnter={() => setActiveSubmenu('none')}
-            style={{ justifyContent: 'space-between', cursor: 'pointer' }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span className="codicon codicon-lightbulb" />
-              <span>{t('common.thinking')}</span>
-            </div>
-            <Switch
-              size="small"
-              checked={alwaysThinkingEnabled ?? false}
-              onClick={(checked, e) => {
-                 e.stopPropagation();
-                 onToggleThinking?.(checked);
-              }}
-            />
-          </div>
+              {/* Thinking Switch Item */}
+              <div
+                className="selector-option selector-option-thinking-toggle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleThinking?.(!alwaysThinkingEnabled);
+                }}
+                onMouseEnter={() => setActiveSubmenu('none')}
+                style={{ justifyContent: 'space-between', cursor: 'pointer' }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="codicon codicon-lightbulb" />
+                  <span>{t('common.thinking')}</span>
+                </div>
+                <Switch
+                  size="small"
+                  checked={alwaysThinkingEnabled ?? false}
+                  onClick={(checked, e) => {
+                     e.stopPropagation();
+                     onToggleThinking?.(checked);
+                  }}
+                />
+              </div>
+            </>
+          )}
 
           {isCodexProvider && (
             <>

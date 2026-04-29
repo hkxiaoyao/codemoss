@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type { Dispatch, MutableRefObject } from "react";
 import type { DebugEntry } from "../../../types";
 import { useTranslation } from "react-i18next";
@@ -17,6 +17,7 @@ import {
 } from "../utils/threadNormalize";
 import { previewThreadName } from "../../../utils/threadItems";
 import { resolveThreadStabilityDiagnostic } from "../utils/stabilityDiagnostics";
+import { hasCodexBackgroundHelperPreview } from "../utils/codexBackgroundHelpers";
 import type { ThreadAction } from "./useThreadsReducer";
 
 /**
@@ -36,11 +37,17 @@ function inferEngineFromThreadId(threadId: string): "claude" | "codex" | "gemini
   return "codex";
 }
 
-const CODEX_BACKGROUND_HELPER_PREVIEW_PREFIXES = [
-  "Generate a concise title for a coding chat thread from the first user message.",
-  "You create concise run metadata for a coding task.",
-  "You are generating OpenSpec project context.",
-] as const;
+type ContextCompactionSourcePayload = {
+  auto?: boolean | null;
+  manual?: boolean | null;
+};
+
+function isCodexContextCompaction(threadId: string): boolean {
+  if (inferEngineFromThreadId(threadId) !== "codex") {
+    return false;
+  }
+  return true;
+}
 
 function isCodexBackgroundHelperThread(
   threadId: string,
@@ -53,11 +60,7 @@ function isCodexBackgroundHelperThread(
     asString(thread.preview).trim(),
     asString(thread.title).trim(),
   ].filter(Boolean);
-  return previewCandidates.some((preview) =>
-    CODEX_BACKGROUND_HELPER_PREVIEW_PREFIXES.some((prefix) =>
-      preview.startsWith(prefix),
-    ),
-  );
+  return hasCodexBackgroundHelperPreview(previewCandidates);
 }
 
 type UseThreadTurnEventsOptions = {
@@ -130,6 +133,7 @@ export function useThreadTurnEvents({
   onDebug,
 }: UseThreadTurnEventsOptions) {
   const { t } = useTranslation();
+  const codexCompactionInFlightByThreadRef = useRef<Record<string, boolean>>({});
   const logSessionTrace = useCallback(
     (label: string, payload: Record<string, unknown>) => {
       onDebug?.({
@@ -236,6 +240,11 @@ export function useThreadTurnEvents({
         workspaceId,
         threadId,
         engine: inferEngineFromThreadId(threadId),
+      });
+      dispatch({
+        type: "setThreadHistoryRestoredAt",
+        threadId,
+        timestamp: null,
       });
       dispatch({ type: "markContextCompacting", threadId, isCompacting: false });
       if (pendingInterruptsRef.current.has(threadId)) {
@@ -627,8 +636,18 @@ export function useThreadTurnEvents({
   );
 
   const onContextCompacted = useCallback(
-    (workspaceId: string, threadId: string, turnId: string) => {
+    (
+      workspaceId: string,
+      threadId: string,
+      turnId: string,
+      payload?: ContextCompactionSourcePayload,
+    ) => {
       const timestamp = Date.now();
+      const wasCodexCompacting = codexCompactionInFlightByThreadRef.current[threadId] ?? false;
+      const isCodexCompaction = payload
+        ? isCodexContextCompaction(threadId)
+        : wasCodexCompacting;
+      delete codexCompactionInFlightByThreadRef.current[threadId];
       dispatch({ type: "ensureThread", workspaceId, threadId, engine: inferEngineFromThreadId(threadId) });
       dispatch({
         type: "markContextCompacting",
@@ -637,11 +656,19 @@ export function useThreadTurnEvents({
         timestamp: timestamp,
       });
       const resolvedTurnId = turnId || `auto-${timestamp}`;
-      dispatch({ type: "appendContextCompacted", threadId, turnId: resolvedTurnId });
+      if (isCodexCompaction) {
+        dispatch({
+          type: "upsertCodexCompactionMessage",
+          threadId,
+          text: t("threads.codexCompactionCompleted"),
+        });
+      } else {
+        dispatch({ type: "appendContextCompacted", threadId, turnId: resolvedTurnId });
+      }
       recordThreadActivity(workspaceId, threadId, timestamp);
       safeMessageActivity();
     },
-    [dispatch, recordThreadActivity, safeMessageActivity],
+    [dispatch, recordThreadActivity, safeMessageActivity, t],
   );
 
   const onContextCompacting = useCallback(
@@ -652,8 +679,16 @@ export function useThreadTurnEvents({
         usagePercent: number | null;
         thresholdPercent: number | null;
         targetPercent: number | null;
+        auto?: boolean | null;
+        manual?: boolean | null;
       },
     ) => {
+      const isCodexCompaction = isCodexContextCompaction(threadId);
+      if (isCodexCompaction) {
+        codexCompactionInFlightByThreadRef.current[threadId] = true;
+      } else {
+        delete codexCompactionInFlightByThreadRef.current[threadId];
+      }
       dispatch({ type: "ensureThread", workspaceId, threadId, engine: inferEngineFromThreadId(threadId) });
       dispatch({
         type: "markContextCompacting",
@@ -661,13 +696,21 @@ export function useThreadTurnEvents({
         isCompacting: true,
         timestamp: Date.now(),
       });
+      if (isCodexCompaction) {
+        dispatch({
+          type: "upsertCodexCompactionMessage",
+          threadId,
+          text: t("threads.codexCompactionStarted"),
+        });
+      }
       safeMessageActivity();
     },
-    [dispatch, safeMessageActivity],
+    [dispatch, safeMessageActivity, t],
   );
 
   const onContextCompactionFailed = useCallback(
     (workspaceId: string, threadId: string, reason: string) => {
+      delete codexCompactionInFlightByThreadRef.current[threadId];
       dispatch({ type: "ensureThread", workspaceId, threadId, engine: inferEngineFromThreadId(threadId) });
       dispatch({
         type: "markContextCompacting",

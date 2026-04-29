@@ -117,7 +117,7 @@ export function renderAppShell(ctx: any) {
     triggerAutoThreadTitle, trimmed, uiMode, uncachedWorkspaceIds, ungroupedLabel, uniquePaths, unpinThread, updateCloneCopyName,
     updateCustomInstructions, updatePrompt, updateToastNode, updateWorkspaceCodexBin, updateWorkspaceSettings, updateWorktreeBaseRef, updateWorktreeBranch, updateWorktreePublishToOrigin,
     updateWorktreeSetupScript, updatedAt, updaterState, useSuggestedCloneCopiesFolder, userInputRequests, validModel, viewportHeight, wasProcessing,
-    workspace, workspaceActivity, workspaceDropTargetRef, workspaceFilesPollingEnabled, workspaceGroups, workspaceHomeWorkspaceId, workspaceId, workspaceNameByPath,
+    workspace, workspaceActivity, workspaceAliasPromptNode, workspaceDropTargetRef, workspaceFilesPollingEnabled, workspaceGroups, workspaceHomeWorkspaceId, workspaceId, workspaceNameByPath,
     workspacePath, workspaceSearchSources, workspaces, workspacesById, workspacesByPath, worktreeApplyError, worktreeApplyLoading, worktreeApplySuccess,
     worktreeCreateResult, worktreeLabel, worktreePrompt, worktreeRename, worktreeSetupScriptState,
   } = ctx;
@@ -469,6 +469,7 @@ export function renderAppShell(ctx: any) {
         onNext={showNextReleaseNotes}
         onRetry={retryReleaseNotesLoad}
       />
+      {workspaceAliasPromptNode}
       <AppModals
         loadingProgressDialog={loadingProgressDialog}
         onLoadingProgressDialogClose={dismissLoadingProgressDialog}

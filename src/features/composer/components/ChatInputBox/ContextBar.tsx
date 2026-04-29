@@ -2,6 +2,7 @@ import React, { useRef, useCallback, useMemo, useState, useEffect, memo } from '
 import { useTranslation } from 'react-i18next';
 import Crosshair from 'lucide-react/dist/esm/icons/crosshair';
 import ListCollapse from 'lucide-react/dist/esm/icons/list-collapse';
+import Mail from 'lucide-react/dist/esm/icons/mail';
 import { AgentIcon } from '../../../../components/AgentIcon';
 import { getFileIcon } from '../../utils/fileIcons';
 import { TokenIndicator } from './TokenIndicator';
@@ -18,6 +19,12 @@ import {
   readLocalBooleanFlag,
   writeLocalBooleanFlag,
 } from '../../../messages/constants/liveCanvasControls';
+import { CODEX_AUTO_COMPACTION_THRESHOLD_OPTIONS } from '../../../codex/constants/codexAutoCompactionThreshold';
+
+type CodexAutoCompactionSettingsPatch = {
+  enabled?: boolean;
+  thresholdPercent?: number;
+};
 
 interface ContextBarProps {
   activeFile?: string;
@@ -29,6 +36,9 @@ interface ContextBarProps {
   contextDualViewEnabled?: boolean;
   dualContextUsage?: DualContextUsageViewModel | null;
   onRequestContextCompaction?: () => Promise<void> | void;
+  codexAutoCompactionEnabled?: boolean;
+  codexAutoCompactionThresholdPercent?: number;
+  onCodexAutoCompactionSettingsChange?: (patch: CodexAutoCompactionSettingsPatch) => Promise<void> | void;
   isLoading?: boolean;
   onClearFile?: () => void;
   onAddAttachment?: (files?: FileList | null) => void;
@@ -50,6 +60,12 @@ interface ContextBarProps {
   showStatusPanelToggle?: boolean;
   /** Toggle StatusPanel expand/collapse */
   onToggleStatusPanel?: () => void;
+  /** Whether the current thread has one-shot completion email armed */
+  completionEmailSelected?: boolean;
+  /** Whether completion email toggle is disabled */
+  completionEmailDisabled?: boolean;
+  /** Toggle one-shot completion email for current thread */
+  onToggleCompletionEmail?: () => void;
 }
 
 export const ContextBar: React.FC<ContextBarProps> = memo(({
@@ -61,6 +77,9 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
   contextDualViewEnabled = false,
   dualContextUsage = null,
   onRequestContextCompaction,
+  codexAutoCompactionEnabled = true,
+  codexAutoCompactionThresholdPercent = 92,
+  onCodexAutoCompactionSettingsChange,
   isLoading = false,
   onClearFile,
   onAddAttachment,
@@ -75,6 +94,9 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
   statusPanelExpanded = true,
   showStatusPanelToggle = true,
   onToggleStatusPanel,
+  completionEmailSelected = false,
+  completionEmailDisabled = false,
+  onToggleCompletionEmail,
 }) => {
   const { t } = useTranslation();
   const manualCompactionLockRef = useRef(false);
@@ -140,13 +162,24 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
       return null;
     }
     const totalTokensValue = formatCompactTokens(Math.max(usedTokens ?? 0, 0));
-    const usagePercent = Math.min(Math.max(dualContextUsage.percent, 0), 100);
-    const usageRounded = Math.round(dualContextUsage.hasUsage ? usagePercent : 0);
-    const remainingPercent = Math.max(0, 100 - usageRounded);
-    const usedPercentValue = `${usageRounded}%`;
+    const usedContextTokenCount = Math.max(dualContextUsage.usedTokens, 0);
+    const contextWindowTokenCount = Math.max(dualContextUsage.contextWindow, 0);
+    const usagePercentFromTokens = contextWindowTokenCount > 0
+      ? (usedContextTokenCount / contextWindowTokenCount) * 100
+      : null;
+    const usagePercentFromSnapshot = Number.isFinite(dualContextUsage.percent)
+      ? Math.max(dualContextUsage.percent, 0)
+      : 0;
+    const realUsagePercent = usagePercentFromTokens ?? usagePercentFromSnapshot;
+    const usagePercentForDisplay = Math.round(dualContextUsage.hasUsage ? realUsagePercent : 0);
+    const usagePercentForRing = dualContextUsage.hasUsage
+      ? Math.min(realUsagePercent, 100)
+      : 0;
+    const remainingPercent = Math.max(0, 100 - usagePercentForDisplay);
+    const usedPercentValue = `${usagePercentForDisplay}%`;
     const remainingPercentValue = `${remainingPercent}%`;
-    const usedContextTokens = formatCompactTokens(Math.max(dualContextUsage.usedTokens, 0));
-    const totalContextTokens = formatCompactTokens(Math.max(dualContextUsage.contextWindow, 0));
+    const usedContextTokens = formatCompactTokens(usedContextTokenCount);
+    const totalContextTokens = formatCompactTokens(contextWindowTokenCount);
     const windowTokensValue = `${usedContextTokens} / ${totalContextTokens}`;
     const windowTitleText = t('chat.contextDualViewWindowTitle');
     const windowUsageText = `${t('chat.contextDualViewTooltipUsedLabel')} ${usedPercentValue} · ${t('chat.contextDualViewTooltipRemainingLabel')} ${remainingPercentValue}`;
@@ -155,17 +188,21 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
       totalTokens: totalContextTokens,
     });
     const autoCompactionText = t('chat.contextDualViewAutoCompactionNote');
+    const autoCompactionEnabledValue = codexAutoCompactionEnabled !== false;
+    const autoCompactionThresholdValue = `${codexAutoCompactionThresholdPercent}%`;
     if (dualContextUsage.compactionState === 'compacting') {
       return {
         stateClass: 'compacting',
-        barPercent: dualContextUsage.hasUsage ? usagePercent : 0,
-        percentLabel: `${Math.round(dualContextUsage.hasUsage ? usagePercent : 0)}%`,
+        barPercent: usagePercentForRing,
+        percentLabel: usedPercentValue,
         totalTokensValue,
         windowTitleText,
         usedPercentValue,
         remainingPercentValue,
         windowTokensValue,
         autoCompactionText,
+        autoCompactionEnabledValue,
+        autoCompactionThresholdValue,
         statusText: t('chat.contextDualViewCompacting'),
         ariaState: t('chat.contextDualViewCompacting'),
       };
@@ -173,14 +210,16 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
     if (dualContextUsage.compactionState === 'compacted') {
       return {
         stateClass: 'compacted',
-        barPercent: dualContextUsage.hasUsage ? usagePercent : 0,
-        percentLabel: `${Math.round(dualContextUsage.hasUsage ? usagePercent : 0)}%`,
+        barPercent: usagePercentForRing,
+        percentLabel: usedPercentValue,
         totalTokensValue,
         windowTitleText,
         usedPercentValue,
         remainingPercentValue,
         windowTokensValue,
         autoCompactionText,
+        autoCompactionEnabledValue,
+        autoCompactionThresholdValue,
         statusText: t('chat.contextDualViewCompacted'),
         ariaState: t('chat.contextDualViewCompacted'),
       };
@@ -196,24 +235,37 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
         remainingPercentValue: '100%',
         windowTokensValue: `0 / ${totalContextTokens}`,
         autoCompactionText,
+        autoCompactionEnabledValue,
+        autoCompactionThresholdValue,
         statusText: undefined,
         ariaState: t('chat.contextDualViewEmpty'),
       };
     }
     return {
       stateClass: 'data',
-      barPercent: usagePercent,
-      percentLabel: `${Math.round(dualContextUsage.percent)}%`,
+      barPercent: usagePercentForRing,
+      percentLabel: usedPercentValue,
       totalTokensValue,
       windowTitleText,
       usedPercentValue,
       remainingPercentValue,
       windowTokensValue,
       autoCompactionText,
+      autoCompactionEnabledValue,
+      autoCompactionThresholdValue,
       statusText: undefined,
       ariaState: `${windowUsageText} · ${windowTokensText}`,
     };
-  }, [contextDualViewEnabled, currentProvider, dualContextUsage, formatCompactTokens, t, usedTokens]);
+  }, [
+    codexAutoCompactionEnabled,
+    codexAutoCompactionThresholdPercent,
+    contextDualViewEnabled,
+    currentProvider,
+    dualContextUsage,
+    formatCompactTokens,
+    t,
+    usedTokens,
+  ]);
   const showCompactionButton = Boolean(
     currentProvider === 'codex'
       && onRequestContextCompaction
@@ -280,6 +332,12 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
       return next;
     });
   }, [emitLiveCanvasControlsUpdate]);
+
+  const handleCompletionEmailToggle = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onToggleCompletionEmail?.();
+  }, [onToggleCompletionEmail]);
 
   const releaseManualCompactionPending = useCallback(async () => {
     const elapsed = Date.now() - manualCompactionStartedAtRef.current;
@@ -402,8 +460,42 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
                   <span className="context-dual-tooltip-value">{dualUsageSummary.windowTokensValue}</span>
                 </div>
               </div>
+              <div className="context-dual-tooltip-auto-settings">
+                <label className="context-dual-tooltip-switch">
+                  <input
+                    type="checkbox"
+                    checked={dualUsageSummary.autoCompactionEnabledValue}
+                    onChange={(event) => {
+                      void onCodexAutoCompactionSettingsChange?.({
+                        enabled: event.target.checked,
+                      });
+                    }}
+                  />
+                  <span>{t('chat.contextDualViewAutoCompactionEnabled')}</span>
+                </label>
+                <label className="context-dual-tooltip-threshold">
+                  <span>{t('chat.contextDualViewAutoCompactionThreshold')}</span>
+                  <select
+                    value={codexAutoCompactionThresholdPercent}
+                    disabled={!dualUsageSummary.autoCompactionEnabledValue}
+                    onChange={(event) => {
+                      void onCodexAutoCompactionSettingsChange?.({
+                        thresholdPercent: Number(event.target.value),
+                      });
+                    }}
+                  >
+                    {CODEX_AUTO_COMPACTION_THRESHOLD_OPTIONS.map((thresholdPercent) => (
+                      <option key={thresholdPercent} value={thresholdPercent}>
+                        {thresholdPercent}%
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <div className="context-dual-tooltip-foot">
-                <div className="context-dual-tooltip-note">{dualUsageSummary.autoCompactionText}</div>
+                <div className="context-dual-tooltip-note">
+                  {dualUsageSummary.autoCompactionText} · {dualUsageSummary.autoCompactionThresholdValue}
+                </div>
                 {showCompactionButton && (
                   <div className="context-dual-tooltip-actions">
                     <button
@@ -517,6 +609,28 @@ export const ContextBar: React.FC<ContextBarProps> = memo(({
 
       {/* Right side tools - StatusPanel toggle and Rewind button */}
       <div className="context-tools-right">
+        {onToggleCompletionEmail && (
+          <button
+            type="button"
+            className={`context-tool-btn context-completion-email-btn has-tooltip${completionEmailSelected ? ' is-active' : ''}`}
+            onClick={handleCompletionEmailToggle}
+            disabled={completionEmailDisabled}
+            data-tooltip={
+              completionEmailSelected
+                ? t('composer.completionEmailSelectedTooltip')
+                : t('composer.completionEmailTooltip')
+            }
+            aria-label={
+              completionEmailSelected
+                ? t('composer.completionEmailSelected')
+                : t('composer.completionEmailAriaLabel')
+            }
+            aria-pressed={completionEmailSelected}
+          >
+            <Mail size={14} aria-hidden />
+          </button>
+        )}
+
         {showLiveCanvasControls && (
           <div className="context-live-canvas-controls" role="group" aria-label={t('messages.liveControls')}>
             {showLiveAutoFollowControl && (

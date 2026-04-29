@@ -1,16 +1,38 @@
 // @ts-nocheck
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { ask } from "@tauri-apps/plugin-dialog";
 import { useLayoutNodes } from "../features/layout/hooks/useLayoutNodes";
 import { MainHeaderActions } from "../features/app/components/MainHeaderActions";
+import { WorkspaceAliasPrompt } from "../features/workspaces/components/WorkspaceAliasPrompt";
+import { useClientUiVisibility } from "../features/client-ui-visibility/hooks/useClientUiVisibility";
 import { normalizeSharedSessionEngine } from "../features/shared-session/utils/sharedSessionEngines";
 import {
   recoverThreadBindingForManualRecovery,
   shouldSuppressManualRecoveryResendUserMessage,
 } from "./manualThreadRecovery";
 import { OPENCODE_VARIANT_OPTIONS } from "./utils";
+import type { WorkspaceInfo } from "../types";
+
+type WorkspaceAliasPromptState = {
+  workspaceId: string;
+  workspaceName: string;
+  alias: string;
+  originalAlias: string;
+  error: string | null;
+  isSaving: boolean;
+};
+
+function formatWorkspaceAliasError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
 
 export function useAppShellLayoutNodesSection(ctx: any) {
+  const clientUiVisibility = useClientUiVisibility();
+  const [workspaceAliasPrompt, setWorkspaceAliasPrompt] =
+    useState<WorkspaceAliasPromptState | null>(null);
   const {
     GitHubPanelData, RECENT_THREAD_LIMIT, SettingsView, accessMode, accountByWorkspace, accountSwitching, activeAccount, activeDiffError,
     activeDiffLoading, activeDiffs, activeDraft, activeEditorFilePath, activeEditorLineRange, activeEngine, activeFusingMessageId, activeGitRoot, activeImages,
@@ -23,7 +45,7 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     clearCloneCopiesFolder, clearDebugEntries, clearDictationError, clearDictationHint, clearDictationTranscript, clearDraftForThread, clearGitRootCandidates, clonePrompt,
     closePlanPanel, closeReleaseNotes, closeReviewPrompt, closeSearchPalette, closeSettings, closeTerminalPanel, closeWorktreeCreateResult, codexComposerModeRef,
     collaborationModePayload, collaborationModes, collaborationModesEnabled, collaborationRuntimeModeByThread, collaborationUiModeByThread, collapseRightPanel, collapseSidebar, commands,
-    commitError, commitLoading, commitMessage, commitMessageError, commitMessageLoading, completionTrackerBySessionRef, completionTrackerReadyRef, composerEditorSettings,
+    commitError, commitLoading, commitMessage, commitMessageError, commitMessageLoading, completionEmailIntentByThread, completionTrackerBySessionRef, completionTrackerReadyRef, composerEditorSettings,
     composerInputRef, composerInsert, composerKanbanContextMode, composerLinkedKanbanPanels, composerSendLabel, confirmBranch, confirmClonePrompt, confirmCommit,
     confirmCustom, confirmRenameWorktreeUpstream, confirmWorktreePrompt, connectWorkspace, createBranch, createPrompt, createWorkspaceGroup, debugEntries,
     debugOpen, debugPanelHeight, defaultModel, deletePrompt, deleteThreadPrompt, deleteWorkspaceGroup, deletingWorktreeIds, delta,
@@ -46,7 +68,7 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     handleCopyThread, handleCreateBranch, handleCreatePrompt, handleDebugClick, handleDeletePrompt, handleDeleteQueued, handleDeleteThreadPromptCancel, handleDeleteThreadPromptConfirm,
     handleDeleteWorkspaceConversations, handleDeleteWorkspaceConversationsInSettings, handleDraftChange, handleDragToInProgress, handleDropWorkspacePaths, handleEditQueued, handleEnsureWorkspaceThreadsForSettings, handleExitEditor,
     handleExitWorkspaceEditor, handleGenerateCommitMessage, handleGitIssuesChange, handleGitPanelModeChange, handleGitPullRequestCommentsChange, handleGitPullRequestDiffsChange, handleGitPullRequestsChange, handleInsertComposerText,
-    handleKanbanCreateTask, handleLockPanel, handleMovePrompt, handleMoveWorkspace, handleOpenComposerKanbanPanel, handleOpenDetachedFileExplorer, handleOpenFile, handleOpenHomeChat, handleOpenModelSettings,
+    handleKanbanCreateTask, handleLockPanel, handleMovePrompt, handleMoveWorkspace, handleOpenComposerKanbanPanel, handleOpenDetachedFileExplorer, handleOpenFile, handleOpenHomeChat, handleOpenModelSettings, handleRefreshModelConfig,
     handleOpenRenameWorktree, handleOpenSearchPalette, handleOpenSpecHub, handleOpenTaskConversation, handleOpenWorkspaceFile, handleOpenWorkspaceHome, handlePickGitRoot, handlePointerMove,
     handlePointerUp, handlePush, handleRefreshAccountRateLimits, handleRenamePromptCancel, handleRenamePromptChange, handleRenamePromptConfirm, handleRenameThread, handleRenameWorktreeCancel,
     handleRenameWorktreeChange, handleRenameWorktreeConfirm, handleResize, handleRevealActiveWorkspace, handleRevealGeneralPrompts, handleRevealWorkspacePrompts, handleRevertAllGitChanges, handleRevertGitFile,
@@ -57,7 +79,7 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     handleUnlockPanel, handleUnstageGitFile, handleUpdatePrompt, handleUserInputSubmit, handleUserInputSubmitWithPlanApply, handleExitPlanModeExecute, handleWorkspaceDragEnter, handleWorkspaceDragLeave, handleWorkspaceDragOver,
     handleWorkspaceDrop, handleWorktreeCreated, hasActivePlan, hasLoaded, hasPlanData, highlightedBranchIndex, highlightedCommitIndex, highlightedPresetIndex,
     availableEngines, historySearchItems, hydratedThreadListWorkspaceIdsRef, installedEngines, interruptTurn, isCompact, isDeleteThreadPromptBusy, isEditorFileMaximized, isFilesLoading,
-    isLoadingLatestAgents, isMacDesktop, isPanelLocked, isPhone, isPlanMode, isPlanPanelDismissed, isProcessing, isProcessingNow,
+    isLoadingLatestAgents, isMacDesktop, isModelConfigRefreshing, isPanelLocked, isPhone, isPlanMode, isPlanPanelDismissed, isProcessing, isProcessingNow,
     isPullRequestComposer, isPullRequestComposerFromSections, isReviewing, isSearchPaletteOpen, isSoloMode, isTablet, isThreadAutoNaming, isThreadPinned,
     isValid, isWindowsDesktop, isWorkspaceDropActive, isWorktreeWorkspace, kanbanConversationWidth, kanbanCreatePanel, kanbanCreateTask, kanbanDeletePanel,
     kanbanDeleteTask, kanbanPanels, kanbanReorderTask, kanbanTasks, kanbanUpdatePanel, kanbanUpdateTask, kanbanViewState, key,
@@ -99,8 +121,8 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     startY, stored, syncError, syncLoading, t, tabletTab, target,
     targetThread, targetWorkspaceIds, task, taskProcessingMap, taskWs, terminalOpen, terminalPanelHeight, terminalState,
     terminalTabs, textareaHeight, threadAccessMode, threadChanged, threadId, threadItemsByThread, threadListCursorByWorkspace, threadListLoadingByWorkspace,
-    threadListPagingByWorkspace, threadMode, threadParentById, threadStatusById, historyLoadingByThreadId, threads, threadsByWorkspace, timelinePlan, title,
-    toggleSoloMode, tokenUsageByThread, triggerAutoThreadTitle, trimmed, uiMode, uncachedWorkspaceIds, ungroupedLabel, uniquePaths,
+    threadListPagingByWorkspace, threadMode, threadParentById, threadStatusById, historyLoadingByThreadId, historyRestoredAtMsByThread, threads, threadsByWorkspace, timelinePlan, title,
+    toggleCompletionEmailIntent, toggleSoloMode, tokenUsageByThread, triggerAutoThreadTitle, trimmed, uiMode, uncachedWorkspaceIds, ungroupedLabel, uniquePaths,
     unpinThread, updateCloneCopyName, updateCustomInstructions, updatePrompt, updateSharedSessionEngineSelection, updateWorkspaceCodexBin, updateWorkspaceSettings, updateWorktreeBaseRef, updateWorktreeBranch,
     updateWorktreePublishToOrigin, updateWorktreeSetupScript, updatedAt, updaterState, useSuggestedCloneCopiesFolder, userInputRequests, validModel, viewportHeight,
     wasProcessing, workspace, workspaceActivity, workspaceDropTargetRef, workspaceFilesPollingEnabled, workspaceGroups, workspaceHomeWorkspaceId, workspaceId,
@@ -139,6 +161,93 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     activeWorkspace &&
       activeEditorFilePath,
   );
+  const handleRenameWorkspaceAlias = useCallback(
+    (workspace: WorkspaceInfo) => {
+      const currentAlias =
+        typeof workspace?.settings?.projectAlias === "string"
+          ? workspace.settings.projectAlias
+          : "";
+      setWorkspaceAliasPrompt({
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        alias: currentAlias,
+        originalAlias: currentAlias.trim(),
+        error: null,
+        isSaving: false,
+      });
+    },
+    [],
+  );
+  const handleWorkspaceAliasPromptChange = useCallback((alias: string) => {
+    setWorkspaceAliasPrompt((prev) =>
+      prev
+        ? {
+            ...prev,
+            alias,
+            error: null,
+          }
+        : prev,
+    );
+  }, []);
+  const handleWorkspaceAliasPromptCancel = useCallback(() => {
+    setWorkspaceAliasPrompt((prev) => (prev?.isSaving ? prev : null));
+  }, []);
+  const handleWorkspaceAliasPromptConfirm = useCallback(async () => {
+    if (!workspaceAliasPrompt || workspaceAliasPrompt.isSaving) {
+      return;
+    }
+    const nextAlias = workspaceAliasPrompt.alias.trim();
+    if (nextAlias === workspaceAliasPrompt.originalAlias) {
+      setWorkspaceAliasPrompt(null);
+      return;
+    }
+    setWorkspaceAliasPrompt((prev) =>
+      prev
+        ? {
+            ...prev,
+            error: null,
+            isSaving: true,
+          }
+        : prev,
+    );
+    try {
+      await updateWorkspaceSettings(workspaceAliasPrompt.workspaceId, {
+        projectAlias: nextAlias || null,
+      });
+      setWorkspaceAliasPrompt(null);
+    } catch (error) {
+      const message = formatWorkspaceAliasError(error);
+      setWorkspaceAliasPrompt((prev) =>
+        prev && prev.workspaceId === workspaceAliasPrompt.workspaceId
+          ? {
+              ...prev,
+              error: message,
+              isSaving: false,
+            }
+          : prev,
+      );
+      alertError(error);
+    }
+  }, [alertError, updateWorkspaceSettings, workspaceAliasPrompt]);
+  const workspaceAliasPromptNode = workspaceAliasPrompt ? (
+    <WorkspaceAliasPrompt
+      workspaceName={workspaceAliasPrompt.workspaceName}
+      alias={workspaceAliasPrompt.alias}
+      error={workspaceAliasPrompt.error}
+      isBusy={workspaceAliasPrompt.isSaving}
+      onChange={handleWorkspaceAliasPromptChange}
+      onCancel={handleWorkspaceAliasPromptCancel}
+      onConfirm={() => {
+        void handleWorkspaceAliasPromptConfirm();
+      }}
+    />
+  ) : null;
+  const mainHeaderSidebarToggleProps = {
+    ...sidebarToggleProps,
+    rightPanelAvailable:
+      sidebarToggleProps.rightPanelAvailable &&
+      clientUiVisibility.isControlVisible("topTool.rightPanel"),
+  };
 
   const {
     sidebarNode,
@@ -174,6 +283,7 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     threadParentById,
     threadStatusById,
     historyLoadingByThreadId,
+    historyRestoredAtMsByThread,
     runningSessionCountByWorkspaceId,
     recentCompletedSessionCountByWorkspaceId,
     hydratedThreadListWorkspaceIds: hydratedThreadListWorkspaceIdsRef.current,
@@ -261,6 +371,8 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     onOpenAgentSettings: () => openSettings("agents"),
     onOpenPromptSettings: () => openSettings("prompts"),
     onOpenModelSettings: handleOpenModelSettings,
+    onRefreshModelConfig: handleRefreshModelConfig,
+    isModelConfigRefreshing,
     onOpenDictationSettings: () => openSettings("dictation"),
     onOpenDebug: handleDebugClick,
     showDebugButton,
@@ -394,6 +506,7 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     onDeleteWorktree: (workspaceId) => {
       void removeWorktree(workspaceId);
     },
+    onRenameWorkspaceAlias: handleRenameWorkspaceAlias,
     onLoadOlderThreads: (workspaceId) => {
       const workspace = workspacesById.get(workspaceId);
       if (!workspace) {
@@ -479,14 +592,20 @@ export function useAppShellLayoutNodesSection(ctx: any) {
       <MainHeaderActions
         isCompact={isCompact}
         rightPanelCollapsed={rightPanelCollapsed}
-        sidebarToggleProps={sidebarToggleProps}
-        showRuntimeConsoleButton={!isCompact}
+        sidebarToggleProps={mainHeaderSidebarToggleProps}
+        showRuntimeConsoleButton={
+          !isCompact && clientUiVisibility.isControlVisible("topTool.runtimeConsole")
+        }
         isRuntimeConsoleVisible={runtimeRunState.runtimeConsoleVisible}
         onToggleRuntimeConsole={handleToggleRuntimeConsole}
-        showTerminalButton={!isCompact}
+        showTerminalButton={
+          !isCompact && clientUiVisibility.isControlVisible("topTool.terminal")
+        }
         isTerminalOpen={terminalOpen}
         onToggleTerminal={handleToggleTerminalPanel}
-        showSoloButton={soloModeEnabled}
+        showSoloButton={
+          soloModeEnabled && clientUiVisibility.isControlVisible("topTool.focus")
+        }
         isSoloMode={isSoloMode}
         onToggleSoloMode={toggleSoloMode}
       />
@@ -637,6 +756,15 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     onSend: handleComposerSendWithEditorFallback,
     onQueue: handleComposerQueueWithEditorFallback,
     onStop: interruptTurn,
+    completionEmailSelected: Boolean(
+      activeThreadId && completionEmailIntentByThread?.[activeThreadId],
+    ),
+    completionEmailDisabled: !activeThreadId,
+    onToggleCompletionEmail: () => {
+      if (activeThreadId) {
+        toggleCompletionEmailIntent(activeThreadId);
+      }
+    },
     onRewind: handleRewindFromMessage,
     canStop: canInterrupt,
     isReviewing,
@@ -663,6 +791,17 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     onReviewPromptConfirmCustom: confirmCustom,
     activeTokenUsage,
     contextDualViewEnabled: activeEngine === "codex",
+    codexAutoCompactionEnabled: appSettings.codexAutoCompactionEnabled,
+    codexAutoCompactionThresholdPercent: appSettings.codexAutoCompactionThresholdPercent,
+    onCodexAutoCompactionSettingsChange: async (patch) => {
+      await queueSaveSettings({
+        ...appSettings,
+        codexAutoCompactionEnabled:
+          patch.enabled ?? appSettings.codexAutoCompactionEnabled,
+        codexAutoCompactionThresholdPercent:
+          patch.thresholdPercent ?? appSettings.codexAutoCompactionThresholdPercent,
+      });
+    },
     activeQueue,
     draftText: activeDraft,
     onDraftChange: handleDraftChange,
@@ -806,6 +945,13 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     },
     onOpenGlobalSearch: handleOpenSearchPalette,
     globalSearchShortcut: appSettings.toggleGlobalSearchShortcut,
+    openChatShortcut: appSettings.openChatShortcut,
+    openKanbanShortcut: appSettings.openKanbanShortcut,
+    cycleOpenSessionPrevShortcut: appSettings.cycleOpenSessionPrevShortcut,
+    cycleOpenSessionNextShortcut: appSettings.cycleOpenSessionNextShortcut,
+    saveFileShortcut: appSettings.saveFileShortcut,
+    findInFileShortcut: appSettings.findInFileShortcut,
+    toggleGitDiffListViewShortcut: appSettings.toggleGitDiffListViewShortcut,
     onOpenWorkspaceHome: handleOpenWorkspaceHome,
   });
 
@@ -815,5 +961,6 @@ export function useAppShellLayoutNodesSection(ctx: any) {
     sidebarNode, messagesNode, composerNode, approvalToastsNode, updateToastNode, errorToastsNode, globalRuntimeNoticeDockNode, homeNode, mainHeaderNode,
     desktopTopbarLeftNode, tabletNavNode, tabBarNode, rightPanelToolbarNode, gitDiffPanelNode, gitDiffViewerNode, fileViewPanelNode, planPanelNode,
     debugPanelNode, debugPanelFullNode, terminalDockNode, compactEmptyCodexNode, compactEmptySpecNode, compactEmptyGitNode, compactGitBackNode,
+    workspaceAliasPromptNode,
   };
 }

@@ -1,7 +1,11 @@
 // @vitest-environment jsdom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useThreadEventHandlers } from "./useThreadEventHandlers";
+import {
+  CODEX_EXECUTION_ACTIVE_NO_PROGRESS_STALL_MS,
+  CODEX_TURN_NO_PROGRESS_STALL_MS,
+  useThreadEventHandlers,
+} from "./useThreadEventHandlers";
 import {
   noteThreadVisibleRender,
   primeThreadStreamLatencyContext,
@@ -36,6 +40,7 @@ vi.mock("./useThreadUserInputEvents", () => ({
 }));
 
 vi.mock("../utils/networkErrors", () => ({
+  parseFirstPacketTimeoutSeconds: vi.fn(() => null),
   stripBackendErrorPrefix: (value: string) => value,
 }));
 
@@ -131,6 +136,7 @@ vi.mock("./useThreadItemEvents", () => ({
   useThreadItemEvents: vi.fn(() => ({
     onAgentMessageDelta: vi.fn(),
     onAgentMessageCompleted: vi.fn(),
+    onNormalizedRealtimeEvent: vi.fn(),
     onItemStarted: vi.fn(),
     onItemUpdated: vi.fn(),
     onItemCompleted: vi.fn(),
@@ -166,6 +172,9 @@ function makeOptions(onDebug = vi.fn()) {
     renameCustomNameKey: vi.fn(),
     renameAutoTitlePendingKey: vi.fn(),
     renameThreadTitleMapping: vi.fn(),
+    resolveClaudeContinuationThreadId: undefined as
+      | ((workspaceId: string, threadId: string, turnId?: string | null) => string | null)
+      | undefined,
     resolvePendingThreadForSession: vi.fn(() => null),
     getActiveTurnIdForThread: vi.fn(() => null),
     renamePendingMemoryCaptureKey: vi.fn(),
@@ -250,6 +259,407 @@ describe("useThreadEventHandlers diagnostics", () => {
     expect(waitingEntry?.payload.latencyCategory).toBe("upstream-pending");
   });
 
+  it("settles requestUserInput modeBlocked events through the shared waiting-for-user-choice path", () => {
+    const options = makeOptions();
+    options.resolveClaudeContinuationThreadId = vi.fn(
+      (_workspaceId: string, threadId: string) =>
+        threadId === "thread-native" ? "shared:thread-1" : threadId,
+    );
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-native", "turn-1");
+    });
+
+    options.dispatch.mockClear();
+    options.markProcessing.mockClear();
+    options.setActiveTurnId.mockClear();
+
+    act(() => {
+      result.current.onModeBlocked({
+        workspace_id: "ws-1",
+        params: {
+          thread_id: "thread-native",
+          blocked_method: "",
+          effective_mode: "code",
+          reason_code: "request_user_input_blocked_in_default_mode",
+          reason: "request blocked",
+          suggestion: "Switch to Plan mode",
+          request_id: "req-1",
+        },
+      });
+    });
+
+    expect(options.markProcessing).toHaveBeenCalledWith("shared:thread-1", false);
+    expect(options.setActiveTurnId).toHaveBeenCalledWith("shared:thread-1", null);
+    expect(options.dispatch).toHaveBeenCalledWith({
+      type: "removeUserInputRequest",
+      requestId: "req-1",
+      workspaceId: "ws-1",
+    });
+    expect(options.dispatch).toHaveBeenCalledWith({
+      type: "settleThreadPlanInProgress",
+      threadId: "shared:thread-1",
+      targetStatus: "pending",
+    });
+    expect(options.dispatch).toHaveBeenCalledWith({
+      type: "upsertItem",
+      workspaceId: "ws-1",
+      threadId: "shared:thread-1",
+      item: expect.objectContaining({
+        id: "mode-blocked-shared:thread-1-req-1",
+        toolType: "modeBlocked",
+        title: "Tool: askuserquestion",
+        detail: "item/tool/requestUserInput",
+        status: "completed",
+      }),
+      hasCustomName: false,
+    });
+  });
+
+  it("keeps non-requestUserInput modeBlocked events explanatory only", () => {
+    const options = makeOptions();
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onModeBlocked({
+        workspace_id: "ws-1",
+        params: {
+          thread_id: "thread-1",
+          blocked_method: "item/tool/fileChange",
+          effective_mode: "plan",
+          reason_code: "plan_readonly_violation",
+          reason: "write blocked",
+          suggestion: "Switch to Default mode",
+        },
+      });
+    });
+
+    expect(options.markProcessing).not.toHaveBeenCalledWith("thread-1", false);
+    expect(options.setActiveTurnId).not.toHaveBeenCalledWith("thread-1", null);
+    expect(options.dispatch).not.toHaveBeenCalledWith({
+      type: "settleThreadPlanInProgress",
+      threadId: "thread-1",
+      targetStatus: "pending",
+    });
+    expect(options.dispatch).toHaveBeenCalledWith({
+      type: "upsertItem",
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      item: expect.objectContaining({
+        toolType: "modeBlocked",
+        title: "Tool: mode policy",
+        detail: "item/tool/fileChange",
+        status: "completed",
+      }),
+      hasCustomName: false,
+    });
+  });
+
+  it("settles codex foreground turns after the bounded no-progress window", () => {
+    const onDebug = vi.fn();
+    const options = makeOptions(onDebug);
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-1");
+      vi.advanceTimersByTime(CODEX_TURN_NO_PROGRESS_STALL_MS);
+    });
+
+    expect(options.markProcessing).toHaveBeenCalledWith("thread-1", false);
+    expect(options.setActiveTurnId).toHaveBeenCalledWith("thread-1", null);
+    const stalledEntry = collectDiagnosticCalls(onDebug).find(
+      (entry) => entry.label === "thread/session:turn-diagnostic:codex-no-progress-stalled",
+    );
+    expect(stalledEntry?.payload.diagnosticCategory).toBe("codex-no-progress");
+    expect(stalledEntry?.payload.turnId).toBe("turn-1");
+  });
+
+  it("keeps execution-active codex turns out of stalled state at the base window", () => {
+    const onDebug = vi.fn();
+    const options = makeOptions(onDebug);
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-1");
+      result.current.onItemStarted("ws-1", "thread-1", {
+        id: "cmd-1",
+        type: "commandExecution",
+      });
+      vi.advanceTimersByTime(CODEX_TURN_NO_PROGRESS_STALL_MS);
+    });
+
+    expect(options.markProcessing).not.toHaveBeenCalledWith("thread-1", false);
+    expect(
+      collectDiagnosticCalls(onDebug).some(
+        (entry) => entry.label === "thread/session:turn-diagnostic:codex-no-progress-stalled",
+      ),
+    ).toBe(false);
+
+    act(() => {
+      vi.advanceTimersByTime(15 * 60_000 - CODEX_TURN_NO_PROGRESS_STALL_MS);
+    });
+
+    expect(options.markProcessing).not.toHaveBeenCalledWith("thread-1", false);
+
+    act(() => {
+      vi.advanceTimersByTime(CODEX_EXECUTION_ACTIVE_NO_PROGRESS_STALL_MS - 15 * 60_000);
+    });
+
+    expect(options.markProcessing).toHaveBeenCalledWith("thread-1", false);
+    const stalledEntry = collectDiagnosticCalls(onDebug).find(
+      (entry) => entry.label === "thread/session:turn-diagnostic:codex-no-progress-stalled",
+    );
+    expect(stalledEntry?.payload.timeoutMs).toBe(
+      CODEX_EXECUTION_ACTIVE_NO_PROGRESS_STALL_MS,
+    );
+    expect(stalledEntry?.payload.activeExecutionItemCount).toBe(1);
+  });
+
+  it("keeps quarantined late codex normalized events diagnostic-only after stalled settlement", () => {
+    const onDebug = vi.fn();
+    const options = makeOptions(onDebug);
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-1");
+      vi.advanceTimersByTime(CODEX_TURN_NO_PROGRESS_STALL_MS);
+    });
+
+    expect(options.markProcessing).toHaveBeenCalledWith("thread-1", false);
+    options.dispatch.mockClear();
+    options.markProcessing.mockClear();
+    options.setActiveTurnId.mockClear();
+    onDebug.mockClear();
+
+    act(() => {
+      result.current.onNormalizedRealtimeEvent({
+        engine: "codex",
+        workspaceId: "ws-1",
+        threadId: "thread-1",
+        eventId: "late-event-1",
+        itemKind: "message",
+        timestampMs: Date.now(),
+        item: {
+          kind: "message",
+          id: "assistant-late",
+          role: "assistant",
+          text: "late predecessor output",
+        },
+        operation: "appendAgentMessageDelta",
+        sourceMethod: "item/updated",
+        delta: "late predecessor output",
+        rawItem: null,
+        rawUsage: null,
+        turnId: "turn-1",
+      });
+    });
+
+    expect(options.dispatch).not.toHaveBeenCalled();
+    expect(options.markProcessing).not.toHaveBeenCalledWith("thread-1", true);
+    expect(options.setActiveTurnId).not.toHaveBeenCalledWith("thread-1", "turn-1");
+    const skippedEntry = collectDiagnosticCalls(onDebug).find(
+      (entry) => entry.label === "thread/session:turn-diagnostic:quarantined-codex-event-skipped",
+    );
+    expect(skippedEntry?.payload.eventTurnId).toBe("turn-1");
+    expect(skippedEntry?.payload.quarantineReason).toBe("codex_no_progress_timeout");
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-2");
+    });
+    options.dispatch.mockClear();
+    onDebug.mockClear();
+
+    act(() => {
+      result.current.onNormalizedRealtimeEvent({
+        engine: "codex",
+        workspaceId: "ws-1",
+        threadId: "thread-1",
+        eventId: "successor-event-1",
+        itemKind: "message",
+        timestampMs: Date.now(),
+        item: {
+          kind: "message",
+          id: "assistant-successor",
+          role: "assistant",
+          text: "successor output",
+        },
+        operation: "appendAgentMessageDelta",
+        sourceMethod: "item/updated",
+        delta: "successor output",
+        rawItem: null,
+        rawUsage: null,
+        turnId: "turn-2",
+      });
+    });
+
+    expect(options.dispatch).toHaveBeenCalledWith({
+      type: "markContinuationEvidence",
+      threadId: "thread-1",
+    });
+    expect(
+      collectDiagnosticCalls(onDebug).some(
+        (entry) => entry.label === "thread/session:turn-diagnostic:quarantined-codex-event-skipped",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps backend-stalled late raw codex item events diagnostic-only", () => {
+    const onDebug = vi.fn();
+    const options = makeOptions(onDebug);
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-1");
+      result.current.onTurnStalled("ws-1", "thread-1", "turn-1", {
+        message: "runtime reported stalled",
+        reasonCode: "resume_pending_timeout",
+        stage: "stalled",
+        source: "turn/stalled",
+        startedAtMs: null,
+        timeoutMs: 180_000,
+      });
+    });
+
+    options.dispatch.mockClear();
+    options.markProcessing.mockClear();
+    options.setActiveTurnId.mockClear();
+    onDebug.mockClear();
+
+    act(() => {
+      result.current.onItemUpdated("ws-1", "thread-1", {
+        id: "cmd-1",
+        type: "commandExecution",
+        turnId: "turn-1",
+      });
+    });
+
+    expect(options.dispatch).not.toHaveBeenCalled();
+    expect(options.markProcessing).not.toHaveBeenCalledWith("thread-1", true);
+    expect(options.setActiveTurnId).not.toHaveBeenCalledWith("thread-1", "turn-1");
+    const skippedEntry = collectDiagnosticCalls(onDebug).find(
+      (entry) => entry.label === "thread/session:turn-diagnostic:quarantined-codex-event-skipped",
+    );
+    expect(skippedEntry?.payload.eventTurnId).toBe("turn-1");
+    expect(skippedEntry?.payload.quarantineReason).toBe("resume_pending_timeout");
+  });
+
+  it("does not quarantine shared claude stalled turns as codex", () => {
+    const onDebug = vi.fn();
+    const options = makeOptions(onDebug);
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted(
+        "ws-1",
+        "shared:thread-claude-stalled",
+        "turn-claude-1",
+      );
+      result.current.onTurnStalled(
+        "ws-1",
+        "shared:thread-claude-stalled",
+        "turn-claude-1",
+        {
+          message: "runtime reported stalled",
+          reasonCode: "resume_pending_timeout",
+          stage: "stalled",
+          source: "turn/stalled",
+          startedAtMs: null,
+          timeoutMs: 180_000,
+          engine: "claude",
+        },
+      );
+    });
+
+    options.dispatch.mockClear();
+    onDebug.mockClear();
+
+    act(() => {
+      result.current.onItemUpdated("ws-1", "shared:thread-claude-stalled", {
+        id: "cmd-claude-1",
+        type: "commandExecution",
+        turnId: "turn-claude-1",
+      });
+    });
+
+    expect(options.dispatch).toHaveBeenCalledWith({
+      type: "markContinuationEvidence",
+      threadId: "shared:thread-claude-stalled",
+    });
+    expect(
+      collectDiagnosticCalls(onDebug).some(
+        (entry) => entry.label === "thread/session:turn-diagnostic:quarantined-codex-event-skipped",
+      ),
+    ).toBe(false);
+  });
+
+  it("returns to the base no-progress window when an execution completion only carries item id", () => {
+    const onDebug = vi.fn();
+    const options = makeOptions(onDebug);
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-1");
+      result.current.onItemStarted("ws-1", "thread-1", {
+        id: "cmd-1",
+        type: "commandExecution",
+      });
+      vi.advanceTimersByTime(60_000);
+      result.current.onItemCompleted("ws-1", "thread-1", {
+        id: "cmd-1",
+      });
+      vi.advanceTimersByTime(CODEX_TURN_NO_PROGRESS_STALL_MS);
+    });
+
+    expect(options.markProcessing).toHaveBeenCalledWith("thread-1", false);
+    const stalledEntry = collectDiagnosticCalls(onDebug).find(
+      (entry) => entry.label === "thread/session:turn-diagnostic:codex-no-progress-stalled",
+    );
+    expect(stalledEntry?.payload.timeoutMs).toBe(CODEX_TURN_NO_PROGRESS_STALL_MS);
+    expect(stalledEntry?.payload.activeExecutionItemCount).toBe(0);
+  });
+
+  it("resets codex no-progress settlement when turn progress arrives", () => {
+    const onDebug = vi.fn();
+    const options = makeOptions(onDebug);
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-1");
+      vi.advanceTimersByTime(CODEX_TURN_NO_PROGRESS_STALL_MS - 1_000);
+      result.current.onAgentMessageDelta({
+        workspaceId: "ws-1",
+        threadId: "thread-1",
+        itemId: "msg-1",
+        delta: "still working",
+      });
+      vi.advanceTimersByTime(CODEX_TURN_NO_PROGRESS_STALL_MS - 1_000);
+    });
+
+    expect(options.markProcessing).not.toHaveBeenCalledWith("thread-1", false);
+
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+
+    expect(options.markProcessing).toHaveBeenCalledWith("thread-1", false);
+  });
+
+  it("does not apply the codex no-progress settlement to non-codex turns", () => {
+    const onDebug = vi.fn();
+    const options = makeOptions(onDebug);
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "claude:session-1", "turn-1");
+      vi.advanceTimersByTime(CODEX_TURN_NO_PROGRESS_STALL_MS);
+    });
+
+    expect(options.markProcessing).not.toHaveBeenCalledWith("claude:session-1", false);
+    const labels = collectDiagnosticCalls(onDebug).map((entry) => entry.label);
+    expect(labels).not.toContain("thread/session:turn-diagnostic:codex-no-progress-stalled");
+  });
+
   it("cancels the stall warning once the first execution item arrives", () => {
     const onDebug = vi.fn();
     const { result } = renderHook(() => useThreadEventHandlers(makeOptions(onDebug)));
@@ -309,6 +719,47 @@ describe("useThreadEventHandlers diagnostics", () => {
 
     const labels = collectDiagnosticCalls(onDebug).map((entry) => entry.label);
     expect(labels).not.toContain("thread/session:turn-diagnostic:completed");
+  });
+
+  it("keeps late codex predecessor events diagnostic-only when turn id no longer matches", () => {
+    const onDebug = vi.fn();
+    const options = makeOptions(onDebug);
+    const { result } = renderHook(() => useThreadEventHandlers(options));
+
+    act(() => {
+      result.current.onTurnStarted("ws-1", "thread-1", "turn-2");
+    });
+    options.dispatch.mockClear();
+
+    act(() => {
+      result.current.onNormalizedRealtimeEvent({
+        engine: "codex",
+        workspaceId: "ws-1",
+        threadId: "thread-1",
+        eventId: "late-event-1",
+        itemKind: "message",
+        timestampMs: Date.now(),
+        item: {
+          kind: "message",
+          id: "assistant-late",
+          role: "assistant",
+          text: "late predecessor output",
+        },
+        operation: "appendAgentMessageDelta",
+        sourceMethod: "item/updated",
+        delta: "late predecessor output",
+        rawItem: null,
+        rawUsage: null,
+        turnId: "turn-1",
+      });
+    });
+
+    expect(options.dispatch).not.toHaveBeenCalled();
+    const skippedEntry = collectDiagnosticCalls(onDebug).find(
+      (entry) => entry.label === "thread/session:turn-diagnostic:late-codex-event-skipped",
+    );
+    expect(skippedEntry?.payload.eventTurnId).toBe("turn-1");
+    expect(skippedEntry?.payload.expectedTurnId).toBe("turn-2");
   });
 
   it("does not record first-delta diagnostics for interrupted threads", () => {

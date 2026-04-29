@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextBar } from "./ContextBar";
 
@@ -73,5 +73,117 @@ describe("ContextBar live canvas controls visibility", () => {
 
     const rewindButton = container.querySelector(".context-rewind-btn");
     expect(rewindButton).toBeTruthy();
+  });
+
+  it("renders the completion email toggle in the bottom context bar", () => {
+    const onToggleCompletionEmail = vi.fn();
+
+    const { rerender } = render(
+      <ContextBar
+        isLoading={false}
+        hasMessages
+        onToggleCompletionEmail={onToggleCompletionEmail}
+      />,
+    );
+
+    const toggle = screen.getByRole("button", {
+      name: "composer.completionEmailAriaLabel",
+    });
+    expect(toggle.closest(".context-bar")).toBeTruthy();
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+
+    toggle.click();
+    expect(onToggleCompletionEmail).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <ContextBar
+        isLoading={false}
+        hasMessages
+        completionEmailSelected
+        completionEmailDisabled
+        onToggleCompletionEmail={onToggleCompletionEmail}
+      />,
+    );
+
+    const selectedToggle = screen.getByRole("button", {
+      name: "composer.completionEmailSelected",
+    }) as HTMLButtonElement;
+    expect(selectedToggle.getAttribute("aria-pressed")).toBe("true");
+    expect(selectedToggle.disabled).toBe(true);
+  });
+
+  it("renders Codex auto-compaction controls inside the context tooltip", () => {
+    const onCodexAutoCompactionSettingsChange = vi.fn();
+
+    const { rerender } = render(
+      <ContextBar
+        currentProvider="codex"
+        contextDualViewEnabled
+        dualContextUsage={{
+          usedTokens: 50,
+          contextWindow: 100,
+          percent: 50,
+          hasUsage: true,
+          compactionState: "idle",
+        }}
+        codexAutoCompactionEnabled={false}
+        codexAutoCompactionThresholdPercent={150}
+        onCodexAutoCompactionSettingsChange={onCodexAutoCompactionSettingsChange}
+      />,
+    );
+
+    const toggle = screen.getByLabelText("chat.contextDualViewAutoCompactionEnabled");
+    const threshold = screen.getByLabelText("chat.contextDualViewAutoCompactionThreshold") as HTMLSelectElement;
+
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    expect(threshold.value).toBe("150");
+    expect(threshold.disabled).toBe(true);
+
+    fireEvent.click(toggle);
+    expect(onCodexAutoCompactionSettingsChange).toHaveBeenCalledWith({ enabled: true });
+
+    rerender(
+      <ContextBar
+        currentProvider="codex"
+        contextDualViewEnabled
+        dualContextUsage={{
+          usedTokens: 50,
+          contextWindow: 100,
+          percent: 50,
+          hasUsage: true,
+          compactionState: "idle",
+        }}
+        codexAutoCompactionEnabled
+        codexAutoCompactionThresholdPercent={150}
+        onCodexAutoCompactionSettingsChange={onCodexAutoCompactionSettingsChange}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("chat.contextDualViewAutoCompactionThreshold"), {
+      target: { value: "180" },
+    });
+    expect(onCodexAutoCompactionSettingsChange).toHaveBeenCalledWith({ thresholdPercent: 180 });
+  });
+
+  it("shows the real Codex context usage percent while filling the ring at 100 percent", () => {
+    const { container } = render(
+      <ContextBar
+        currentProvider="codex"
+        contextDualViewEnabled
+        dualContextUsage={{
+          usedTokens: 130,
+          contextWindow: 100,
+          percent: 100,
+          hasUsage: true,
+          compactionState: "idle",
+        }}
+      />,
+    );
+
+    expect(screen.getAllByText("130%").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("0%")).toBeTruthy();
+
+    const ring = container.querySelector(".context-dual-usage-ring") as HTMLElement | null;
+    expect(ring?.style.getPropertyValue("--dual-usage-percent")).toBe("100%");
   });
 });

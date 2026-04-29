@@ -30,6 +30,7 @@ vi.mock("react-i18next", () => ({
         "sidebar.sessionActionsGroup": "New session",
         "sidebar.newSharedSession": "Shared Session",
         "sidebar.workspaceActionsGroup": "Workspace actions",
+        "sidebar.setWorkspaceAlias": "Set alias",
         "workspace.engineClaudeCode": "Claude Code",
         "workspace.engineCodex": "Codex",
         "workspace.engineOpenCode": "OpenCode",
@@ -164,6 +165,7 @@ function createHandlers() {
     onReloadWorkspaceThreads: vi.fn(),
     onDeleteWorkspace: vi.fn(),
     onDeleteWorktree: vi.fn(),
+    onRenameWorkspaceAlias: vi.fn(),
     onAddWorktreeAgent: vi.fn(),
     onAddCloneAgent: vi.fn(),
   };
@@ -507,6 +509,33 @@ describe("useSidebarMenus", () => {
 
     expect(handlers.onAddSharedAgent).toHaveBeenCalledTimes(1);
     expect(handlers.onAddSharedAgent).toHaveBeenCalledWith(workspace);
+  });
+
+  it("triggers workspace alias action from the workspace menu", async () => {
+    const handlers = createHandlers();
+    const { result } = renderHook(() => useSidebarMenus(handlers));
+
+    await act(async () => {
+      const event = {
+        clientX: 180,
+        clientY: 180,
+        preventDefault: vi.fn(),
+        stopPropagation: vi.fn(),
+      } as unknown as Parameters<typeof result.current.showWorkspaceMenu>[0];
+      result.current.showWorkspaceMenu(event, workspace);
+    });
+
+    const aliasAction = result.current.workspaceMenuState?.groups
+      .find((group) => group.id === "workspace-actions")
+      ?.actions.find((action) => action.id === "rename-workspace-alias");
+
+    expect(aliasAction?.label).toBe("Set alias");
+    act(() => {
+      result.current.onWorkspaceMenuAction(aliasAction!);
+    });
+
+    expect(handlers.onRenameWorkspaceAlias).toHaveBeenCalledTimes(1);
+    expect(handlers.onRenameWorkspaceAlias).toHaveBeenCalledWith(workspace);
   });
 
   it("marks opencode as sign-in required only after manual refresh detects disconnection", async () => {

@@ -143,7 +143,12 @@ impl WorkspaceSession {
         let total_pending_request_count = pending_count.saturating_add(timed_out_count);
         let runtime_work_active = if let Some(runtime_manager) = self.runtime_manager() {
             runtime_manager
-                .has_active_work_protection_for_session("codex", &self.entry.id, self.process_id)
+                .has_active_work_protection_for_session(
+                    "codex",
+                    &self.entry.id,
+                    self.process_id,
+                    Some(self.started_at_ms),
+                )
                 .await
         } else {
             false
@@ -155,6 +160,7 @@ impl WorkspaceSession {
                     "codex",
                     &self.entry.id,
                     self.process_id,
+                    Some(self.started_at_ms),
                     RuntimeEndedRecord {
                         reason_code: reason_code.to_string(),
                         message: Some(message.clone()),
@@ -181,6 +187,9 @@ impl WorkspaceSession {
                     self.shutdown_source()
                         .map(RuntimeShutdownSource::as_str)
                         .as_deref(),
+                    Some(self.runtime_generation().as_str()),
+                    self.process_id,
+                    Some(self.started_at_ms),
                     &runtime_end_context,
                     total_pending_request_count,
                 ),
@@ -391,8 +400,19 @@ async fn process_workspace_stdout_value<E: EventSink>(
 
     let event_method = extract_event_method(&value).map(ToString::to_string);
     let thread_id = extract_thread_id(&value);
+    let usage_percent = extract_compaction_usage_percent(&value);
 
     dispatch_workspace_stdout_value(session, event_sink, workspace_id, value).await;
+
+    maybe_trigger_auto_compaction(
+        session,
+        event_sink,
+        workspace_id,
+        event_method.as_deref(),
+        thread_id.as_deref(),
+        usage_percent,
+    )
+    .await;
 
     if let Some(extra_event) = synthetic_plan_event {
         emit_workspace_event(session, event_sink, workspace_id, extra_event).await;
@@ -403,6 +423,79 @@ async fn process_workspace_stdout_value<E: EventSink>(
     session
         .clear_terminal_plan_turn_state(thread_id.as_deref(), event_method.as_deref())
         .await;
+}
+
+async fn maybe_trigger_auto_compaction<E: EventSink>(
+    session: &Arc<WorkspaceSession>,
+    event_sink: &E,
+    workspace_id: &str,
+    method: Option<&str>,
+    thread_id: Option<&str>,
+    usage_percent: Option<f64>,
+) {
+    let Some(method) = method else {
+        return;
+    };
+    let Some(thread_id) = thread_id else {
+        return;
+    };
+    if !is_codex_thread_id(thread_id) {
+        return;
+    }
+
+    let should_trigger = {
+        let mut states = session.auto_compaction_thread_state.lock().await;
+        let state = states.entry(thread_id.to_string()).or_default();
+        evaluate_auto_compaction_state(
+            state,
+            method,
+            usage_percent,
+            session.auto_compaction_threshold_percent(),
+            session.auto_compaction_enabled(),
+            now_millis(),
+        )
+    };
+    if !should_trigger {
+        return;
+    }
+
+    let params = json!({ "threadId": thread_id });
+    match session
+        .fire_and_forget_request("thread/compact/start", params)
+        .await
+    {
+        Ok(()) => {
+            emit_workspace_event(
+                session,
+                event_sink,
+                workspace_id,
+                json!({
+                    "method": "thread/compacting",
+                    "params": {
+                        "threadId": thread_id,
+                        "thread_id": thread_id,
+                        "thresholdPercent": session.auto_compaction_threshold_percent(),
+                        "threshold_percent": session.auto_compaction_threshold_percent(),
+                        "auto": true,
+                        "manual": false,
+                    }
+                }),
+            )
+            .await;
+        }
+        Err(error) => {
+            {
+                let mut states = session.auto_compaction_thread_state.lock().await;
+                if let Some(state) = states.get_mut(thread_id) {
+                    state.in_flight = false;
+                }
+            }
+            eprintln!(
+                "[codex] auto compaction dispatch failed workspace={} thread={}: {}",
+                workspace_id, thread_id, error
+            );
+        }
+    }
 }
 
 pub(super) fn spawn_workspace_session_runtime_tasks<E: EventSink>(
@@ -537,4 +630,42 @@ pub(super) fn spawn_workspace_session_runtime_tasks<E: EventSink>(
             });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_shutdown_source_labels_are_platform_neutral() {
+        let labels = [
+            (
+                RuntimeShutdownSource::UserManualShutdown,
+                "user_manual_shutdown",
+            ),
+            (RuntimeShutdownSource::ManualRelease, "manual_release"),
+            (
+                RuntimeShutdownSource::InternalReplacement,
+                "internal_replacement",
+            ),
+            (
+                RuntimeShutdownSource::StaleReuseCleanup,
+                "stale_reuse_cleanup",
+            ),
+            (RuntimeShutdownSource::SettingsRestart, "settings_restart"),
+            (RuntimeShutdownSource::AppExit, "app_exit"),
+            (RuntimeShutdownSource::IdleEviction, "idle_eviction"),
+            (
+                RuntimeShutdownSource::CompatibilityManual,
+                "manual_shutdown",
+            ),
+        ];
+
+        for (source, expected) in labels {
+            assert_eq!(source.as_str(), expected);
+            assert!(!source.as_str().contains("windows"));
+            assert!(!source.as_str().contains("macos"));
+            assert!(!source.as_str().contains("unix"));
+        }
+    }
 }

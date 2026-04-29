@@ -13,6 +13,34 @@ vi.mock('../../../../../assets/model-icons/openai.svg', () => ({
 }));
 
 describe('ConfigSelect usage entry', () => {
+  it('hides streaming and thinking toggles for codex while preserving them for claude', async () => {
+    const { container, rerender } = render(
+      <ConfigSelect
+        currentProvider="codex"
+        onProviderChange={() => {}}
+      />,
+    );
+
+    fireEvent.click(container.querySelector('.config-button') as HTMLElement);
+
+    await waitFor(() => {
+      expect(container.querySelector('.selector-option-streaming-toggle')).toBeFalsy();
+      expect(container.querySelector('.selector-option-thinking-toggle')).toBeFalsy();
+    });
+
+    rerender(
+      <ConfigSelect
+        currentProvider="claude"
+        onProviderChange={() => {}}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('.selector-option-streaming-toggle')).toBeTruthy();
+      expect(container.querySelector('.selector-option-thinking-toggle')).toBeTruthy();
+    });
+  });
+
   it('hides the provider switch entry inside the config menu', async () => {
     const { container } = render(
       <ConfigSelect

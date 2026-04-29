@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-7.md`
-- **Total Sessions**: 204
-- **Last Active**: 2026-04-27
+- **Total Sessions**: 230
+- **Last Active**: 2026-04-29
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-7.md` | ~57 | Active |
+| `journal-7.md` | ~1518 | Active |
 | `journal-6.md` | ~1961 | Archived |
 | `journal-5.md` | ~1949 | Archived |
 | `journal-4.md` | ~1975 | Archived |
@@ -35,6 +35,32 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 230 | 2026-04-29 | 合并 PR #448 自定义主题预设 | `bc7f575d03e37b7750b12753ce069e5c5044fbd8` | `integrate/pr-448-theme-presets` |
+| 229 | 2026-04-29 | 修复历史恢复幕布渲染回归 | `d938e025` | `feature/v0.4.11` |
+| 228 | 2026-04-29 | CI sentry workflow 权限门禁修复 | `0b25913f890407eb0c98bca96eafd820b71f6486` | `feature/v0.4.11` |
+| 227 | 2026-04-29 | Linux IME 兼容边界修复与回归测试 | `dac0aa5a` | `feature/v0.4.11` |
+| 226 | 2026-04-29 | 支持管理运行时提示悬浮球显隐 | `beb5239fdf557a3458dc1c3b1069b56f8fb0ad61` | `feature/v0.4.11` |
+| 225 | 2026-04-29 | 实现 modeBlocked 与 Codex resume settlement 对齐 | `d84148b1` | `feature/v0.4.11` |
+| 224 | 2026-04-29 | 修复 CI sentry 抖动与 Actions 升级 | `5a04ad5d` | `feature/v0.4.11` |
+| 223 | 2026-04-29 | 收紧对话完成邮件正文内容 | `2d744bb9fb07099b5425fdb24c6d7c74c67add4a` | `feature/v0.4.11` |
+| 222 | 2026-04-29 | Codex 默认隐藏 streaming/thinking 开关 | `e860cdc3e0298963f25091c27c46e8bb55b2f86d` | `feature/v0.4.11` |
+| 221 | 2026-04-29 | 拆分提交邮件提醒与自动压缩改动 | `f8f74f23`, `bd140a77`, `a16aa802`, `b3ec7ec2` | `feature/v0.4.11` |
+| 220 | 2026-04-29 | 收敛 Codex 会话保活与历史展示 | `69131442` | `feature/v0.4.11` |
+| 219 | 2026-04-29 | 添加邮件发送设置与测试发送 | `3c65a668` | `feature/v0.4.11` |
+| 218 | 2026-04-28 | 恢复 Nix 固定前端依赖哈希 | `be912556` | `feature/v0.4.11` |
+| 217 | 2026-04-28 | 记录 Rust 格式化提交 | `6cb1e4ee` | `feature/v0.4.11` |
+| 216 | 2026-04-28 | 记录快捷键别名修复提交 | `c81b919c` | `feature/v0.4.11` |
+| 215 | 2026-04-28 | 记录 Codex 会话泄漏修复提交 | `6413418c` | `feature/v0.4.11` |
+| 214 | 2026-04-28 | 记录线程消息测试拆分提交 | `be1417f1` | `feature/v0.4.11` |
+| 213 | 2026-04-28 | 记录侧边栏工作区别名提交 | `ab39debc` | `feature/v0.4.11` |
+| 212 | 2026-04-28 | 记录邮件发送设置提案提交 | `ab8312fc` | `feature/v0.4.11` |
+| 211 | 2026-04-28 | 归档 Codex 会话保活提案 | `05cf919a` | `feature/v0.4.11` |
+| 210 | 2026-04-28 | 交付客户端界面显示控制 | `6fe84157f1578bf8c3351a50d6ac428d88ff29d8` | `feature/v0.4.11` |
+| 209 | 2026-04-28 | 扩展可配置应用快捷键 | `dcb43e5602c73a95272cfdba8c896b7eb3b59ab3` | `feature/v0.4.11` |
+| 208 | 2026-04-28 | 模型选择器配置刷新入口 | `8f802abb` | `feature/v0.4.11` |
+| 207 | 2026-04-28 | Nix 前端依赖改用 importNpmLock | `aa9d4d6b358d277c742ddd298f6ccdde5bf41ad9` | `feature/v0.4.11` |
+| 206 | 2026-04-28 | 回写 Windows Codex wrapper 启动规范 | `16555e05256b851cc6cd2341a63b27be2ccbdbc5` | `feature/v0.4.11` |
+| 205 | 2026-04-28 | 修复 Windows Codex wrapper 会话启动降级 | `a3d3744b` | `feature/v0.4.11` |
 | 204 | 2026-04-27 | 补充 v0.4.9 发布说明 | `82a4b7a6c0661de6f2acac7cd8c28fb78bb87a73` | `feature/v0.4.9` |
 | 203 | 2026-04-27 | 修复失效会话手动恢复分流 | `85aaefa6` | `feature/v0.4.9` |
 | 202 | 2026-04-27 | 归档运行时 OpenSpec 提案 | `9007e01a` | `feature/v0.4.9` |

@@ -34,6 +34,10 @@ import {
   type Extension,
 } from "@codemirror/state";
 import { getGitFileFullDiff } from "../../../services/tauri";
+import {
+  matchesShortcutForPlatform,
+  parseShortcut,
+} from "../../../utils/shortcuts";
 import { highlightLine } from "../../../utils/syntax";
 import { OpenAppMenu } from "../../app/components/OpenAppMenu";
 import FileIcon from "../../../components/FileIcon";
@@ -67,6 +71,10 @@ import { useFileDocumentState } from "../hooks/useFileDocumentState";
 import { useFileExternalSync } from "../hooks/useFileExternalSync";
 import { useFileNavigation } from "../hooks/useFileNavigation";
 import { useFilePreviewPayload } from "../hooks/useFilePreviewPayload";
+import {
+  isThemeMutationAttribute,
+  readDocumentThemeAppearance,
+} from "../../theme/utils/themeAppearance";
 
 type FileViewPanelProps = {
   workspaceId: string;
@@ -113,24 +121,54 @@ type FileViewPanelProps = {
   externalChangeMonitoringEnabled?: boolean;
   externalChangeTransportMode?: "watcher" | "polling";
   externalChangePollIntervalMs?: number;
+  saveFileShortcut?: string | null;
+  findInFileShortcut?: string | null;
 };
 
 const EXTERNAL_CHANGE_POLL_INTERVAL_MS = 2_000;
 type EditorTheme = "light" | "dark";
 
+const CODE_MIRROR_KEY_LABELS: Record<string, string> = {
+  arrowdown: "ArrowDown",
+  arrowleft: "ArrowLeft",
+  arrowright: "ArrowRight",
+  arrowup: "ArrowUp",
+  enter: "Enter",
+  escape: "Escape",
+  space: "Space",
+  tab: "Tab",
+};
+
+function toCodeMirrorShortcut(value: string | null | undefined): string | null {
+  const parsed = parseShortcut(value);
+  if (!parsed) {
+    return null;
+  }
+  const modifiers: string[] = [];
+  if (parsed.meta && !parsed.ctrl) {
+    modifiers.push("Mod");
+  } else {
+    if (parsed.meta) {
+      modifiers.push("Meta");
+    }
+    if (parsed.ctrl) {
+      modifiers.push("Ctrl");
+    }
+  }
+  if (parsed.alt) {
+    modifiers.push("Alt");
+  }
+  if (parsed.shift) {
+    modifiers.push("Shift");
+  }
+  const keyLabel =
+    CODE_MIRROR_KEY_LABELS[parsed.key] ??
+    (parsed.key.length === 1 ? parsed.key : parsed.key);
+  return [...modifiers, keyLabel].join("-");
+}
+
 function resolveEditorTheme(): EditorTheme {
-  if (typeof document === "undefined") {
-    return "dark";
-  }
-  const dataTheme = document.documentElement.dataset.theme;
-  if (dataTheme === "light") return "light";
-  if (dataTheme === "dark" || dataTheme === "dim") return "dark";
-  if (typeof window !== "undefined" && window.matchMedia) {
-    return window.matchMedia("(prefers-color-scheme: light)").matches
-      ? "light"
-      : "dark";
-  }
-  return "dark";
+  return readDocumentThemeAppearance();
 }
 
 function formatFileSize(bytes: number): string {
@@ -262,6 +300,8 @@ export function FileViewPanel({
   externalChangeMonitoringEnabled = false,
   externalChangeTransportMode = "polling",
   externalChangePollIntervalMs = EXTERNAL_CHANGE_POLL_INTERVAL_MS,
+  saveFileShortcut = "cmd+s",
+  findInFileShortcut = "cmd+f",
 }: FileViewPanelProps) {
   const { t } = useTranslation();
   const renderProfile = useMemo(() => resolveFileRenderProfile(filePath), [filePath]);
@@ -605,7 +645,7 @@ export function FileViewPanel({
     };
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
-        if (mutation.attributeName === "data-theme") {
+        if (isThemeMutationAttribute(mutation.attributeName)) {
           updateTheme();
           return;
         }
@@ -662,17 +702,22 @@ export function FileViewPanel({
   handleSaveRef.current = handleSave;
 
   const saveKeymapExt = useMemo(
-    () =>
-      keymap.of([
+    () => {
+      const codeMirrorSaveShortcut = toCodeMirrorShortcut(saveFileShortcut);
+      if (!codeMirrorSaveShortcut) {
+        return [];
+      }
+      return keymap.of([
         {
-          key: "Mod-s",
+          key: codeMirrorSaveShortcut,
           run: () => {
             handleSaveRef.current();
             return true;
           },
         },
-      ]),
-    [],
+      ]);
+    },
+    [saveFileShortcut],
   );
   const persistentSearchExtension = useMemo(() => search({ top: true }), []);
   const handleCodeMirrorCreate: NonNullable<ReactCodeMirrorProps["onCreateEditor"]> =
@@ -685,14 +730,14 @@ export function FileViewPanel({
   // Keyboard shortcut: Cmd+S / Ctrl+S (works in any mode, including preview)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === "s") {
+      if (matchesShortcutForPlatform(event, saveFileShortcut)) {
         event.preventDefault();
         handleSave();
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleSave]);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [handleSave, saveFileShortcut]);
 
   // Handle close with unsaved changes
   const handleClose = useCallback(() => {
@@ -735,7 +780,7 @@ export function FileViewPanel({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f") {
+      if (!matchesShortcutForPlatform(event, findInFileShortcut)) {
         return;
       }
       const panelRoot = panelRootRef.current;
@@ -749,7 +794,7 @@ export function FileViewPanel({
     };
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [handleOpenFindPanel]);
+  }, [findInFileShortcut, handleOpenFindPanel]);
 
   useEffect(() => {
     if (!pendingOpenFindPanelRef.current) {

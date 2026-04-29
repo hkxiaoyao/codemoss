@@ -3,6 +3,8 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationItem, WorkspaceInfo } from "../../../types";
 import { useThreadMessaging } from "./useThreadMessaging";
+import type { ThreadState } from "./useThreadsReducer";
+import type { CodexAcceptedTurnRecord } from "../utils/codexConversationLiveness";
 import {
   compactThreadContext,
   engineInterruptTurn,
@@ -16,13 +18,12 @@ import {
   importOpenCodeSession,
   interruptTurn,
   listGitBranches,
-  listExternalSpecTree,
   listGeminiSessions,
   listMcpServerStatus,
   sendUserMessage,
   startReview as startReviewService,
 } from "../../../services/tauri";
-import { getClientStoreSync, writeClientStoreValue } from "../../../services/clientStorage";
+import { getClientStoreSync } from "../../../services/clientStorage";
 import { pushErrorToast } from "../../../services/toasts";
 import {
   clearGlobalRuntimeNotices,
@@ -109,12 +110,6 @@ describe("useThreadMessaging", () => {
       gitignored_files: [],
       gitignored_directories: [],
     });
-    vi.mocked(listExternalSpecTree).mockResolvedValue({
-      files: ["openspec/changes/add-spec-hub/proposal.md", "openspec/changes/add-spec-hub/tasks.md"],
-      directories: ["openspec", "openspec/changes", "openspec/specs"],
-      gitignored_files: [],
-      gitignored_directories: [],
-    });
     vi.mocked(listGitBranches).mockResolvedValue({
       branches: [
         { name: "main", lastCommit: 2000 },
@@ -144,7 +139,6 @@ describe("useThreadMessaging", () => {
     vi.mocked(engineInterrupt).mockResolvedValue();
     vi.mocked(engineInterruptTurn).mockResolvedValue();
     vi.mocked(interruptTurn).mockResolvedValue({});
-    vi.mocked(writeClientStoreValue).mockImplementation(() => undefined);
     vi.mocked(sendSharedSessionTurn).mockResolvedValue({
       result: { turn: { id: "shared-turn-1" } },
     });
@@ -157,6 +151,8 @@ describe("useThreadMessaging", () => {
       activeThreadId?: string | null;
       ensuredThreadId?: string | null;
       activeTurnIdByThread?: Record<string, string | null>;
+      threadStatusById?: ThreadState["threadStatusById"];
+      codexAcceptedTurnByThread?: Record<string, CodexAcceptedTurnRecord>;
       threadEngineById?: Record<string, "claude" | "codex" | "gemini" | "opencode" | undefined>;
       itemsByThread?: Record<string, ConversationItem[]>;
       startThreadForWorkspace?: ReturnType<typeof vi.fn>;
@@ -196,9 +192,10 @@ describe("useThreadMessaging", () => {
         steerEnabled: false,
         customPrompts: [],
         activeEngine,
-        threadStatusById: {},
+        threadStatusById: overrides.threadStatusById ?? {},
         itemsByThread: overrides.itemsByThread ?? {},
         activeTurnIdByThread: overrides.activeTurnIdByThread ?? {},
+        codexAcceptedTurnByThread: overrides.codexAcceptedTurnByThread ?? {},
         tokenUsageByThread: {},
         rateLimitsByWorkspace: {},
         pendingInterruptsRef,
@@ -1479,6 +1476,15 @@ describe("useThreadMessaging", () => {
       activeThreadId: "claude:session-1",
       ensuredThreadId: "claude:session-1",
       activeTurnIdByThread: {},
+      threadStatusById: {
+        "claude:session-1": {
+          isProcessing: true,
+          hasUnread: false,
+          isReviewing: false,
+          processingStartedAt: 1,
+          lastDurationMs: null,
+        },
+      },
     });
 
     await act(async () => {
@@ -1489,6 +1495,38 @@ describe("useThreadMessaging", () => {
     expect(engineInterruptTurn).not.toHaveBeenCalled();
     expect(engineInterrupt).not.toHaveBeenCalled();
     expect(interruptTurn).not.toHaveBeenCalled();
+  });
+
+  it("does not queue a pending interrupt after a stalled codex turn already settled", async () => {
+    const { result, pendingInterruptsRef, dispatch } = makeHook("codex", {
+      activeThreadId: "thread-stalled",
+      ensuredThreadId: "thread-stalled",
+      activeTurnIdByThread: { "thread-stalled": null },
+      threadEngineById: { "thread-stalled": "codex" },
+      threadStatusById: {
+        "thread-stalled": {
+          isProcessing: false,
+          hasUnread: false,
+          isReviewing: false,
+          processingStartedAt: null,
+          lastDurationMs: 120_000,
+        },
+      },
+    });
+
+    await act(async () => {
+      await result.current.interruptTurn();
+    });
+
+    expect(pendingInterruptsRef.current.has("thread-stalled")).toBe(false);
+    expect(dispatch).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "addAssistantMessage",
+        threadId: "thread-stalled",
+      }),
+    );
+    expect(interruptTurn).not.toHaveBeenCalled();
+    expect(engineInterrupt).not.toHaveBeenCalled();
   });
 
   it("clears queued pending interrupt before starting a new claude send", async () => {
@@ -1650,6 +1688,7 @@ describe("useThreadMessaging", () => {
         threadStatusById: {},
         itemsByThread: {},
         activeTurnIdByThread: {},
+        codexAcceptedTurnByThread: {},
         tokenUsageByThread: {},
         rateLimitsByWorkspace: {},
         pendingInterruptsRef: { current: new Set<string>() },
@@ -1801,6 +1840,208 @@ describe("useThreadMessaging", () => {
     });
   });
 
+  it("does not silently replace a stale codex thread when durable local activity exists", async () => {
+    vi.mocked(sendUserMessage).mockResolvedValueOnce({
+      error: {
+        message: "thread not found: legacy-thread-id",
+      },
+    } as never);
+    const refreshThread = vi.fn(async () => null);
+    const startThreadForWorkspace = vi.fn(async () => "thread-new-unknown");
+    const { result, pushThreadErrorMessage } = makeHook("codex", {
+      activeThreadId: "legacy-thread-id",
+      ensuredThreadId: "legacy-thread-id",
+      startThreadForWorkspace,
+      refreshThread,
+      itemsByThread: {
+        "legacy-thread-id": [
+          {
+            id: "user-accepted-earlier",
+            kind: "message",
+            role: "user",
+            text: "accepted earlier",
+          },
+        ],
+      },
+    });
+
+    await act(async () => {
+      await result.current.sendUserMessage("hello codex");
+    });
+
+    await waitFor(() => {
+      expect(refreshThread).toHaveBeenCalledWith("ws-1", "legacy-thread-id");
+      expect(startThreadForWorkspace).not.toHaveBeenCalled();
+      expect(sendUserMessage).toHaveBeenCalledTimes(1);
+      expect(pushThreadErrorMessage).toHaveBeenCalledWith(
+        "legacy-thread-id",
+        expect.any(String),
+      );
+    });
+  });
+
+  it("freshly resends first prompt when empty local codex draft lost its marker", async () => {
+    vi.mocked(sendUserMessage)
+      .mockResolvedValueOnce({
+        error: {
+          message: "thread not found: legacy-thread-id",
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        result: { turn: { id: "turn-fresh-local-draft" } },
+      } as never);
+    const refreshThread = vi.fn(async () => null);
+    const startThreadForWorkspace = vi.fn(async () => "thread-fresh-local-draft");
+    const dispatch = vi.fn();
+    const { result, recordThreadActivity, pushThreadErrorMessage } = makeHook("codex", {
+      activeThreadId: "legacy-thread-id",
+      ensuredThreadId: "legacy-thread-id",
+      startThreadForWorkspace,
+      refreshThread,
+      dispatch,
+    });
+
+    await act(async () => {
+      await result.current.sendUserMessage("hello codex");
+    });
+
+    await waitFor(() => {
+      expect(refreshThread).toHaveBeenCalledWith("ws-1", "legacy-thread-id");
+      expect(startThreadForWorkspace).toHaveBeenCalledWith("ws-1", {
+        activate: true,
+        engine: "codex",
+      });
+      expect(sendUserMessage).toHaveBeenCalledTimes(2);
+      expect(sendUserMessage).toHaveBeenNthCalledWith(
+        2,
+        "ws-1",
+        "thread-fresh-local-draft",
+        "hello codex",
+        expect.any(Object),
+      );
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "setActiveThreadId",
+        workspaceId: "ws-1",
+        threadId: "thread-fresh-local-draft",
+      });
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "upsertItem",
+          workspaceId: "ws-1",
+          threadId: "thread-fresh-local-draft",
+          item: expect.objectContaining({
+            id: expect.stringMatching(/^optimistic-user-/),
+            text: "hello codex",
+          }),
+        }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "markCodexAcceptedTurn",
+          threadId: "thread-fresh-local-draft",
+          fact: "accepted",
+          source: "turn-start-response",
+        }),
+      );
+      expect(pushThreadErrorMessage).not.toHaveBeenCalled();
+      expect(recordThreadActivity).not.toHaveBeenCalledWith(
+        "ws-1",
+        "legacy-thread-id",
+        expect.any(Number),
+      );
+      expect(recordThreadActivity).toHaveBeenCalledWith(
+        "ws-1",
+        "thread-fresh-local-draft",
+        expect.any(Number),
+      );
+    });
+  });
+
+  it("freshly resends first prompt when empty codex draft cannot be rebound", async () => {
+    vi.mocked(sendUserMessage)
+      .mockResolvedValueOnce({
+        error: {
+          message: "thread not found: legacy-thread-id",
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        result: { turn: { id: "turn-fresh-draft" } },
+      } as never);
+    const refreshThread = vi.fn(async () => null);
+    const startThreadForWorkspace = vi.fn(async () => "thread-fresh-draft");
+    const dispatch = vi.fn();
+    const { result, recordThreadActivity } = makeHook("codex", {
+      activeThreadId: "legacy-thread-id",
+      ensuredThreadId: "legacy-thread-id",
+      startThreadForWorkspace,
+      refreshThread,
+      dispatch,
+      codexAcceptedTurnByThread: {
+        "legacy-thread-id": {
+          fact: "empty-draft",
+          source: "thread-start",
+          updatedAt: 1,
+        },
+      },
+    });
+
+    await act(async () => {
+      await result.current.sendUserMessage("hello codex");
+    });
+
+    await waitFor(() => {
+      expect(refreshThread).toHaveBeenCalledWith("ws-1", "legacy-thread-id");
+      expect(startThreadForWorkspace).toHaveBeenCalledWith("ws-1", {
+        activate: true,
+        engine: "codex",
+      });
+      expect(sendUserMessage).toHaveBeenCalledTimes(2);
+      expect(sendUserMessage).toHaveBeenNthCalledWith(
+        2,
+        "ws-1",
+        "thread-fresh-draft",
+        "hello codex",
+        expect.any(Object),
+      );
+      expect(dispatch).toHaveBeenCalledWith({
+        type: "setActiveThreadId",
+        workspaceId: "ws-1",
+        threadId: "thread-fresh-draft",
+      });
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "setThreadItems",
+          threadId: "legacy-thread-id",
+        }),
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "markCodexAcceptedTurn",
+          threadId: "thread-fresh-draft",
+          fact: "accepted",
+          source: "turn-start-response",
+        }),
+      );
+      expect(dispatch).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "renameThreadId",
+          oldThreadId: "legacy-thread-id",
+          newThreadId: "thread-fresh-draft",
+        }),
+      );
+      expect(recordThreadActivity).not.toHaveBeenCalledWith(
+        "ws-1",
+        "legacy-thread-id",
+        expect.any(Number),
+      );
+      expect(recordThreadActivity).toHaveBeenCalledWith(
+        "ws-1",
+        "thread-fresh-draft",
+        expect.any(Number),
+      );
+    });
+  });
+
   it("mirrors codex turn-start rpc failures into runtime notices", async () => {
     vi.mocked(sendUserMessage).mockResolvedValueOnce({
       error: {
@@ -1832,6 +2073,30 @@ describe("useThreadMessaging", () => {
           },
         }),
       ]);
+    });
+  });
+
+  it("marks codex thread as accepted after turn start response", async () => {
+    vi.mocked(sendUserMessage).mockResolvedValueOnce({
+      result: { turn: { id: "turn-accepted" } },
+    } as never);
+    const dispatch = vi.fn();
+    const { result } = makeHook("codex", { dispatch });
+
+    await act(async () => {
+      await result.current.sendUserMessage("hello codex");
+    });
+
+    await waitFor(() => {
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "markCodexAcceptedTurn",
+          threadId: "thread-1",
+          fact: "accepted",
+          source: "turn-start-response",
+          timestamp: expect.any(Number),
+        }),
+      );
     });
   });
 
@@ -2396,391 +2661,4 @@ describe("useThreadMessaging", () => {
     );
   });
 
-  it("passes custom spec root through codex send when configured", async () => {
-    vi.mocked(getClientStoreSync).mockImplementation((_store, key) => {
-      if (key === "specHub.specRoot.ws-1") {
-        return "/tmp/external-openspec";
-      }
-      return undefined;
-    });
-
-    const { result } = makeHook("codex");
-
-    await act(async () => {
-      await result.current.sendUserMessageToThread(workspace, "thread-1", "hello codex");
-    });
-
-    const calls = vi.mocked(sendUserMessage).mock.calls;
-    expect(calls.length).toBeGreaterThan(0);
-    const latestCall = calls[calls.length - 1];
-    expect(latestCall?.[0]).toBe("ws-1");
-    expect(latestCall?.[1]).toBe("thread-1");
-    expect(latestCall?.[2]).toContain("[Spec Root Priority]");
-    expect(latestCall?.[2]).toContain("/tmp/external-openspec");
-    expect(latestCall?.[2]).toContain("[User Input] hello codex");
-    expect(latestCall?.[3]).toEqual(
-      expect.objectContaining({
-        customSpecRoot: "/tmp/external-openspec",
-      }),
-    );
-  });
-
-  it("does not prepend spec root hint after first codex turn when thread already has items", async () => {
-    vi.mocked(getClientStoreSync).mockImplementation((_store, key) => {
-      if (key === "specHub.specRoot.ws-1") {
-        return "/tmp/external-openspec";
-      }
-      return undefined;
-    });
-
-    const { result } = makeHook("codex", {
-      itemsByThread: {
-        "thread-1": [{ id: "existing-user", kind: "message", role: "user", text: "existing" }],
-      },
-    });
-
-    await act(async () => {
-      await result.current.sendUserMessageToThread(workspace, "thread-1", "follow up");
-    });
-
-    const calls = vi.mocked(sendUserMessage).mock.calls;
-    expect(calls.length).toBeGreaterThan(0);
-    const latestCall = calls[calls.length - 1];
-    expect(latestCall?.[2]).toBe("follow up");
-    expect(latestCall?.[2]).not.toContain("[Spec Root Priority]");
-    expect(latestCall?.[2]).not.toContain("[Session Spec Link]");
-    expect(latestCall?.[3]).toEqual(
-      expect.objectContaining({
-        customSpecRoot: "/tmp/external-openspec",
-      }),
-    );
-  });
-
-  it("normalizes file URI custom spec root before codex send", async () => {
-    vi.mocked(getClientStoreSync).mockImplementation((_store, key) => {
-      if (key === "specHub.specRoot.ws-1") {
-        return "file:///tmp/external-openspec";
-      }
-      return undefined;
-    });
-
-    const { result } = makeHook("codex");
-
-    await act(async () => {
-      await result.current.sendUserMessageToThread(workspace, "thread-1", "hello codex");
-    });
-
-    const calls = vi.mocked(sendUserMessage).mock.calls;
-    expect(calls.length).toBeGreaterThan(0);
-    const latestCall = calls[calls.length - 1];
-    expect(latestCall?.[3]).toEqual(
-      expect.objectContaining({
-        customSpecRoot: "/tmp/external-openspec",
-      }),
-    );
-  });
-
-  it("injects a collapsible external spec card on first codex turn", async () => {
-    vi.mocked(getClientStoreSync).mockImplementation((_store, key) => {
-      if (key === "specHub.specRoot.ws-1") {
-        return "/tmp/external-openspec";
-      }
-      return undefined;
-    });
-    const dispatch = vi.fn();
-    const { result } = makeHook("codex", { dispatch, itemsByThread: {} });
-
-    await act(async () => {
-      await result.current.sendUserMessageToThread(workspace, "thread-1", "hello codex");
-    });
-
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "upsertItem",
-        threadId: "thread-1",
-        item: expect.objectContaining({
-          id: "spec-root-context-thread-1",
-          kind: "explore",
-          collapsible: true,
-          mergeKey: "spec-root-context",
-        }),
-      }),
-    );
-  });
-
-  it("does not inject external spec card when thread already has items", async () => {
-    vi.mocked(getClientStoreSync).mockImplementation((_store, key) => {
-      if (key === "specHub.specRoot.ws-1") {
-        return "/tmp/external-openspec";
-      }
-      return undefined;
-    });
-    const dispatch = vi.fn();
-    const { result } = makeHook("codex", {
-      dispatch,
-      itemsByThread: {
-        "thread-1": [{ id: "existing-user", kind: "message", role: "user", text: "existing" }],
-      },
-    });
-
-    await act(async () => {
-      await result.current.sendUserMessageToThread(workspace, "thread-1", "hello codex");
-    });
-
-    expect(
-      dispatch.mock.calls.some(
-        ([action]) =>
-          action &&
-          typeof action === "object" &&
-          "item" in action &&
-          (action as { item?: { id?: string } }).item?.id === "spec-root-context-thread-1",
-      ),
-    ).toBe(false);
-  });
-
-  it("records visible probe status without repair actions in spec context card", async () => {
-    vi.mocked(getClientStoreSync).mockImplementation((_store, key) => {
-      if (key === "specHub.specRoot.ws-1") {
-        return "/tmp/external-openspec";
-      }
-      return undefined;
-    });
-    vi.mocked(listExternalSpecTree).mockResolvedValue({
-      files: ["openspec/changes/add-spec-hub/proposal.md", "openspec/changes/add-spec-hub/tasks.md"],
-      directories: ["openspec", "openspec/changes", "openspec/specs"],
-      gitignored_files: [],
-      gitignored_directories: [],
-    });
-    const dispatch = vi.fn();
-    const { result } = makeHook("codex", { dispatch, itemsByThread: {} });
-
-    await act(async () => {
-      await result.current.sendUserMessageToThread(workspace, "thread-1", "hello codex");
-    });
-
-    const upsertCall = dispatch.mock.calls.find(
-      ([action]) =>
-        action &&
-        typeof action === "object" &&
-        "type" in action &&
-        (action as { type?: string }).type === "upsertItem" &&
-        "item" in action &&
-        (action as { item?: { id?: string } }).item?.id === "spec-root-context-thread-1",
-    );
-    expect(upsertCall).toBeDefined();
-
-    const action = upsertCall?.[0] as {
-      item?: { entries?: Array<{ label?: string; detail?: string }> };
-    };
-    const entries = action.item?.entries ?? [];
-    expect(entries).toEqual(
-      expect.arrayContaining([expect.objectContaining({ label: "Probe status", detail: "visible" })]),
-    );
-    expect(entries.some((entry) => entry.label === "/spec-root rebind")).toBe(false);
-    expect(entries.some((entry) => entry.label === "/spec-root default")).toBe(false);
-  });
-
-  it("records malformed probe status and repair actions in spec context card", async () => {
-    vi.mocked(getClientStoreSync).mockImplementation((_store, key) => {
-      if (key === "specHub.specRoot.ws-1") {
-        return "/tmp/external-openspec";
-      }
-      return undefined;
-    });
-    vi.mocked(listExternalSpecTree).mockResolvedValue({
-      files: ["openspec/changes/add-spec-hub/proposal.md"],
-      directories: ["openspec", "openspec/changes"],
-      gitignored_files: [],
-      gitignored_directories: [],
-    });
-    const dispatch = vi.fn();
-    const { result } = makeHook("codex", { dispatch, itemsByThread: {} });
-
-    await act(async () => {
-      await result.current.sendUserMessageToThread(workspace, "thread-1", "hello codex");
-    });
-
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "upsertItem",
-        threadId: "thread-1",
-        item: expect.objectContaining({
-          id: "spec-root-context-thread-1",
-          kind: "explore",
-          entries: expect.arrayContaining([
-            expect.objectContaining({ label: "Probe status", detail: "malformed" }),
-            expect.objectContaining({ label: "/spec-root rebind" }),
-            expect.objectContaining({ label: "/spec-root default" }),
-          ]),
-        }),
-      }),
-    );
-  });
-
-  it("updates spec root context to visible after /spec-root rebind succeeds", async () => {
-    vi.mocked(getClientStoreSync).mockImplementation((_store, key) => {
-      if (key === "specHub.specRoot.ws-1") {
-        return "/tmp/external-openspec";
-      }
-      return undefined;
-    });
-    vi.mocked(listExternalSpecTree)
-      .mockResolvedValueOnce({
-        files: ["openspec/changes/add-spec-hub/proposal.md"],
-        directories: ["openspec", "openspec/changes"],
-        gitignored_files: [],
-        gitignored_directories: [],
-      })
-      .mockResolvedValueOnce({
-        files: ["openspec/changes/add-spec-hub/proposal.md", "openspec/changes/add-spec-hub/tasks.md"],
-        directories: ["openspec", "openspec/changes", "openspec/specs"],
-        gitignored_files: [],
-        gitignored_directories: [],
-      });
-
-    const dispatch = vi.fn();
-    const { result } = makeHook("codex", { dispatch, itemsByThread: {} });
-
-    await act(async () => {
-      await result.current.sendUserMessageToThread(workspace, "thread-1", "hello codex");
-    });
-    await act(async () => {
-      await result.current.startSpecRoot("/spec-root rebind");
-    });
-
-    const upsertCalls = dispatch.mock.calls.filter(
-      ([action]) =>
-        action &&
-        typeof action === "object" &&
-        "type" in action &&
-        (action as { type?: string }).type === "upsertItem" &&
-        "item" in action &&
-        (action as { item?: { id?: string } }).item?.id === "spec-root-context-thread-1",
-    );
-    expect(upsertCalls.length).toBeGreaterThanOrEqual(2);
-
-    const latestUpsert = upsertCalls[upsertCalls.length - 1]?.[0] as {
-      item?: { entries?: Array<{ label?: string; detail?: string }> };
-    };
-    const latestEntries = latestUpsert.item?.entries ?? [];
-    expect(latestEntries).toEqual(
-      expect.arrayContaining([expect.objectContaining({ label: "Probe status", detail: "visible" })]),
-    );
-    expect(latestEntries.some((entry) => entry.label === "/spec-root rebind")).toBe(false);
-    expect(latestEntries.some((entry) => entry.label === "/spec-root default")).toBe(false);
-
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "addAssistantMessage",
-        threadId: "thread-1",
-        text: expect.stringContaining("Action: rebind"),
-      }),
-    );
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "addAssistantMessage",
-        threadId: "thread-1",
-        text: expect.stringContaining("Status: visible"),
-      }),
-    );
-  });
-
-  it("supports /spec-root default command and writes workspace spec root back to default", async () => {
-    vi.mocked(getClientStoreSync).mockImplementation((_store, key) => {
-      if (key === "specHub.specRoot.ws-1") {
-        return "/tmp/external-openspec";
-      }
-      return undefined;
-    });
-    const dispatch = vi.fn();
-    const { result } = makeHook("codex", { dispatch });
-
-    await act(async () => {
-      await result.current.startSpecRoot("/spec-root default");
-    });
-
-    expect(writeClientStoreValue).toHaveBeenCalledWith("app", "specHub.specRoot.ws-1", null);
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "addAssistantMessage",
-        threadId: "thread-1",
-        text: expect.stringContaining("Action: default"),
-      }),
-    );
-  });
-
-  it("formats /status output with CLI-aligned labels and remaining limits", async () => {
-    const dispatch = vi.fn();
-    const ensureThreadForActiveWorkspace = vi.fn(async () => "thread-1");
-    const { result } = renderHook(() =>
-      useThreadMessaging({
-        activeWorkspace: workspace,
-        activeThreadId: "thread-1",
-        accessMode: "full-access",
-        model: "gpt-5.3-codex",
-        effort: "medium",
-        collaborationMode: null,
-        steerEnabled: false,
-        customPrompts: [],
-        activeEngine: "codex",
-        threadStatusById: {},
-        itemsByThread: {},
-        activeTurnIdByThread: {},
-        tokenUsageByThread: {},
-        rateLimitsByWorkspace: {
-          [workspace.id]: {
-            primary: { usedPercent: 15, windowDurationMins: 300, resetsAt: null },
-            secondary: { usedPercent: 65, windowDurationMins: 10080, resetsAt: null },
-            credits: null,
-            planType: null,
-          },
-        },
-        pendingInterruptsRef: { current: new Set<string>() },
-        interruptedThreadsRef: { current: new Set<string>() },
-        dispatch,
-        getCustomName: () => undefined,
-        getThreadEngine: () => "codex",
-        markProcessing: vi.fn(),
-        markReviewing: vi.fn(),
-        setActiveTurnId: vi.fn(),
-        recordThreadActivity: vi.fn(),
-        safeMessageActivity: vi.fn(),
-        pushThreadErrorMessage: vi.fn(),
-        ensureThreadForActiveWorkspace,
-        ensureThreadForWorkspace: async () => "thread-1",
-        refreshThread: async () => null,
-        forkThreadForWorkspace: async () => null,
-        updateThreadParent: vi.fn(),
-        startThreadForWorkspace: vi.fn(async () => "thread-1"),
-        onDebug: vi.fn(),
-      }),
-    );
-
-    await act(async () => {
-      await result.current.startStatus("/status");
-    });
-
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "addAssistantMessage",
-        threadId: "thread-1",
-        text: expect.stringContaining("OpenAI Codex"),
-      }),
-    );
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: expect.stringContaining("Permissions:        Full Access"),
-      }),
-    );
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: expect.stringContaining("5h limit: 85% left"),
-      }),
-    );
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        text: expect.stringContaining("Weekly limit: 35% left"),
-      }),
-    );
-  });
 });

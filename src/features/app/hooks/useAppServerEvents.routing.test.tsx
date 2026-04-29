@@ -311,10 +311,16 @@ describe("useAppServerEvents routing", () => {
         },
       });
     });
-    expect(handlers.onTurnError).toHaveBeenCalledWith("ws-1", "thread-2", "turn-2", {
-      message: "Resume failed",
-      willRetry: false,
-    });
+    expect(handlers.onTurnError).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-2",
+      "turn-2",
+      expect.objectContaining({
+        message: "Resume failed",
+        willRetry: false,
+        engine: "codex",
+      }),
+    );
 
     act(() => {
       listener?.({
@@ -329,10 +335,16 @@ describe("useAppServerEvents routing", () => {
         },
       });
     });
-    expect(handlers.onTurnError).toHaveBeenCalledWith("ws-1", "thread-2", "", {
-      message: "Late start failed",
-      willRetry: false,
-    });
+    expect(handlers.onTurnError).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-2",
+      "",
+      expect.objectContaining({
+        message: "Late start failed",
+        willRetry: false,
+        engine: "codex",
+      }),
+    );
 
     act(() => {
       listener?.({
@@ -347,11 +359,17 @@ describe("useAppServerEvents routing", () => {
         },
       });
     });
-    expect(handlers.onTurnError).toHaveBeenCalledWith("ws-1", "thread-2", "", {
-      message:
-        "Codex stream parse error: EOF while parsing value\n{\"id\":1,\"method\":\"turn/completed\"",
-      willRetry: false,
-    });
+    expect(handlers.onTurnError).toHaveBeenCalledWith(
+      "ws-1",
+      "thread-2",
+      "",
+      expect.objectContaining({
+        message:
+          "Codex stream parse error: EOF while parsing value\n{\"id\":1,\"method\":\"turn/completed\"",
+        willRetry: false,
+        engine: "codex",
+      }),
+    );
 
     act(() => {
       listener?.({

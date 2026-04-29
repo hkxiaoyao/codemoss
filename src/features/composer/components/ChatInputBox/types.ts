@@ -507,6 +507,15 @@ export interface ChatInputBoxProps {
   dualContextUsage?: DualContextUsageViewModel | null;
   /** Request context compaction (codex only) */
   onRequestContextCompaction?: () => Promise<void> | void;
+  /** Whether Codex auto compaction is enabled */
+  codexAutoCompactionEnabled?: boolean;
+  /** Codex auto compaction high-watermark */
+  codexAutoCompactionThresholdPercent?: number;
+  /** Update Codex auto compaction settings */
+  onCodexAutoCompactionSettingsChange?: (patch: {
+    enabled?: boolean;
+    thresholdPercent?: number;
+  }) => Promise<void> | void;
   /** Account rate limits snapshot for codex usage panel */
   accountRateLimits?: AccountRateLimitsInfo | null;
   /** Show remaining limits instead of used */
@@ -595,6 +604,10 @@ export interface ChatInputBoxProps {
   onOpenPromptSettings?: () => void;
   /** Open model settings (navigate to provider management to add models) */
   onOpenModelSettings?: (providerId?: string) => void;
+  /** Refresh current provider model/config snapshot */
+  onRefreshModelConfig?: (providerId?: string) => Promise<void> | void;
+  /** Whether current provider model/config refresh is in progress */
+  isModelConfigRefreshing?: boolean;
 
   /** Whether has messages (for rewind button display) */
   hasMessages?: boolean;
@@ -609,6 +622,12 @@ export interface ChatInputBoxProps {
   showStatusPanelToggle?: boolean;
   /** Toggle StatusPanel expand/collapse */
   onToggleStatusPanel?: () => void;
+  /** Whether the current thread has one-shot completion email armed */
+  completionEmailSelected?: boolean;
+  /** Whether completion email toggle is disabled */
+  completionEmailDisabled?: boolean;
+  /** Toggle one-shot completion email for current thread */
+  onToggleCompletionEmail?: () => void;
 
   /** SDK installed status (disable input when not installed) */
   sdkInstalled?: boolean;
@@ -728,6 +747,10 @@ export interface ButtonAreaProps {
   onOpenAgentSettings?: () => void;
   /** Navigate to model management to add models */
   onAddModel?: (providerId?: string) => void;
+  /** Refresh current provider model/config snapshot */
+  onRefreshModelConfig?: (providerId?: string) => Promise<void> | void;
+  /** Whether current provider model/config refresh is in progress */
+  isModelConfigRefreshing?: boolean;
   /** Quick shortcut actions rendered in config panel */
   shortcutActions?: ShortcutAction[];
 }

@@ -15,6 +15,10 @@ vi.mock("react-i18next", () => ({
         "sidebar.toggleSearch": "Toggle search",
         "sidebar.searchProjects": "Search projects",
         "sidebar.activateWorkspace": "Open in main panel",
+        "sidebar.setWorkspaceAlias": "Set alias",
+        "sidebar.workspaceAliasPrompt": "Alias prompt",
+        "sidebar.workspaceAliasBadge": "A",
+        "sidebar.workspaceAliasBadgeTitle": "Workspace alias. Original name: service",
         "sidebar.emptyWorkspaceSessions": "No sessions yet.",
         "sidebar.quickNewThread": "Home",
         "sidebar.quickAutomation": "Automation",
@@ -106,6 +110,7 @@ const baseProps = {
   onAutoNameThread: vi.fn(),
   onDeleteWorkspace: vi.fn(),
   onDeleteWorktree: vi.fn(),
+  onRenameWorkspaceAlias: vi.fn(),
   onLoadOlderThreads: vi.fn(),
   onReloadWorkspaceThreads: vi.fn(),
   onQuickReloadWorkspaceThreads: vi.fn(),
@@ -125,6 +130,8 @@ const baseProps = {
   onOpenReleaseNotes: vi.fn(),
   onOpenGlobalSearch: vi.fn(),
   globalSearchShortcut: "cmd+o",
+  openChatShortcut: "cmd+j",
+  openKanbanShortcut: "cmd+k",
   onOpenSpecHub: vi.fn(),
   onOpenWorkspaceHome: vi.fn(),
 };
@@ -203,7 +210,7 @@ describe("Sidebar", () => {
     expect(container.querySelector(".sidebar-primary-nav-badge")).toBeNull();
   });
 
-  it("keeps only Windows-friendly quick nav shortcuts K/F visible while hiding J", () => {
+  it("keeps Windows quick nav shortcuts in sync with configured settings while hiding J", () => {
     const originalPlatform = window.navigator.platform;
     Object.defineProperty(window.navigator, "platform", {
       value: "Win32",
@@ -213,17 +220,36 @@ describe("Sidebar", () => {
       const { container } = render(<Sidebar {...baseProps} />);
       expect(screen.queryByText("Ctrl+J")).toBeNull();
       expect(screen.getByText("Ctrl+K")).toBeTruthy();
-      expect(screen.getByText("Ctrl+F")).toBeTruthy();
+      expect(screen.getByText("Ctrl+O")).toBeTruthy();
       expect(container.querySelectorAll(".sidebar-primary-nav .sidebar-primary-nav-shortcut")).toHaveLength(2);
       expect(screen.getByRole("button", { name: "Home" }).getAttribute("title")).toContain("Ctrl+J");
       expect(screen.getByRole("button", { name: "Automation" }).getAttribute("title")).toContain("Ctrl+K");
-      expect(screen.getByRole("button", { name: "Search" }).getAttribute("title")).toContain("Ctrl+F");
+      expect(screen.getByRole("button", { name: "Search" }).getAttribute("title")).toContain("Ctrl+O");
     } finally {
       Object.defineProperty(window.navigator, "platform", {
         value: originalPlatform,
         configurable: true,
       });
     }
+  });
+
+  it("reflects cleared quick mode shortcuts in button hints", () => {
+    const { container } = render(
+      <Sidebar
+        {...baseProps}
+        openChatShortcut={null}
+        openKanbanShortcut={null}
+        globalSearchShortcut={null}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Home" }).getAttribute("title")).toContain("Not set");
+    const automationButton = screen.getByRole("button", { name: "Automation" });
+    expect(automationButton.getAttribute("title")).toContain("Not set");
+    expect(
+      container.querySelector(".sidebar-primary-nav-mode-item .sidebar-primary-nav-shortcut")?.textContent,
+    ).toBe("Not set");
+    expect(screen.getByRole("button", { name: "Search" }).getAttribute("title")).toContain("Not set");
   });
 
   it("hides chat/automation/open-home entries in settings dropdown", () => {
@@ -483,6 +509,114 @@ describe("Sidebar", () => {
     expect(projectIcon?.classList.contains("is-session-running")).toBe(true);
     const worktreeIcon = container.querySelector(".worktree-node-icon");
     expect(worktreeIcon?.classList.contains("is-session-running")).toBe(true);
+  });
+
+  it("uses project alias only for the sidebar workspace label", () => {
+    const workspace = {
+      id: "ws-alias",
+      name: "service",
+      path: "/legacy/a/service",
+      connected: true,
+      kind: "main" as const,
+      settings: {
+        sidebarCollapsed: true,
+        worktreeSetupScript: null,
+        projectAlias: "Billing Legacy",
+      },
+    };
+
+    render(
+      <Sidebar
+        {...baseProps}
+        workspaces={[workspace]}
+        groupedWorkspaces={[
+          {
+            id: null,
+            name: "Ungrouped",
+            workspaces: [workspace],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Billing Legacy")).toBeTruthy();
+    expect(
+      screen.getByLabelText("Workspace alias. Original name: service"),
+    ).toBeTruthy();
+    expect(screen.queryByText("service")).toBeNull();
+  });
+
+  it("does not show alias badge when project alias equals the original name", () => {
+    const workspace = {
+      id: "ws-alias-same",
+      name: "service",
+      path: "/legacy/a/service",
+      connected: true,
+      kind: "main" as const,
+      settings: {
+        sidebarCollapsed: true,
+        worktreeSetupScript: null,
+        projectAlias: "service",
+      },
+    };
+
+    render(
+      <Sidebar
+        {...baseProps}
+        workspaces={[workspace]}
+        groupedWorkspaces={[
+          {
+            id: null,
+            name: "Ungrouped",
+            workspaces: [workspace],
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("service")).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Workspace alias. Original name: service"),
+    ).toBeNull();
+  });
+
+  it("triggers workspace alias prompt from the workspace menu", async () => {
+    const workspace = {
+      id: "ws-alias-menu",
+      name: "service",
+      path: "/legacy/a/service",
+      connected: true,
+      kind: "main" as const,
+      settings: {
+        sidebarCollapsed: true,
+        worktreeSetupScript: null,
+      },
+    };
+    const onRenameWorkspaceAlias = vi.fn();
+
+    render(
+      <Sidebar
+        {...baseProps}
+        workspaces={[workspace]}
+        groupedWorkspaces={[
+          {
+            id: null,
+            name: "Ungrouped",
+            workspaces: [workspace],
+          },
+        ]}
+        onRenameWorkspaceAlias={onRenameWorkspaceAlias}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New Session" }));
+      await Promise.resolve();
+    });
+    fireEvent.click(screen.getByRole("menuitem", { name: "Set alias" }));
+
+    expect(onRenameWorkspaceAlias).toHaveBeenCalledTimes(1);
+    expect(onRenameWorkspaceAlias).toHaveBeenCalledWith(workspace);
   });
 
   it("shows an empty session message instead of a loading skeleton for empty workspaces", () => {

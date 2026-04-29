@@ -17,6 +17,7 @@ import {
   listWorkspaceSessions,
   unarchiveWorkspaceSessions,
 } from "../../../services/tauri";
+import { writeClientStoreValue } from "../../../services/clientStorage";
 import { pushErrorToast } from "../../../services/toasts";
 import { SettingsView } from "./SettingsView";
 
@@ -116,15 +117,31 @@ const baseSettings: AppSettings = {
   composerReasoningShortcut: null,
   composerCollaborationShortcut: null,
   interruptShortcut: null,
+  openSettingsShortcut: null,
+  newWindowShortcut: null,
   newAgentShortcut: null,
   newWorktreeAgentShortcut: null,
   newCloneAgentShortcut: null,
   archiveThreadShortcut: null,
+  openChatShortcut: null,
+  openKanbanShortcut: null,
+  cycleOpenSessionPrevShortcut: null,
+  cycleOpenSessionNextShortcut: null,
+  toggleLeftConversationSidebarShortcut: null,
+  toggleRightConversationSidebarShortcut: null,
   toggleProjectsSidebarShortcut: null,
   toggleGitSidebarShortcut: null,
   toggleGlobalSearchShortcut: null,
   toggleDebugPanelShortcut: null,
   toggleTerminalShortcut: null,
+  toggleRuntimeConsoleShortcut: null,
+  toggleFilesSurfaceShortcut: null,
+  saveFileShortcut: null,
+  findInFileShortcut: null,
+  toggleGitDiffListViewShortcut: null,
+  increaseUiScaleShortcut: null,
+  decreaseUiScaleShortcut: null,
+  resetUiScaleShortcut: null,
   cycleAgentNextShortcut: null,
   cycleAgentPrevShortcut: null,
   cycleWorkspaceNextShortcut: null,
@@ -133,6 +150,9 @@ const baseSettings: AppSettings = {
   lastComposerReasoningEffort: null,
   uiScale: 1,
   theme: "system",
+  lightThemePresetId: "vscode-light-modern",
+  darkThemePresetId: "vscode-dark-modern",
+  customThemePresetId: "vscode-dark-modern",
   canvasWidthMode: "narrow",
   layoutMode: "default",
   userMsgColor: "",
@@ -147,12 +167,25 @@ const baseSettings: AppSettings = {
   notificationSoundId: "default",
   notificationSoundCustomPath: "",
   systemNotificationEnabled: true,
+  emailSender: {
+    enabled: false,
+    provider: "custom",
+    senderEmail: "",
+    senderName: "",
+    smtpHost: "",
+    smtpPort: 465,
+    security: "ssl_tls",
+    username: "",
+    recipientEmail: "",
+  },
   runtimeRestoreThreadsOnlyOnLaunch: true,
   runtimeForceCleanupOnExit: true,
   runtimeOrphanSweepOnLaunch: true,
   codexMaxHotRuntimes: 1,
   codexMaxWarmRuntimes: 1,
   codexWarmTtlSeconds: 7200,
+  codexAutoCompactionEnabled: true,
+  codexAutoCompactionThresholdPercent: 92,
   preloadGitDiffs: true,
   experimentalCollabEnabled: false,
   experimentalCollaborationModesEnabled: false,
@@ -779,6 +812,88 @@ describe("SettingsView Display", () => {
     });
   });
 
+  it("updates the active theme preset for dark appearance", async () => {
+    const onUpdateAppSettings = vi.fn().mockResolvedValue(undefined);
+    renderDisplaySection({
+      onUpdateAppSettings,
+      appSettings: {
+        theme: "custom",
+        customThemePresetId: "vscode-dark-modern",
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText("Theme Palette"), {
+      target: { value: "vscode-dark-plus" },
+    });
+
+    await waitFor(() => {
+      expect(onUpdateAppSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customThemePresetId: "vscode-dark-plus",
+          lightThemePresetId: "vscode-light-modern",
+          darkThemePresetId: "vscode-dark-modern",
+        }),
+      );
+    });
+  });
+
+  it("updates the active theme preset for light appearance", async () => {
+    const onUpdateAppSettings = vi.fn().mockResolvedValue(undefined);
+    renderDisplaySection({
+      onUpdateAppSettings,
+      appSettings: {
+        theme: "custom",
+        customThemePresetId: "vscode-light-modern",
+      },
+    });
+
+    fireEvent.change(screen.getByLabelText("Theme Palette"), {
+      target: { value: "vscode-light-plus" },
+    });
+
+    await waitFor(() => {
+      expect(onUpdateAppSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          customThemePresetId: "vscode-light-plus",
+          lightThemePresetId: "vscode-light-modern",
+          darkThemePresetId: "vscode-dark-modern",
+        }),
+      );
+    });
+  });
+
+  it("shows the theme palette only for custom theme and lists all presets", async () => {
+    renderDisplaySection({
+      appSettings: { theme: "light" },
+    });
+
+    expect(screen.queryByLabelText("Theme Palette")).toBeNull();
+
+    renderDisplaySection({
+      appSettings: {
+        theme: "custom",
+        customThemePresetId: "vscode-light-modern",
+      },
+    });
+
+    const select = screen.getByLabelText("Theme Palette");
+    const options = within(select).getAllByRole("option");
+
+    expect(options.map((option) => option.getAttribute("value"))).toEqual([
+      "vscode-light-modern",
+      "vscode-light-plus",
+      "vscode-github-light",
+      "vscode-solarized-light",
+      "vscode-dark-modern",
+      "vscode-dark-plus",
+      "vscode-github-dark",
+      "vscode-github-dark-dimmed",
+      "vscode-one-dark-pro",
+      "vscode-monokai",
+      "vscode-solarized-dark",
+    ]);
+  });
+
   it("updates the canvas width mode selection", async () => {
     const onUpdateAppSettings = vi.fn().mockResolvedValue(undefined);
     renderDisplaySection({ onUpdateAppSettings });
@@ -841,6 +956,91 @@ describe("SettingsView Display", () => {
     await waitFor(() => {
       expect(onUpdateAppSettings).toHaveBeenCalledWith(
         expect.objectContaining({ layoutMode: "default" }),
+      );
+    });
+  });
+
+  it("persists client UI visibility panel and control toggles", async () => {
+    renderDisplaySection();
+
+    expect(screen.getByText("Client UI visibility")).toBeTruthy();
+    expect(screen.getByText("Conversation canvas")).toBeTruthy();
+    expect(screen.getByText("Runtime notice dock")).toBeTruthy();
+    expect(screen.getByText("Sticky user bubble")).toBeTruthy();
+
+    const topSessionTabsRow = screen
+      .getByText("Top session tabs")
+      .closest(".settings-toggle-row") as HTMLElement | null;
+    const terminalRow = screen
+      .getByText("Terminal shortcut")
+      .closest(".settings-toggle-row") as HTMLElement | null;
+    const stickyUserBubbleRow = screen
+      .getByText("Sticky user bubble")
+      .closest(".settings-toggle-row") as HTMLElement | null;
+    const runtimeNoticeDockRow = screen
+      .getByText("Runtime notice dock")
+      .closest(".settings-toggle-row") as HTMLElement | null;
+    if (!topSessionTabsRow || !terminalRow || !stickyUserBubbleRow || !runtimeNoticeDockRow) {
+      throw new Error("Expected client UI visibility rows");
+    }
+    expect(
+      topSessionTabsRow.querySelector(".settings-client-ui-visibility-row-icon svg"),
+    ).toBeTruthy();
+    expect(
+      terminalRow.querySelector(".settings-client-ui-visibility-row-icon svg"),
+    ).toBeTruthy();
+    expect(
+      stickyUserBubbleRow.querySelector(".settings-client-ui-visibility-row-icon svg"),
+    ).toBeTruthy();
+    expect(
+      runtimeNoticeDockRow.querySelector(".settings-client-ui-visibility-row-icon svg"),
+    ).toBeTruthy();
+
+    fireEvent.click(within(topSessionTabsRow).getByRole("switch"));
+    await waitFor(() => {
+      expect(writeClientStoreValue).toHaveBeenCalledWith(
+        "app",
+        "clientUiVisibility",
+        expect.objectContaining({
+          panels: expect.objectContaining({ topSessionTabs: false }),
+        }),
+        { immediate: true },
+      );
+    });
+
+    fireEvent.click(within(terminalRow).getByRole("switch"));
+    await waitFor(() => {
+      expect(writeClientStoreValue).toHaveBeenCalledWith(
+        "app",
+        "clientUiVisibility",
+        expect.objectContaining({
+          controls: expect.objectContaining({ "topTool.terminal": false }),
+        }),
+        { immediate: true },
+      );
+    });
+
+    fireEvent.click(within(runtimeNoticeDockRow).getByRole("switch"));
+    await waitFor(() => {
+      expect(writeClientStoreValue).toHaveBeenCalledWith(
+        "app",
+        "clientUiVisibility",
+        expect.objectContaining({
+          panels: expect.objectContaining({ globalRuntimeNoticeDock: false }),
+        }),
+        { immediate: true },
+      );
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Restore default visibility" }),
+    );
+    await waitFor(() => {
+      expect(writeClientStoreValue).toHaveBeenLastCalledWith(
+        "app",
+        "clientUiVisibility",
+        { panels: {}, controls: {} },
+        { immediate: true },
       );
     });
   });

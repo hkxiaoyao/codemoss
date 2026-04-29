@@ -76,6 +76,7 @@ import {
   engineSendMessageSync,
   deleteClaudeSession,
   deleteGeminiSession,
+  sendConversationCompletionEmail,
 } from "./tauri";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -212,6 +213,33 @@ describe("tauri invoke wrappers", () => {
     await setCodexUnifiedExecOfficialOverride(true);
 
     expect(invokeMock).toHaveBeenCalledWith("set_codex_unified_exec_official_override", { enabled: true });
+  });
+
+  it("invokes conversation completion email command through the typed bridge", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce({
+      provider: "custom",
+      acceptedRecipients: ["saved-recipient@example.com"],
+      durationMs: 12,
+    });
+
+    await sendConversationCompletionEmail({
+      workspaceId: "ws-1",
+      threadId: "thread-1",
+      turnId: "turn-1",
+      subject: "Moss conversation completed",
+      textBody: "User: hi\nAssistant: done",
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith("send_conversation_completion_email", {
+      request: {
+        workspaceId: "ws-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        subject: "Moss conversation completed",
+        textBody: "User: hi\nAssistant: done",
+      },
+    });
   });
 
   it("invokes computer use bridge status command", async () => {
@@ -1588,6 +1616,19 @@ describe("tauri invoke wrappers", () => {
     expect(models).toEqual([]);
     expect(invokeMock).toHaveBeenCalledWith("get_engine_models", {
       engineType: "claude",
+    });
+  });
+
+  it("maps get_engine_models force refresh params", async () => {
+    const invokeMock = vi.mocked(invoke);
+    invokeMock.mockResolvedValueOnce([]);
+
+    const models = await getEngineModels("claude", { forceRefresh: true });
+
+    expect(models).toEqual([]);
+    expect(invokeMock).toHaveBeenCalledWith("get_engine_models", {
+      engineType: "claude",
+      forceRefresh: true,
     });
   });
 

@@ -57,7 +57,6 @@ import {
   buildLiveTailWorkingSet,
   buildRenderedItemsWindow,
   collapseExpandedExploreItems,
-  findLatestOrdinaryUserQuestionId,
   isOrdinaryUserQuestionItem,
   resolveOrdinaryUserStickyText,
   resolveLiveAutoExpandedExploreId,
@@ -114,6 +113,7 @@ type MessagesProps = {
   openTargets: OpenAppTarget[];
   selectedOpenAppId: string;
   showMessageAnchors?: boolean;
+  showStickyUserBubble?: boolean;
   codeBlockCopyUseModifier?: boolean;
   userInputRequests?: RequestUserInputRequest[];
   approvals?: ApprovalRequest[];
@@ -236,6 +236,7 @@ export const Messages = memo(function Messages({
   openTargets,
   selectedOpenAppId,
   showMessageAnchors = true,
+  showStickyUserBubble = true,
   codeBlockCopyUseModifier = false,
   userInputRequests: legacyUserInputRequests = [],
   approvals = [],
@@ -1128,24 +1129,15 @@ export const Messages = memo(function Messages({
       : 0;
   const collapsedHistoryItemCount =
     liveTailWorkingSet.omittedBeforeWorkingSetCount + timelineCollapsedHistoryItemCount;
-  const latestLiveStickyUserMessageId = useMemo(
-    () =>
-      isThinking && !conversationState?.meta.historyRestoredAtMs
-        ? findLatestOrdinaryUserQuestionId(timelineItems, {
-            enableCollaborationBadge,
-          })
-        : null,
-    [conversationState?.meta.historyRestoredAtMs, enableCollaborationBadge, isThinking, timelineItems],
-  );
   const renderedItemsWindow = useMemo(
     () =>
       buildRenderedItemsWindow(
         timelineItems,
         timelineCollapsedHistoryItemCount,
-        latestLiveStickyUserMessageId,
+        liveTailWorkingSet.stickyUserMessageId,
       ),
     [
-      latestLiveStickyUserMessageId,
+      liveTailWorkingSet.stickyUserMessageId,
       timelineCollapsedHistoryItemCount,
       timelineItems,
     ],
@@ -1265,10 +1257,10 @@ export const Messages = memo(function Messages({
   );
   const activeStickyHeaderCandidate = useMemo(
     () =>
-      activeStickyMessageId
+      showStickyUserBubble && activeStickyMessageId
         ? stickyCandidateById.get(activeStickyMessageId) ?? null
         : null,
-    [activeStickyMessageId, stickyCandidateById],
+    [activeStickyMessageId, showStickyUserBubble, stickyCandidateById],
   );
   const messageAnchors = useMemo(() => {
     const messageItems = presentationRenderedItems.filter(
@@ -1345,7 +1337,7 @@ export const Messages = memo(function Messages({
   );
   const scheduleStickyHeaderUpdate = useCallback(
     (reason: "scroll" | "sync") => {
-      if (historyStickyCandidates.length === 0) {
+      if (!showStickyUserBubble || historyStickyCandidates.length === 0) {
         return;
       }
       if (historyStickyUpdateRafRef.current !== null) {
@@ -1376,6 +1368,7 @@ export const Messages = memo(function Messages({
     [
       computeActiveStickyMessageId,
       historyStickyCandidates,
+      showStickyUserBubble,
       threadId,
     ],
   );
@@ -1545,7 +1538,7 @@ export const Messages = memo(function Messages({
   }, [hasAnchorRail, messageAnchors, scheduleAnchorUpdate, scrollKey, threadId]);
 
   useEffect(() => {
-    if (historyStickyCandidates.length === 0) {
+    if (!showStickyUserBubble || historyStickyCandidates.length === 0) {
       if (historyStickyUpdateRafRef.current !== null) {
         window.cancelAnimationFrame(historyStickyUpdateRafRef.current);
         historyStickyUpdateRafRef.current = null;
@@ -1557,6 +1550,7 @@ export const Messages = memo(function Messages({
   }, [
     historyStickyCandidates,
     scheduleStickyHeaderUpdate,
+    showStickyUserBubble,
     scrollKey,
     threadId,
   ]);

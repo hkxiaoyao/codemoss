@@ -124,6 +124,10 @@ type UseThreadActionsOptions = {
   useUnifiedHistoryLoader?: boolean;
 };
 
+type ResumeThreadForWorkspaceOptions = {
+  preferLocalCodexHistory?: boolean;
+};
+
 const THREAD_LIST_TARGET_COUNT = 50;
 const THREAD_LIST_PAGE_SIZE = 50;
 const THREAD_LIST_MAX_EMPTY_PAGES = 5;
@@ -363,6 +367,7 @@ export function useThreadActions({
       threadId: string,
       force = false,
       replaceLocal = false,
+      options?: ResumeThreadForWorkspaceOptions,
     ) => {
       if (!threadId) {
         return null;
@@ -424,6 +429,7 @@ export function useThreadActions({
                         workspaceId,
                         resumeThread: resumeThreadService,
                         loadCodexSession: loadCodexSessionService,
+                        preferLocalHistory: options?.preferLocalCodexHistory === true,
                       });
           const hydrateHistorySnapshot = async (
             effectiveThreadId: string,
@@ -448,6 +454,11 @@ export function useThreadActions({
               type: "setThreadPlan",
               threadId: effectiveThreadId,
               plan: assembledSnapshot.plan,
+            });
+            dispatch({
+              type: "setThreadHistoryRestoredAt",
+              threadId: effectiveThreadId,
+              timestamp: assembledSnapshot.meta.historyRestoredAtMs,
             });
             const effectiveLocalItems =
               effectiveThreadId === threadId
@@ -520,6 +531,11 @@ export function useThreadActions({
                     type: "setThreadPlan",
                     threadId: relatedThreadId,
                     plan: relatedAssembledSnapshot.plan,
+                  });
+                  dispatch({
+                    type: "setThreadHistoryRestoredAt",
+                    threadId: relatedThreadId,
+                    timestamp: relatedAssembledSnapshot.meta.historyRestoredAtMs,
                   });
                   restoreThreadParentLinksFromSnapshot(
                     relatedThreadId,
@@ -968,6 +984,11 @@ export function useThreadActions({
             if (items.length > 0) {
               dispatch({ type: "setThreadItems", threadId, items });
             }
+            dispatch({
+              type: "setThreadHistoryRestoredAt",
+              threadId,
+              timestamp: Date.now(),
+            });
 
             // Dispatch usage data if available
             if (usageData && (usageData.inputTokens || usageData.outputTokens)) {
@@ -1044,6 +1065,11 @@ export function useThreadActions({
             if (items.length > 0) {
               dispatch({ type: "setThreadItems", threadId, items });
             }
+            dispatch({
+              type: "setThreadHistoryRestoredAt",
+              threadId,
+              timestamp: Date.now(),
+            });
           } catch {
             // Failed to load Gemini session history — not fatal
           }
@@ -1100,6 +1126,11 @@ export function useThreadActions({
             replaceOnResumeRef.current[threadId] = false;
           }
           if (localItems.length > 0 && !shouldReplace) {
+            dispatch({
+              type: "setThreadHistoryRestoredAt",
+              threadId,
+              timestamp: Date.now(),
+            });
             loadedThreadsRef.current[threadId] = true;
             return threadId;
           }
@@ -1122,6 +1153,11 @@ export function useThreadActions({
               items: mergedItems,
             });
           }
+          dispatch({
+            type: "setThreadHistoryRestoredAt",
+            threadId,
+            timestamp: Date.now(),
+          });
           dispatch({
             type: "markReviewing",
             threadId,

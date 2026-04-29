@@ -189,6 +189,17 @@ function toEntryList(input: unknown): CodexSessionEntry[] {
   return entries.map(asRecord).filter((entry) => Object.keys(entry).length > 0);
 }
 
+function hasCodexEventUserMessage(entries: CodexSessionEntry[]) {
+  return entries.some((entry) => {
+    if (asString(entry.type).trim() !== "event_msg") {
+      return false;
+    }
+    const payload = asRecord(entry.payload);
+    const payloadType = asString(payload.type).trim();
+    return payloadType === "user_message" || payloadType === "userMessage";
+  });
+}
+
 function parseJsonRecord(value: unknown): Record<string, unknown> {
   if (typeof value !== "string") {
     return asRecord(value);
@@ -399,6 +410,11 @@ function extractAgentStatusesFromRecord(value: unknown) {
 }
 
 function extractMessageText(payload: Record<string, unknown>) {
+  const directContent =
+    typeof payload.content === "string" ? payload.content.trim() : "";
+  if (directContent) {
+    return directContent;
+  }
   const content = Array.isArray(payload.content) ? payload.content : [];
   const parts = content
     .map((entry) => {
@@ -466,7 +482,7 @@ function extractCodexMessageId(
 }
 
 function buildUserMessageItem(payload: Record<string, unknown>, fallbackId: string) {
-  const text = asString(payload.message ?? payload.text ?? "").trim();
+  const text = extractMessageText(payload);
   if (!text) {
     return null;
   }
@@ -958,6 +974,7 @@ function annotateCodexFinalMessageMetadata(
 
 export function parseCodexSessionHistory(input: unknown): ConversationItem[] {
   const entries = toEntryList(input);
+  const preferEventUserMessages = hasCodexEventUserMessage(entries);
   const items: ConversationItem[] = [];
   const pendingCommands = new Map<string, PendingCommandExecution>();
   const pendingApplyPatches = new Map<string, PendingApplyPatch>();
@@ -1077,21 +1094,31 @@ export function parseCodexSessionHistory(input: unknown): ConversationItem[] {
         return;
       }
 
-      if (payloadType === "message" && asString(payload.role).trim() === "assistant") {
-        const message = buildAssistantMessageItem(payload, `codex-assistant-${index + 1}`);
-        if (message) {
-          if (entryTimestampMs !== null) {
-            messageTimestampById.set(message.id, entryTimestampMs);
-          }
-          appendCodexHistoryItem(items, message);
+      if (payloadType === "message") {
+        const role = asString(payload.role).trim();
+        if (role === "user" && preferEventUserMessages) {
+          return;
         }
+        const message =
+          role === "user"
+            ? buildUserMessageItem(payload, `codex-user-message-${index + 1}`)
+            : role === "assistant"
+              ? buildAssistantMessageItem(payload, `codex-assistant-${index + 1}`)
+              : null;
+        if (!message) {
+          return;
+        }
+        if (entryTimestampMs !== null) {
+          messageTimestampById.set(message.id, entryTimestampMs);
+        }
+        appendCodexHistoryItem(items, message);
       }
       return;
     }
 
     if (entryType === "event_msg") {
       const payloadType = asString(payload.type).trim();
-      if (payloadType === "user_message") {
+      if (payloadType === "user_message" || payloadType === "userMessage") {
         const message = buildUserMessageItem(payload, `codex-user-message-${index + 1}`);
         if (message) {
           if (entryTimestampMs !== null) {

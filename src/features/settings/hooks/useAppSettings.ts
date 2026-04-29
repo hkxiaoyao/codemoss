@@ -7,6 +7,10 @@ import {
   updateAppSettings,
 } from "../../../services/tauri";
 import {
+  CODEX_AUTO_COMPACTION_THRESHOLD_DEFAULT_PERCENT,
+  normalizeCodexAutoCompactionThresholdPercent,
+} from "../../codex/constants/codexAutoCompactionThreshold";
+import {
   clampUiScale,
   sanitizeUiScale,
   UI_SCALE_DEFAULT,
@@ -26,8 +30,13 @@ import { getClientStoreSync } from "../../../services/clientStorage";
 import { normalizeOpenAppTargets } from "../../app/utils/openApp";
 import { getDefaultInterruptShortcut } from "../../../utils/shortcuts";
 import { normalizeHexColor } from "../../../utils/colorUtils";
+import {
+  sanitizeDarkThemePresetId,
+  sanitizeLightThemePresetId,
+  sanitizeThemePresetId,
+} from "../../theme/utils/themePreset";
 
-const allowedThemes = new Set(["system", "light", "dark", "dim"]);
+const allowedThemes = new Set(["system", "light", "dark", "dim", "custom"]);
 const allowedCanvasWidthModes = new Set(["narrow", "wide"]);
 const allowedLayoutModes = new Set(["default", "swapped"]);
 const allowedComposerSendShortcuts = new Set(["enter", "cmdEnter"]);
@@ -40,6 +49,8 @@ const ALLOWED_NOTIFICATION_SOUND_IDS = new Set([
   "success",
   "custom",
 ]);
+const allowedEmailSenderProviders = new Set(["126", "163", "qq", "custom"]);
+const allowedEmailSenderSecurity = new Set(["ssl_tls", "start_tls", "none"]);
 
 function readLegacyUserMsgColor(): string {
   if (typeof window === "undefined") {
@@ -64,7 +75,10 @@ function normalizeShortcutValue(value: string | null | undefined): string | null
   return normalized || null;
 }
 
-function normalizeGlobalSearchShortcut(value: string | null | undefined): string {
+function normalizeGlobalSearchShortcut(value: string | null | undefined): string | null {
+  if (value === null) {
+    return null;
+  }
   const normalized = normalizeShortcutValue(value);
   if (!normalized || SEARCH_SHORTCUT_DISALLOWED.has(normalized)) {
     return "cmd+o";
@@ -109,15 +123,31 @@ const defaultSettings: AppSettings = {
   composerReasoningShortcut: "cmd+shift+r",
   composerCollaborationShortcut: "shift+tab",
   interruptShortcut: getDefaultInterruptShortcut(),
+  openSettingsShortcut: "cmd+,",
+  newWindowShortcut: "cmd+shift+n",
   newAgentShortcut: "cmd+n",
   newWorktreeAgentShortcut: "cmd+alt+shift+n",
   newCloneAgentShortcut: "cmd+alt+n",
   archiveThreadShortcut: "cmd+ctrl+a",
+  openChatShortcut: "cmd+j",
+  openKanbanShortcut: "cmd+k",
+  cycleOpenSessionPrevShortcut: "cmd+shift+[",
+  cycleOpenSessionNextShortcut: "cmd+shift+]",
+  toggleLeftConversationSidebarShortcut: "cmd+alt+[",
+  toggleRightConversationSidebarShortcut: "cmd+alt+]",
   toggleProjectsSidebarShortcut: "cmd+shift+p",
   toggleGitSidebarShortcut: "cmd+shift+g",
   toggleGlobalSearchShortcut: "cmd+o",
   toggleDebugPanelShortcut: "cmd+shift+d",
   toggleTerminalShortcut: "cmd+shift+t",
+  toggleRuntimeConsoleShortcut: "cmd+shift+`",
+  toggleFilesSurfaceShortcut: "cmd+shift+e",
+  saveFileShortcut: "cmd+s",
+  findInFileShortcut: "cmd+f",
+  toggleGitDiffListViewShortcut: "alt+shift+v",
+  increaseUiScaleShortcut: "cmd+=",
+  decreaseUiScaleShortcut: "cmd+-",
+  resetUiScaleShortcut: "cmd+0",
   cycleAgentNextShortcut: "cmd+ctrl+down",
   cycleAgentPrevShortcut: "cmd+ctrl+up",
   cycleWorkspaceNextShortcut: "cmd+shift+down",
@@ -126,6 +156,9 @@ const defaultSettings: AppSettings = {
   lastComposerReasoningEffort: null,
   uiScale: UI_SCALE_DEFAULT,
   theme: "system",
+  lightThemePresetId: "vscode-light-modern",
+  darkThemePresetId: "vscode-dark-modern",
+  customThemePresetId: "vscode-dark-modern",
   canvasWidthMode: "narrow",
   layoutMode: "default",
   userMsgColor: "",
@@ -138,6 +171,17 @@ const defaultSettings: AppSettings = {
   notificationSoundId: "default",
   notificationSoundCustomPath: "",
   systemNotificationEnabled: true,
+  emailSender: {
+    enabled: false,
+    provider: "custom",
+    senderEmail: "",
+    senderName: "",
+    smtpHost: "",
+    smtpPort: 465,
+    security: "ssl_tls",
+    username: "",
+    recipientEmail: "",
+  },
   preloadGitDiffs: true,
   detachedExternalChangeAwarenessEnabled: true,
   detachedExternalChangeWatcherEnabled: true,
@@ -172,6 +216,8 @@ const defaultSettings: AppSettings = {
   codexMaxHotRuntimes: 1,
   codexMaxWarmRuntimes: 1,
   codexWarmTtlSeconds: 7200,
+  codexAutoCompactionEnabled: true,
+  codexAutoCompactionThresholdPercent: CODEX_AUTO_COMPACTION_THRESHOLD_DEFAULT_PERCENT,
 };
 
 const CODEX_WARM_TTL_DEFAULT_SECONDS = 7200;
@@ -222,6 +268,9 @@ function normalizeAppSettings(
       ? sanitizeUiScale(settings.uiScale)
       : clampUiScale(settings.uiScale),
     theme: allowedThemes.has(settings.theme) ? settings.theme : "system",
+    lightThemePresetId: sanitizeLightThemePresetId(settings.lightThemePresetId),
+    darkThemePresetId: sanitizeDarkThemePresetId(settings.darkThemePresetId),
+    customThemePresetId: sanitizeThemePresetId(settings.customThemePresetId),
     canvasWidthMode: allowedCanvasWidthModes.has(settings.canvasWidthMode)
       ? settings.canvasWidthMode
       : "narrow",
@@ -255,11 +304,32 @@ function normalizeAppSettings(
         ? Math.max(CODEX_WARM_TTL_DEFAULT_SECONDS, normalized)
         : normalized;
     })(),
+    codexAutoCompactionThresholdPercent: normalizeCodexAutoCompactionThresholdPercent(
+      settings.codexAutoCompactionThresholdPercent,
+    ),
+    codexAutoCompactionEnabled: settings.codexAutoCompactionEnabled !== false,
     codeFontSize: clampCodeFontSize(settings.codeFontSize),
     notificationSoundId: ALLOWED_NOTIFICATION_SOUND_IDS.has(settings.notificationSoundId)
       ? settings.notificationSoundId
       : "default",
     notificationSoundCustomPath: settings.notificationSoundCustomPath?.trim() ?? "",
+    emailSender: {
+      enabled: settings.emailSender?.enabled === true,
+      provider: allowedEmailSenderProviders.has(settings.emailSender?.provider)
+        ? settings.emailSender.provider
+        : "custom",
+      senderEmail: settings.emailSender?.senderEmail?.trim() ?? "",
+      senderName: settings.emailSender?.senderName?.trim() ?? "",
+      smtpHost: settings.emailSender?.smtpHost?.trim() ?? "",
+      smtpPort: Number.isFinite(settings.emailSender?.smtpPort)
+        ? Math.max(1, Math.min(65535, Math.trunc(settings.emailSender.smtpPort)))
+        : 465,
+      security: allowedEmailSenderSecurity.has(settings.emailSender?.security)
+        ? settings.emailSender.security
+        : "ssl_tls",
+      username: settings.emailSender?.username?.trim() ?? "",
+      recipientEmail: settings.emailSender?.recipientEmail?.trim() ?? "",
+    },
     detachedExternalChangeAwarenessEnabled:
       settings.detachedExternalChangeAwarenessEnabled !== false,
     detachedExternalChangeWatcherEnabled:

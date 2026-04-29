@@ -1,7 +1,53 @@
 import type React from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowLeftRight, Monitor, Moon, Palette, RotateCcw, Sun, Type, MessageCircle, Info, PanelsLeftRight } from "lucide-react";
-import type { AppSettings } from "../../../../../types";
+import {
+  Activity,
+  AppWindow,
+  ArrowLeftRight,
+  Bot,
+  Construction,
+  Eye,
+  FileEdit,
+  Focus,
+  Folder,
+  GitBranch,
+  Info,
+  LayoutList,
+  ListChecks,
+  MessageCircle,
+  MessageSquareQuote,
+  MessageSquareText,
+  Monitor,
+  Moon,
+  Palette,
+  PanelBottom,
+  PanelRightOpen,
+  PanelTop,
+  PanelsLeftRight,
+  Play,
+  RotateCcw,
+  Search,
+  Sun,
+  TerminalSquare,
+  Type,
+  type LucideIcon,
+} from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import {
+  DEFAULT_OPEN_APP_ID,
+  DEFAULT_OPEN_APP_TARGETS,
+} from "@/features/app/constants";
+import {
+  GENERIC_APP_ICON,
+  getKnownOpenAppIcon,
+} from "@/features/app/utils/openAppIcons";
+import { useClientUiVisibility } from "@/features/client-ui-visibility/hooks/useClientUiVisibility";
+import {
+  CLIENT_UI_PANEL_REGISTRY,
+  getClientUiControlDefinition,
+  type ClientUiVisibilityIconKey,
+} from "@/features/client-ui-visibility/utils/clientUiVisibility";
+import type { AppSettings, ThemePresetId } from "../../../../../types";
 import { clampUiScale } from "../../../../../utils/uiScale";
 import {
   CODE_FONT_SIZE_DEFAULT,
@@ -15,6 +61,9 @@ import { LanguageSelector } from "../../LanguageSelector";
 type BasicAppearanceSectionProps = {
   appSettings: AppSettings;
   onUpdateAppSettings: (next: AppSettings) => Promise<void>;
+  activeThemePresetId: ThemePresetId;
+  themePresetOptions: ReadonlyArray<{ id: ThemePresetId; label: string }>;
+  onThemePresetChange: (presetId: ThemePresetId) => Promise<void>;
   uiScaleDraft: number;
   clampedUiScale: number;
   uiScaleDraftPercentLabel: string;
@@ -47,9 +96,68 @@ type BasicAppearanceSectionProps = {
   handleCommitCodeFontSize: (nextSize: number) => Promise<void>;
 };
 
+const CLIENT_UI_VISIBILITY_ICON_COMPONENTS: Record<ClientUiVisibilityIconKey, LucideIcon> = {
+  activity: Activity,
+  appWindow: AppWindow,
+  bot: Bot,
+  construction: Construction,
+  fileEdit: FileEdit,
+  focus: Focus,
+  folder: Folder,
+  gitBranch: GitBranch,
+  info: Info,
+  layoutList: LayoutList,
+  listChecks: ListChecks,
+  messageSquareQuote: MessageSquareQuote,
+  messageSquareText: MessageSquareText,
+  panelBottom: PanelBottom,
+  panelRightOpen: PanelRightOpen,
+  panelTop: PanelTop,
+  play: Play,
+  search: Search,
+  terminal: TerminalSquare,
+};
+
+function resolveSelectedOpenAppIconSrc(appSettings: AppSettings) {
+  const availableTargets =
+    appSettings.openAppTargets.length > 0
+      ? appSettings.openAppTargets
+      : DEFAULT_OPEN_APP_TARGETS;
+  const resolvedOpenAppId =
+    availableTargets.find((target) => target.id === appSettings.selectedOpenAppId)?.id ??
+    availableTargets[0]?.id ??
+    DEFAULT_OPEN_APP_ID;
+  return getKnownOpenAppIcon(resolvedOpenAppId) ?? GENERIC_APP_ICON;
+}
+
+function ClientUiVisibilityIcon({
+  iconKey,
+  openAppIconSrc,
+}: {
+  iconKey: ClientUiVisibilityIconKey;
+  openAppIconSrc: string;
+}) {
+  if (iconKey === "appWindow") {
+    return (
+      <span className="settings-client-ui-visibility-row-icon" aria-hidden>
+        <img src={openAppIconSrc} alt="" />
+      </span>
+    );
+  }
+  const Icon = CLIENT_UI_VISIBILITY_ICON_COMPONENTS[iconKey];
+  return (
+    <span className="settings-client-ui-visibility-row-icon" aria-hidden>
+      <Icon size={15} strokeWidth={2.15} />
+    </span>
+  );
+}
+
 export function BasicAppearanceSection({
   appSettings,
   onUpdateAppSettings,
+  activeThemePresetId,
+  themePresetOptions,
+  onThemePresetChange,
   uiScaleDraft,
   clampedUiScale,
   uiScaleDraftPercentLabel,
@@ -82,6 +190,8 @@ export function BasicAppearanceSection({
   handleCommitCodeFontSize,
 }: BasicAppearanceSectionProps) {
   const { t } = useTranslation();
+  const clientUiVisibility = useClientUiVisibility();
+  const selectedOpenAppIconSrc = resolveSelectedOpenAppIconSrc(appSettings);
 
   return (
     <div className="settings-basic-appearance settings-basic-surface">
@@ -153,8 +263,55 @@ export function BasicAppearanceSection({
               </span>
               <span>{t("settings.themeDark")}</span>
             </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={appSettings.theme === "custom"}
+              className={`settings-basic-theme-option ${
+                appSettings.theme === "custom" ? "active" : ""
+              }`}
+              onClick={() =>
+                void onUpdateAppSettings({
+                  ...appSettings,
+                  theme: "custom",
+                  customThemePresetId: activeThemePresetId,
+                })
+              }
+            >
+              <span className="settings-basic-theme-icon settings-basic-theme-icon-custom">
+                <Palette size={14} />
+              </span>
+              <span>{t("settings.themeCustom")}</span>
+            </button>
           </div>
         </div>
+        {appSettings.theme === "custom" ? (
+          <div className="settings-field settings-basic-item">
+            <div className="settings-basic-field-header">
+              <Palette className="settings-basic-field-icon" aria-hidden />
+              <span className="settings-basic-field-label">{t("settings.themePreset")}</span>
+            </div>
+            <div className="settings-control settings-basic-theme-preset-control">
+              <div className="settings-select-wrap settings-basic-theme-preset-select-wrap">
+                <select
+                  className="settings-select settings-basic-theme-preset-select"
+                  aria-label={t("settings.themePreset")}
+                  value={activeThemePresetId}
+                  onChange={(event) =>
+                    void onThemePresetChange(event.target.value as ThemePresetId)
+                  }
+                >
+                  {themePresetOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="settings-help">{t("settings.themePresetDescription")}</div>
+          </div>
+        ) : null}
         <LanguageSelector rowClassName="settings-basic-item" />
         <div className="settings-field settings-basic-item">
           <div className="settings-basic-field-header">
@@ -283,6 +440,98 @@ export function BasicAppearanceSection({
             {scaleShortcutText}
           </div>
         </div>
+      </div>
+      <div className="settings-basic-group-card settings-basic-group-card--list settings-client-ui-visibility-card">
+        <div className="settings-client-ui-visibility-head">
+          <div>
+            <div className="settings-subsection-title settings-client-ui-visibility-title">
+              <Eye className="settings-basic-field-icon" aria-hidden />
+              <span>{t("settings.clientUiVisibility.title")}</span>
+            </div>
+            <div className="settings-subsection-subtitle">
+              {t("settings.clientUiVisibility.description")}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="ghost settings-button-compact settings-client-ui-visibility-reset"
+            onClick={clientUiVisibility.resetVisibility}
+          >
+            <RotateCcw size={14} aria-hidden />
+            {t("settings.clientUiVisibility.reset")}
+          </button>
+        </div>
+        {CLIENT_UI_PANEL_REGISTRY.map((panel) => {
+          const panelVisible = clientUiVisibility.isPanelVisible(panel.id);
+          return (
+            <div className="settings-client-ui-visibility-panel" key={panel.id}>
+              <div className="settings-toggle-row settings-client-ui-visibility-panel-row">
+                <div className="settings-client-ui-visibility-row-copy">
+                  <ClientUiVisibilityIcon
+                    iconKey={panel.iconKey}
+                    openAppIconSrc={selectedOpenAppIconSrc}
+                  />
+                  <div className="settings-client-ui-visibility-row-text">
+                    <div className="settings-toggle-title">{t(panel.labelKey)}</div>
+                    <div className="settings-toggle-subtitle">
+                      {t(panel.descriptionKey)}
+                    </div>
+                  </div>
+                </div>
+                <Switch
+                  checked={panelVisible}
+                  aria-label={t(panel.labelKey)}
+                  onCheckedChange={(checked) =>
+                    clientUiVisibility.setPanelVisible(panel.id, checked)
+                  }
+                />
+              </div>
+              {panel.controls.length > 0 ? (
+                <div className="settings-client-ui-visibility-controls">
+                  {panel.controls.map((controlId) => {
+                    const control = getClientUiControlDefinition(controlId);
+                    return (
+                      <div
+                        className={`settings-toggle-row settings-client-ui-visibility-control-row${
+                          panelVisible ? "" : " is-parent-hidden"
+                        }`}
+                        key={control.id}
+                      >
+                        <div className="settings-client-ui-visibility-row-copy">
+                          <ClientUiVisibilityIcon
+                            iconKey={control.iconKey}
+                            openAppIconSrc={selectedOpenAppIconSrc}
+                          />
+                          <div className="settings-client-ui-visibility-row-text">
+                            <div className="settings-toggle-title">
+                              {t(control.labelKey)}
+                            </div>
+                            <div className="settings-toggle-subtitle">
+                              {t(control.descriptionKey)}
+                              {!panelVisible ? (
+                                <span className="settings-client-ui-visibility-parent-hint">
+                                  {" "}
+                                  {t("settings.clientUiVisibility.parentHiddenHint")}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+                        <Switch
+                          checked={clientUiVisibility.isControlPreferenceVisible(control.id)}
+                          aria-label={t(control.labelKey)}
+                          onCheckedChange={(checked) =>
+                            clientUiVisibility.setControlVisible(control.id, checked)
+                          }
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
       <div className="settings-color-config-card settings-basic-group-card">
         <div className="settings-color-config-head">

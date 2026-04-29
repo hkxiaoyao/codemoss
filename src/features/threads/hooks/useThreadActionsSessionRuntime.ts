@@ -47,6 +47,7 @@ type ResumeThreadForWorkspace = (
   threadId: string,
   force?: boolean,
   replaceLocal?: boolean,
+  options?: { preferLocalCodexHistory?: boolean },
 ) => Promise<string | null>;
 
 type RewindFromMessageOptions = {
@@ -136,6 +137,13 @@ export function useThreadActionsSessionRuntime({
         const threadId = extractThreadId(response);
         if (threadId) {
           dispatch({ type: "ensureThread", workspaceId, threadId, engine: "codex" });
+          dispatch({
+            type: "markCodexAcceptedTurn",
+            threadId,
+            fact: "empty-draft",
+            source: "thread-start",
+            timestamp: Date.now(),
+          });
           if (shouldActivate) {
             dispatch({ type: "setActiveThreadId", workspaceId, threadId });
           }

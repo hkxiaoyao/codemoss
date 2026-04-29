@@ -58,6 +58,7 @@ fn workspace_with_id_and_kind(
             sidebar_collapsed: false,
             sort_order,
             group_id: None,
+            project_alias: None,
             git_root: None,
             codex_home: None,
             codex_args: None,

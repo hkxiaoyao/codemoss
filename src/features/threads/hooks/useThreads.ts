@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useReducer, useRef } from "react";
-import type { CustomPromptOption, DebugEntry, WorkspaceInfo } from "../../../types";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import type { CustomPromptOption, DebugEntry, EmailSendError, WorkspaceInfo } from "../../../types";
 import { useAppServerEvents } from "../../app/hooks/useAppServerEvents";
 import { createInitialThreadState, threadReducer } from "./useThreadsReducer";
 import {
@@ -44,7 +44,9 @@ import {
   projectMemoryUpdate,
   projectMemoryCreate,
   deleteCodexSessions,
+  sendConversationCompletionEmail,
 } from "../../../services/tauri";
+import { pushErrorToast } from "../../../services/toasts";
 import { buildAssistantOutputDigest } from "../../project-memory/utils/outputDigest";
 import {
   classifyMemoryImportance,
@@ -63,6 +65,11 @@ import {
 } from "../../shared-session/services/sharedSessions";
 import { normalizeSharedSessionEngine } from "../../shared-session/utils/sharedSessionEngines";
 import { hasPendingOptimisticUserBubble } from "../utils/queuedHandoffBubble";
+import {
+  buildConversationCompletionEmail,
+  type ConversationCompletionEmailMetadata,
+} from "../utils/conversationCompletionEmail";
+import { resolveCompletionEmailIntentThreadId } from "../utils/completionEmailIntent";
 
 const AUTO_TITLE_REQUEST_TIMEOUT_MS = 8_000;
 const AUTO_TITLE_MAX_ATTEMPTS = 2;
@@ -76,6 +83,15 @@ const CLAUDE_REALTIME_HISTORY_RECONCILE_DELAY_MS = 1_200;
 const CLAUDE_REALTIME_HISTORY_RECONCILE_RETRY_DELAY_MS = 2_800;
 const THREAD_ITEM_CACHE_MAX = 12;
 const THREAD_ITEM_CACHE_TRIM_WATERMARK = 2;
+const COMPLETION_EMAIL_POST_SETTLEMENT_DELAY_MS = 0;
+
+type CompletionEmailIntentStatus = "armed" | "sending";
+
+type CompletionEmailIntent = {
+  targetTurnId: string | null;
+  armedAt: number;
+  status: CompletionEmailIntentStatus;
+};
 
 type UseThreadsOptions = {
   activeWorkspace: WorkspaceInfo | null;
@@ -181,6 +197,19 @@ function mapDeleteErrorCode(errorMessage: string): ThreadDeleteErrorCode {
     return "ENGINE_UNSUPPORTED";
   }
   return "UNKNOWN";
+}
+
+function isEmailSendError(error: unknown): error is EmailSendError {
+  return (
+    Boolean(error)
+    && typeof error === "object"
+    && typeof (error as EmailSendError).code === "string"
+    && typeof (error as EmailSendError).userMessage === "string"
+  );
+}
+
+function completionEmailKey(threadId: string, turnId: string) {
+  return `${threadId}:${turnId}`;
 }
 
 export function resolvePendingThreadIdForSession({
@@ -326,6 +355,8 @@ export function useThreads({
   const loadedThreadsRef = useRef<Record<string, boolean>>({});
   const threadStatusByIdRef = useRef(state.threadStatusById);
   const itemsByThreadRef = useRef(state.itemsByThread);
+  const activeTurnIdByThreadRef = useRef(state.activeTurnIdByThread);
+  const threadsByWorkspaceRef = useRef(state.threadsByWorkspace);
   const loadedThreadLastRefreshAtRef = useRef<Record<string, number>>({});
   const lazyResumeTimerByWorkspaceRef = useRef<
     Record<string, ReturnType<typeof setTimeout> | null>
@@ -338,6 +369,11 @@ export function useThreads({
   const pendingMemoryCaptureRef = useRef<Record<string, PendingMemoryCapture>>({});
   const pendingAssistantCompletionRef = useRef<Record<string, PendingAssistantCompletion>>({});
   const recentThreadErrorsRef = useRef<Record<string, { message: string; at: number }>>({});
+  const [completionEmailIntentByThread, setCompletionEmailIntentByThread] = useState<
+    Record<string, CompletionEmailIntent>
+  >({});
+  const completionEmailIntentByThreadRef = useRef(completionEmailIntentByThread);
+  const sentCompletionEmailKeysRef = useRef<Set<string>>(new Set());
   const handledClaudeExitPlanToolIdsRef = useRef<Set<string>>(new Set());
   const codexRealtimeReconciledTurnByThreadRef = useRef<Record<string, string>>({});
   const codexRealtimeReconcileTimerByThreadRef = useRef<
@@ -431,6 +467,281 @@ export function useThreads({
     }
   }, [onMessageActivity]);
 
+  const getCompletionEmailMetadata = useCallback(
+    (
+      workspaceId: string,
+      threadId: string,
+      turnId: string,
+    ): ConversationCompletionEmailMetadata => {
+      const threadSummary =
+        (threadsByWorkspaceRef.current[workspaceId] ?? []).find(
+          (thread) => thread.id === threadId,
+        ) ?? null;
+      return {
+        workspaceId,
+        workspaceName:
+          activeWorkspace?.id === workspaceId ? activeWorkspace.name : null,
+        workspacePath:
+          activeWorkspace?.id === workspaceId ? activeWorkspace.path : null,
+        threadId,
+        threadName: threadSummary?.name ?? null,
+        turnId,
+        engine: threadSummary?.engineSource ?? activeEngine ?? null,
+      };
+    },
+    [activeEngine, activeWorkspace],
+  );
+
+  const clearCompletionEmailIntent = useCallback(
+    (threadId: string, turnId?: string | null) => {
+      setCompletionEmailIntentByThread((prev) => {
+        const current = prev[threadId];
+        if (!current) {
+          return prev;
+        }
+        if (turnId && current.targetTurnId && current.targetTurnId !== turnId) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[threadId];
+        return next;
+      });
+    },
+    [],
+  );
+
+  const toggleCompletionEmailIntent = useCallback(
+    (threadId?: string | null) => {
+      const targetThreadId = threadId ?? activeThreadId;
+      if (!targetThreadId) {
+        return;
+      }
+      const activeTurnId = activeTurnIdByThreadRef.current[targetThreadId] ?? null;
+      setCompletionEmailIntentByThread((prev) => {
+        if (prev[targetThreadId]) {
+          const next = { ...prev };
+          delete next[targetThreadId];
+          return next;
+        }
+        return {
+          ...prev,
+          [targetThreadId]: {
+            targetTurnId: activeTurnId,
+            armedAt: Date.now(),
+            status: "armed",
+          },
+        };
+      });
+    },
+    [activeThreadId],
+  );
+
+  const bindCompletionEmailIntentToTurn = useCallback(
+    (threadId: string, turnId: string | null | undefined) => {
+      const normalizedTurnId = turnId?.trim() ?? "";
+      if (!normalizedTurnId) {
+        return;
+      }
+      setCompletionEmailIntentByThread((prev) => {
+        const current = prev[threadId];
+        if (!current || current.status === "sending" || current.targetTurnId) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [threadId]: {
+            ...current,
+            targetTurnId: normalizedTurnId,
+          },
+        };
+      });
+    },
+    [],
+  );
+
+  const setActiveTurnIdWithCompletionEmail = useCallback(
+    (threadId: string, turnId: string | null) => {
+      setActiveTurnId(threadId, turnId);
+      if (turnId) {
+        bindCompletionEmailIntentToTurn(threadId, turnId);
+      }
+    },
+    [bindCompletionEmailIntentToTurn, setActiveTurnId],
+  );
+
+  const renameCompletionEmailIntentThread = useCallback(
+    (oldThreadId: string, newThreadId: string) => {
+      if (oldThreadId === newThreadId) {
+        return;
+      }
+      setCompletionEmailIntentByThread((prev) => {
+        const current = prev[oldThreadId];
+        if (!current) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[oldThreadId];
+        next[newThreadId] = current;
+        return next;
+      });
+    },
+    [],
+  );
+
+  const sendCompletionEmailForTurn = useCallback(
+    async (workspaceId: string, threadId: string, turnId: string) => {
+      const resolvedThreadId = resolveCompletionEmailIntentThreadId(
+        threadId,
+        completionEmailIntentByThreadRef.current,
+        resolveCanonicalThreadId,
+      );
+      const key = completionEmailKey(resolvedThreadId, turnId);
+      const currentIntent = completionEmailIntentByThreadRef.current[resolvedThreadId];
+      if (!currentIntent) {
+        return;
+      }
+      const matchesTarget =
+        currentIntent.targetTurnId === turnId ||
+        (
+          currentIntent.targetTurnId === null &&
+          activeTurnIdByThreadRef.current[resolvedThreadId] === turnId
+        );
+      if (!matchesTarget) {
+        return;
+      }
+      if (sentCompletionEmailKeysRef.current.has(key)) {
+        clearCompletionEmailIntent(resolvedThreadId, turnId);
+        return;
+      }
+      setCompletionEmailIntentByThread((prev) => {
+        const current = prev[resolvedThreadId];
+        if (!current || (current.targetTurnId && current.targetTurnId !== turnId)) {
+          return prev;
+        }
+        return {
+          ...prev,
+          [resolvedThreadId]: {
+            ...current,
+            targetTurnId: turnId,
+            status: "sending",
+          },
+        };
+      });
+
+      const buildResult = buildConversationCompletionEmail(
+        itemsByThreadRef.current[resolvedThreadId] ?? [],
+        getCompletionEmailMetadata(workspaceId, resolvedThreadId, turnId),
+      );
+      if (buildResult.status === "skipped") {
+        onDebug?.({
+          id: `${Date.now()}-completion-email-skipped`,
+          timestamp: Date.now(),
+          source: "client",
+          label: "completion-email/skipped",
+          payload: {
+            workspaceId,
+            threadId: resolvedThreadId,
+            turnId,
+            reason: buildResult.reason,
+          },
+        });
+        pushErrorToast({
+          title: i18n.t("common.warning"),
+          message: i18n.t("threads.completionEmailSkipped"),
+          variant: "info",
+          durationMs: 3600,
+        });
+        clearCompletionEmailIntent(resolvedThreadId, turnId);
+        return;
+      }
+
+      try {
+        sentCompletionEmailKeysRef.current.add(key);
+        const result = await sendConversationCompletionEmail(buildResult.request);
+        onDebug?.({
+          id: `${Date.now()}-completion-email-sent`,
+          timestamp: Date.now(),
+          source: "client",
+          label: "completion-email/sent",
+          payload: {
+            workspaceId,
+            threadId: resolvedThreadId,
+            turnId,
+            provider: result.provider,
+            acceptedRecipientCount: result.acceptedRecipients.length,
+            durationMs: result.durationMs,
+          },
+        });
+        pushErrorToast({
+          title: i18n.t("common.success"),
+          message: i18n.t("threads.completionEmailSent"),
+          variant: "success",
+          durationMs: 3200,
+        });
+      } catch (error) {
+        const message = isEmailSendError(error)
+          ? i18n.t(`settings.emailError.${error.code}`, {
+              defaultValue: error.userMessage,
+            })
+          : error instanceof Error
+            ? error.message
+            : String(error);
+        onDebug?.({
+          id: `${Date.now()}-completion-email-failed`,
+          timestamp: Date.now(),
+          source: "error",
+          label: "completion-email/failed",
+          payload: {
+            workspaceId,
+            threadId: resolvedThreadId,
+            turnId,
+            code: isEmailSendError(error) ? error.code : "unknown",
+            retryable: isEmailSendError(error) ? error.retryable : false,
+          },
+        });
+        pushErrorToast({
+          title: i18n.t("threads.completionEmailFailedTitle"),
+          message,
+          variant: "error",
+          durationMs: 5200,
+        });
+        sentCompletionEmailKeysRef.current.delete(key);
+      } finally {
+        clearCompletionEmailIntent(resolvedThreadId, turnId);
+      }
+    },
+    [clearCompletionEmailIntent, getCompletionEmailMetadata, onDebug, resolveCanonicalThreadId],
+  );
+
+  const scheduleCompletionEmailForTurn = useCallback(
+    (workspaceId: string, threadId: string, turnId: string) => {
+      if (typeof window === "undefined") {
+        void sendCompletionEmailForTurn(workspaceId, threadId, turnId);
+        return;
+      }
+      window.setTimeout(() => {
+        void sendCompletionEmailForTurn(workspaceId, threadId, turnId);
+      }, COMPLETION_EMAIL_POST_SETTLEMENT_DELAY_MS);
+    },
+    [sendCompletionEmailForTurn],
+  );
+
+  const settleCompletionEmailIntent = useCallback(
+    (
+      _workspaceId: string,
+      threadId: string,
+      turnId: string,
+      status: "completed" | "error" | "stalled",
+    ) => {
+      if (status === "completed") {
+        scheduleCompletionEmailForTurn(_workspaceId, threadId, turnId);
+        return;
+      }
+      clearCompletionEmailIntent(threadId, turnId);
+    },
+    [clearCompletionEmailIntent, scheduleCompletionEmailForTurn],
+  );
+
   useEffect(() => {
     activeThreadIdByWorkspaceRef.current = state.activeThreadIdByWorkspace;
   }, [state.activeThreadIdByWorkspace]);
@@ -448,6 +759,18 @@ export function useThreads({
   useEffect(() => {
     itemsByThreadRef.current = state.itemsByThread;
   }, [state.itemsByThread]);
+
+  useEffect(() => {
+    activeTurnIdByThreadRef.current = state.activeTurnIdByThread;
+  }, [state.activeTurnIdByThread]);
+
+  useEffect(() => {
+    threadsByWorkspaceRef.current = state.threadsByWorkspace;
+  }, [state.threadsByWorkspace]);
+
+  useEffect(() => {
+    completionEmailIntentByThreadRef.current = completionEmailIntentByThread;
+  }, [completionEmailIntentByThread]);
 
   useEffect(() => {
     return () => {
@@ -690,6 +1013,7 @@ export function useThreads({
 
   const renamePendingMemoryCaptureKey = useCallback(
     (oldThreadId: string, newThreadId: string) => {
+      renameCompletionEmailIntentThread(oldThreadId, newThreadId);
       rememberThreadAlias(oldThreadId, newThreadId);
       const oldCanonicalThreadId = resolveCanonicalThreadId(oldThreadId);
       const newCanonicalThreadId = resolveCanonicalThreadId(newThreadId);
@@ -727,7 +1051,7 @@ export function useThreads({
         threadId: newCanonicalThreadId,
       };
     },
-    [rememberThreadAlias, resolveCanonicalThreadId],
+    [rememberThreadAlias, renameCompletionEmailIntentThread, resolveCanonicalThreadId],
   );
 
   const {
@@ -1662,7 +1986,7 @@ export function useThreads({
 
   const {
     handleFusionStalled,
-    interruptTurn,
+    interruptTurn: rawInterruptTurn,
     sendUserMessage,
     sendUserMessageToThread,
     startFork,
@@ -1712,6 +2036,7 @@ export function useThreads({
     threadStatusById: state.threadStatusById,
     itemsByThread: state.itemsByThread,
     activeTurnIdByThread: state.activeTurnIdByThread,
+    codexAcceptedTurnByThread: state.codexAcceptedTurnByThread,
     tokenUsageByThread: state.tokenUsageByThread,
     rateLimitsByWorkspace: state.rateLimitsByWorkspace,
     pendingInterruptsRef,
@@ -1722,7 +2047,7 @@ export function useThreads({
     getThreadKind,
     markProcessing,
     markReviewing,
-    setActiveTurnId,
+    setActiveTurnId: setActiveTurnIdWithCompletionEmail,
     recordThreadActivity,
     safeMessageActivity,
     onDebug,
@@ -1739,6 +2064,23 @@ export function useThreads({
     resolveCollaborationRuntimeMode,
     runWithCreateSessionLoading,
   });
+
+  const interruptTurn = useCallback(
+    async (options?: { reason?: "user-stop" | "queue-fusion" | "plan-handoff" }) => {
+      const interruptedThreadId = activeThreadId;
+      const interruptedTurnId = interruptedThreadId
+        ? activeTurnIdByThreadRef.current[interruptedThreadId] ?? null
+        : null;
+      try {
+        await rawInterruptTurn(options);
+      } finally {
+        if (interruptedThreadId) {
+          clearCompletionEmailIntent(interruptedThreadId, interruptedTurnId);
+        }
+      }
+    },
+    [activeThreadId, clearCompletionEmailIntent, rawInterruptTurn],
+  );
 
   const setActiveThreadId = useCallback(
     (threadId: string | null, workspaceId?: string) => {
@@ -1809,7 +2151,10 @@ export function useThreads({
           const loadedAtCallback = Boolean(loadedThreadsRef.current[canonicalThreadId]);
           if (!loadedAtCallback) {
             loadedThreadLastRefreshAtRef.current[canonicalThreadId] = Date.now();
-            void resumeThreadForWorkspace(targetId, canonicalThreadId)
+            let resumeLoadingThreadId = canonicalThreadId;
+            void resumeThreadForWorkspace(targetId, canonicalThreadId, false, false, {
+              preferLocalCodexHistory: true,
+            })
               .then((recoveredThreadId) => {
                 const recoveredCanonicalThreadId = recoveredThreadId
                   ? resolveCanonicalThreadId(recoveredThreadId)
@@ -1823,6 +2168,7 @@ export function useThreads({
                   setThreadHistoryLoading(recoveredCanonicalThreadId, true);
                   historyLoadingThreadByWorkspaceRef.current[targetId] =
                     recoveredCanonicalThreadId;
+                  resumeLoadingThreadId = recoveredCanonicalThreadId;
                 }
                 if (
                   recoveredCanonicalThreadId &&
@@ -1848,10 +2194,13 @@ export function useThreads({
                 }
               })
               .finally(() => {
-                clearHistoryLoadingForThread(
-                  historyLoadingThreadByWorkspaceRef.current[targetId] ??
-                    canonicalThreadId,
-                );
+                const currentLoadingThreadId =
+                  historyLoadingThreadByWorkspaceRef.current[targetId] ?? null;
+                if (currentLoadingThreadId === resumeLoadingThreadId) {
+                  clearHistoryLoadingForThread(resumeLoadingThreadId);
+                  return;
+                }
+                setThreadHistoryLoading(canonicalThreadId, false);
               });
             return;
           }
@@ -1868,7 +2217,9 @@ export function useThreads({
             return;
           }
           loadedThreadLastRefreshAtRef.current[canonicalThreadId] = Date.now();
-          void resumeThreadForWorkspace(targetId, canonicalThreadId, true).then(
+          void resumeThreadForWorkspace(targetId, canonicalThreadId, true, false, {
+            preferLocalCodexHistory: true,
+          }).then(
             (recoveredThreadId) => {
               const recoveredCanonicalThreadId = recoveredThreadId
                 ? resolveCanonicalThreadId(recoveredThreadId)
@@ -2276,7 +2627,7 @@ export function useThreads({
     isThreadHidden,
     markProcessing,
     markReviewing,
-    setActiveTurnId,
+    setActiveTurnId: setActiveTurnIdWithCompletionEmail,
     safeMessageActivity,
     recordThreadActivity,
     pushThreadErrorMessage,
@@ -2296,7 +2647,12 @@ export function useThreads({
       state.activeTurnIdByThread[threadId] ?? null,
     renamePendingMemoryCaptureKey,
     onAgentMessageCompletedExternal: handleAgentMessageCompletedForMemory,
-    onTurnCompletedExternal: handleTurnCompletedForHistoryReconcile,
+    onTurnCompletedExternal: (payload) => {
+      handleTurnCompletedForHistoryReconcile(payload);
+    },
+    onTurnTerminalExternal: ({ workspaceId, threadId, turnId, status }) => {
+      settleCompletionEmailIntent(workspaceId, threadId, turnId, status);
+    },
     onCollaborationModeResolved: onCollaborationModeResolved
       ? (event) => {
           onCollaborationModeResolved({
@@ -2334,6 +2690,7 @@ export function useThreads({
     setActiveThreadId,
     activeItems,
     threadItemsByThread: state.itemsByThread,
+    historyRestoredAtMsByThread: state.historyRestoredAtMsByThread,
     approvals: state.approvals,
     userInputRequests: state.userInputRequests,
     threadsByWorkspace: state.threadsByWorkspace,
@@ -2344,6 +2701,8 @@ export function useThreads({
     threadListPagingByWorkspace: state.threadListPagingByWorkspace,
     threadListCursorByWorkspace: state.threadListCursorByWorkspace,
     activeTurnIdByThread: state.activeTurnIdByThread,
+    completionEmailIntentByThread,
+    toggleCompletionEmailIntent,
     tokenUsageByThread: state.tokenUsageByThread,
     rateLimitsByWorkspace: state.rateLimitsByWorkspace,
     accountByWorkspace: state.accountByWorkspace,

@@ -2,6 +2,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type {
   AppSettings,
+  EmailSendError,
+  EmailSenderSettingsView,
+  EmailSendResult,
+  SendConversationCompletionEmailRequest,
+  SendTestEmailRequest,
+  UpdateEmailSenderSettingsRequest,
   LocalUsageSnapshot,
   LocalUsageStatistics,
   RuntimePoolSnapshot,
@@ -1281,6 +1287,59 @@ export async function updateAppSettings(settings: AppSettings): Promise<AppSetti
   return invoke<AppSettings>("update_app_settings", { settings });
 }
 
+const EMAIL_SEND_ERROR_PREFIX = "EMAIL_SEND_ERROR:";
+
+function normalizeEmailSendError(error: unknown): EmailSendError {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith(EMAIL_SEND_ERROR_PREFIX)) {
+    try {
+      return JSON.parse(message.slice(EMAIL_SEND_ERROR_PREFIX.length)) as EmailSendError;
+    } catch {
+      // Fall through to a generic structured error.
+    }
+  }
+  return {
+    code: "unknown",
+    retryable: false,
+    userMessage: message || "Email command failed.",
+  };
+}
+
+async function invokeEmailCommand<T>(
+  command: string,
+  payload?: Record<string, unknown>,
+): Promise<T> {
+  try {
+    return await invoke<T>(command, payload);
+  } catch (error) {
+    throw normalizeEmailSendError(error);
+  }
+}
+
+export async function getEmailSenderSettings(): Promise<EmailSenderSettingsView> {
+  return invokeEmailCommand<EmailSenderSettingsView>("get_email_sender_settings");
+}
+
+export async function updateEmailSenderSettings(
+  request: UpdateEmailSenderSettingsRequest,
+): Promise<EmailSenderSettingsView> {
+  return invokeEmailCommand<EmailSenderSettingsView>("update_email_sender_settings", {
+    request,
+  });
+}
+
+export async function sendTestEmail(
+  request: SendTestEmailRequest,
+): Promise<EmailSendResult> {
+  return invokeEmailCommand<EmailSendResult>("send_test_email", { request });
+}
+
+export async function sendConversationCompletionEmail(
+  request: SendConversationCompletionEmailRequest,
+): Promise<EmailSendResult> {
+  return invokeEmailCommand<EmailSendResult>("send_conversation_completion_email", { request });
+}
+
 export type WebServerStatus = {
   running: boolean;
   rpcEndpoint: string;
@@ -1920,14 +1979,21 @@ export async function getEngineStatus(engineType: EngineType): Promise<EngineSta
 /**
  * Get available models for a specific engine
  */
-export async function getEngineModels(engineType: EngineType): Promise<EngineModelInfo[]> {
+export async function getEngineModels(
+  engineType: EngineType,
+  options: { forceRefresh?: boolean } = {},
+): Promise<EngineModelInfo[]> {
   if (isEngineRpcFallbackMode() && engineType !== "codex") {
     return [];
   }
   try {
-    const models = await invoke<EngineModelInfo[]>("get_engine_models", {
+    const params: { engineType: EngineType; forceRefresh?: boolean } = {
       engineType,
-    });
+    };
+    if (options.forceRefresh) {
+      params.forceRefresh = true;
+    }
+    const models = await invoke<EngineModelInfo[]>("get_engine_models", params);
     daemonEngineRpcSupported = true;
     return models;
   } catch (error) {
